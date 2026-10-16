@@ -48,6 +48,8 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 		},
 		{
 			RowIndex:           4,
+			OrderNumber:        "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+			EcatalogNumber:     "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			Tanggal:            "03/01/2026",
 			Customer:           "RSUD Praya",
 			Area:               "Lombok Tengah",
@@ -120,13 +122,17 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 			},
 		},
 		{
-			ID:       "ORD-0002",
-			Tanggal:  "03/01/2026",
-			Customer: "RSUD Praya",
-			Area:     "Lombok Tengah",
+			ID:             "ORD-0002",
+			OrderNumber:    "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+			EcatalogNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+			Tanggal:        "03/01/2026",
+			Customer:       "RSUD Praya",
+			Area:           "Lombok Tengah",
 			Items: []model.OrderItem{
 				{
 					RowIndex:           4,
+					OrderNumber:        "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+					EcatalogNumber:     "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 					NamaBarang:         "Needle 23G",
 					Jumlah:             "10",
 					Satuan:             "BOX",
@@ -400,6 +406,60 @@ func TestSyncMirror_AndQueries(t *testing.T) {
 	}
 	if len(itemPaged) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(itemPaged))
+	}
+
+	// Test GetOrderByID with OrderNumber / EcatalogNumber
+	ordEP, err := store.GetOrderByID(ctx, "ORD-0002")
+	if err != nil {
+		t.Fatalf("GetOrderByID ORD-0002 failed: %v", err)
+	}
+	if ordEP.OrderNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" || ordEP.EcatalogNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+		t.Errorf("ORD-0002 unexpected order numbers: %+v", ordEP)
+	}
+	if len(ordEP.Items) != 1 || ordEP.Items[0].OrderNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" || ordEP.Items[0].EcatalogNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+		t.Errorf("ORD-0002 unexpected item order numbers: %+v", ordEP.Items)
+	}
+
+	// Test GetOrders - filter by OrderNumber
+	epOrders, total, err := store.GetOrders(ctx, storage.OrderFilter{OrderNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2"})
+	if err != nil {
+		t.Fatalf("GetOrders OrderNumber failed: %v", err)
+	}
+	if total != 1 || len(epOrders) != 1 || epOrders[0].ID != "ORD-0002" {
+		t.Fatalf("expected 1 order for OrderNumber filter, got len=%d total=%d", len(epOrders), total)
+	}
+	if epOrders[0].OrderNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" || epOrders[0].EcatalogNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+		t.Errorf("unexpected epOrders: %+v", epOrders[0])
+	}
+
+	// Test GetOrders - filter by EcatalogNumber
+	ecatOrders, total, err := store.GetOrders(ctx, storage.OrderFilter{EcatalogNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2"})
+	if err != nil {
+		t.Fatalf("GetOrders EcatalogNumber failed: %v", err)
+	}
+	if total != 1 || len(ecatOrders) != 1 || ecatOrders[0].ID != "ORD-0002" {
+		t.Fatalf("expected 1 order for EcatalogNumber filter, got len=%d total=%d", len(ecatOrders), total)
+	}
+
+	// Test GetItems - filter by OrderNumber
+	epItems, total, err := store.GetItems(ctx, storage.ItemFilter{OrderNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2"})
+	if err != nil {
+		t.Fatalf("GetItems OrderNumber failed: %v", err)
+	}
+	if total != 1 || len(epItems) != 1 || epItems[0].NamaBarang != "Needle 23G" {
+		t.Fatalf("expected 1 item for OrderNumber filter, got len=%d total=%d", len(epItems), total)
+	}
+	if epItems[0].OrderNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" || epItems[0].EcatalogNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+		t.Errorf("unexpected epItems: %+v", epItems[0])
+	}
+
+	// Test GetItems - filter by EcatalogNumber
+	ecatItems, total, err := store.GetItems(ctx, storage.ItemFilter{EcatalogNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2"})
+	if err != nil {
+		t.Fatalf("GetItems EcatalogNumber failed: %v", err)
+	}
+	if total != 1 || len(ecatItems) != 1 || ecatItems[0].NamaBarang != "Needle 23G" {
+		t.Fatalf("expected 1 item for EcatalogNumber filter, got len=%d total=%d", len(ecatItems), total)
 	}
 }
 

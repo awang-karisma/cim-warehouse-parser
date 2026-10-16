@@ -46,6 +46,8 @@ func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worke
 		},
 		{
 			RowIndex:           3,
+			OrderNumber:        "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+			EcatalogNumber:     "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			Tanggal:            "02/01/2026",
 			Customer:           "RS Patuh Karya",
 			Area:               "Lombok Tengah",
@@ -83,13 +85,17 @@ func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worke
 			},
 		},
 		{
-			ID:       "ORD-0002",
-			Tanggal:  "02/01/2026",
-			Customer: "RS Patuh Karya",
-			Area:     "Lombok Tengah",
+			ID:             "ORD-0002",
+			OrderNumber:    "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+			EcatalogNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+			Tanggal:        "02/01/2026",
+			Customer:       "RS Patuh Karya",
+			Area:           "Lombok Tengah",
 			Items: []model.OrderItem{
 				{
 					RowIndex:           3,
+					OrderNumber:        "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
+					EcatalogNumber:     "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 					NamaBarang:         "BC-5D Control",
 					Jumlah:             "1",
 					Satuan:             "SET",
@@ -262,6 +268,62 @@ func TestOrdersEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("filter orders by order_number", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders?order_number=EP-01KPSBM6ANVBV1MMJ2G8QYDDD2", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("failed to execute request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", resp.StatusCode)
+		}
+
+		var ordersResp api.OrdersResponse
+		if err := json.NewDecoder(resp.Body).Decode(&ordersResp); err != nil {
+			t.Fatalf("failed to decode orders response: %v", err)
+		}
+
+		if ordersResp.Total != 1 {
+			t.Fatalf("expected Total=1, got %d", ordersResp.Total)
+		}
+		if ordersResp.Orders[0].ID != "ORD-0002" {
+			t.Errorf("expected ORD-0002, got %s", ordersResp.Orders[0].ID)
+		}
+		if ordersResp.Orders[0].OrderNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+			t.Errorf("expected order_number EP-01KPSBM6ANVBV1MMJ2G8QYDDD2, got %s", ordersResp.Orders[0].OrderNumber)
+		}
+		if ordersResp.Orders[0].EcatalogNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+			t.Errorf("expected ecatalog_number EP-01KPSBM6ANVBV1MMJ2G8QYDDD2, got %s", ordersResp.Orders[0].EcatalogNumber)
+		}
+	})
+
+	t.Run("filter orders by ecatalog_number", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders?ecatalog_number=EP-01KPSBM6ANVBV1MMJ2G8QYDDD2", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("failed to execute request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", resp.StatusCode)
+		}
+
+		var ordersResp api.OrdersResponse
+		if err := json.NewDecoder(resp.Body).Decode(&ordersResp); err != nil {
+			t.Fatalf("failed to decode orders response: %v", err)
+		}
+
+		if ordersResp.Total != 1 {
+			t.Fatalf("expected Total=1, got %d", ordersResp.Total)
+		}
+		if ordersResp.Orders[0].ID != "ORD-0002" {
+			t.Errorf("expected ORD-0002, got %s", ordersResp.Orders[0].ID)
+		}
+	})
+
 	t.Run("get order by ID found", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/orders/ORD-0001", nil)
 		resp, err := srv.App().Test(req)
@@ -354,6 +416,62 @@ func TestItemsEndpoint(t *testing.T) {
 		}
 		if itemsResp.Items[0].NamaBarang != "Yellowtip" {
 			t.Errorf("expected NamaBarang Yellowtip, got %s", itemsResp.Items[0].NamaBarang)
+		}
+	})
+
+	t.Run("filter items by order_number", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/items?order_number=EP-01KPSBM6ANVBV1MMJ2G8QYDDD2", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("failed to execute request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", resp.StatusCode)
+		}
+
+		var itemsResp api.ItemsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&itemsResp); err != nil {
+			t.Fatalf("failed to decode items response: %v", err)
+		}
+
+		if itemsResp.Total != 1 {
+			t.Fatalf("expected Total=1, got %d", itemsResp.Total)
+		}
+		if itemsResp.Items[0].NamaBarang != "BC-5D Control" {
+			t.Errorf("expected NamaBarang BC-5D Control, got %s", itemsResp.Items[0].NamaBarang)
+		}
+		if itemsResp.Items[0].OrderNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+			t.Errorf("expected OrderNumber EP-01KPSBM6ANVBV1MMJ2G8QYDDD2, got %s", itemsResp.Items[0].OrderNumber)
+		}
+		if itemsResp.Items[0].EcatalogNumber != "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2" {
+			t.Errorf("expected EcatalogNumber EP-01KPSBM6ANVBV1MMJ2G8QYDDD2, got %s", itemsResp.Items[0].EcatalogNumber)
+		}
+	})
+
+	t.Run("filter items by ecatalog_number", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/items?ecatalog_number=EP-01KPSBM6ANVBV1MMJ2G8QYDDD2", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("failed to execute request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", resp.StatusCode)
+		}
+
+		var itemsResp api.ItemsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&itemsResp); err != nil {
+			t.Fatalf("failed to decode items response: %v", err)
+		}
+
+		if itemsResp.Total != 1 {
+			t.Fatalf("expected Total=1, got %d", itemsResp.Total)
+		}
+		if itemsResp.Items[0].NamaBarang != "BC-5D Control" {
+			t.Errorf("expected NamaBarang BC-5D Control, got %s", itemsResp.Items[0].NamaBarang)
 		}
 	})
 }

@@ -22,23 +22,27 @@ type Storage struct {
 
 // OrderFilter defines filtering criteria for order queries.
 type OrderFilter struct {
-	Customer string `json:"customer"`
-	Date     string `json:"date"`
-	Tanggal  string `json:"tanggal"`
-	Area     string `json:"area"`
-	Limit    int    `json:"limit"`
-	Offset   int    `json:"offset"`
+	Customer       string `json:"customer"`
+	Date           string `json:"date"`
+	Tanggal        string `json:"tanggal"`
+	Area           string `json:"area"`
+	OrderNumber    string `json:"order_number"`
+	EcatalogNumber string `json:"ecatalog_number"`
+	Limit          int    `json:"limit"`
+	Offset         int    `json:"offset"`
 }
 
 // ItemFilter defines filtering criteria for item queries.
 type ItemFilter struct {
-	Customer    string `json:"customer"`
-	NamaBarang  string `json:"nama_barang"`
-	StatusOrder string `json:"status_order"`
-	Date        string `json:"date"`
-	Tanggal     string `json:"tanggal"`
-	Limit       int    `json:"limit"`
-	Offset      int    `json:"offset"`
+	Customer       string `json:"customer"`
+	NamaBarang     string `json:"nama_barang"`
+	StatusOrder    string `json:"status_order"`
+	Date           string `json:"date"`
+	Tanggal        string `json:"tanggal"`
+	OrderNumber    string `json:"order_number"`
+	EcatalogNumber string `json:"ecatalog_number"`
+	Limit          int    `json:"limit"`
+	Offset         int    `json:"offset"`
 }
 
 // Stats contains aggregated metrics about stored orders and items.
@@ -108,6 +112,8 @@ func (s *Storage) migrate() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS orders (
 		id TEXT PRIMARY KEY,
+		order_number TEXT,
+		ecatalog_number TEXT,
 		tanggal TEXT,
 		customer TEXT,
 		area TEXT,
@@ -119,6 +125,8 @@ func (s *Storage) migrate() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		row_index INTEGER,
 		order_id TEXT,
+		order_number TEXT,
+		ecatalog_number TEXT,
 		tanggal TEXT,
 		customer TEXT,
 		area TEXT,
@@ -147,15 +155,28 @@ func (s *Storage) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer);
 	CREATE INDEX IF NOT EXISTS idx_orders_tanggal ON orders(tanggal);
 	CREATE INDEX IF NOT EXISTS idx_orders_area ON orders(area);
+	CREATE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);
 
 	CREATE INDEX IF NOT EXISTS idx_items_order_id ON items(order_id);
+	CREATE INDEX IF NOT EXISTS idx_items_order_number ON items(order_number);
 	CREATE INDEX IF NOT EXISTS idx_items_customer ON items(customer);
 	CREATE INDEX IF NOT EXISTS idx_items_nama_barang ON items(nama_barang);
 	CREATE INDEX IF NOT EXISTS idx_items_status_order ON items(status_order);
 	CREATE INDEX IF NOT EXISTS idx_items_tanggal ON items(tanggal);
 	`
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// In case tables were created with an earlier schema version without order_number
+	_, _ = s.db.Exec(`ALTER TABLE orders ADD COLUMN order_number TEXT;`)
+	_, _ = s.db.Exec(`ALTER TABLE orders ADD COLUMN ecatalog_number TEXT;`)
+	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN order_number TEXT;`)
+	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN ecatalog_number TEXT;`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_items_order_number ON items(order_number);`)
+
+	return nil
 }
 
 // SyncMirror replaces all existing items and orders with remote items and orders
@@ -225,10 +246,15 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 
 	now := time.Now().UTC()
 
+	orderByID := make(map[string]model.Order, len(orders))
+	for _, ord := range orders {
+		orderByID[ord.ID] = ord
+	}
+
 	// Insert orders
 	orderStmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO orders (id, tanggal, customer, area, total_items, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO orders (id, order_number, ecatalog_number, tanggal, customer, area, total_items, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare order insert statement: %w", err)
@@ -240,7 +266,7 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 		if total == 0 && len(ord.Items) > 0 {
 			total = len(ord.Items)
 		}
-		if _, err := orderStmt.ExecContext(ctx, ord.ID, ord.Tanggal, ord.Customer, ord.Area, total, now); err != nil {
+		if _, err := orderStmt.ExecContext(ctx, ord.ID, ord.OrderNumber, ord.EcatalogNumber, ord.Tanggal, ord.Customer, ord.Area, total, now); err != nil {
 			return fmt.Errorf("failed to insert order %s: %w", ord.ID, err)
 		}
 	}
@@ -248,11 +274,11 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	// Insert items
 	itemStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO items (
-			row_index, order_id, tanggal, customer, area,
+			row_index, order_id, order_number, ecatalog_number, tanggal, customer, area,
 			nama_barang, jumlah, satuan, tanggal_pengiriman,
 			lead_time_pengiriman, jumlah_terkirim, belum_terkirim,
 			status_order, status_barang, keterangan, catatan
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare item insert statement: %w", err)
@@ -264,8 +290,18 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 		totalItemsCount = len(items)
 		for _, it := range items {
 			ordID := resolveOrderID(it)
+			orderNum := it.OrderNumber
+			ecatNum := it.EcatalogNumber
+			if ord, ok := orderByID[ordID]; ok {
+				if orderNum == "" {
+					orderNum = ord.OrderNumber
+				}
+				if ecatNum == "" {
+					ecatNum = ord.EcatalogNumber
+				}
+			}
 			if _, err := itemStmt.ExecContext(ctx,
-				it.RowIndex, ordID, it.Tanggal, it.Customer, it.Area,
+				it.RowIndex, ordID, orderNum, ecatNum, it.Tanggal, it.Customer, it.Area,
 				it.NamaBarang, it.Jumlah, it.Satuan, it.TanggalPengiriman,
 				it.LeadTimePengiriman, it.JumlahTerkirim, it.BelumTerkirim,
 				it.StatusOrder, it.StatusBarang, it.Keterangan, it.Catatan,
@@ -278,8 +314,16 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 		for _, ord := range orders {
 			for _, oi := range ord.Items {
 				totalItemsCount++
+				orderNum := oi.OrderNumber
+				if orderNum == "" {
+					orderNum = ord.OrderNumber
+				}
+				ecatNum := oi.EcatalogNumber
+				if ecatNum == "" {
+					ecatNum = ord.EcatalogNumber
+				}
 				if _, err := itemStmt.ExecContext(ctx,
-					oi.RowIndex, ord.ID, ord.Tanggal, ord.Customer, ord.Area,
+					oi.RowIndex, ord.ID, orderNum, ecatNum, ord.Tanggal, ord.Customer, ord.Area,
 					oi.NamaBarang, oi.Jumlah, oi.Satuan, oi.TanggalPengiriman,
 					oi.LeadTimePengiriman, oi.JumlahTerkirim, oi.BelumTerkirim,
 					oi.StatusOrder, oi.StatusBarang, oi.Keterangan, oi.Catatan,
@@ -343,6 +387,15 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		args = append(args, "%"+filter.Area+"%")
 	}
 
+	orderNum := filter.OrderNumber
+	if orderNum == "" {
+		orderNum = filter.EcatalogNumber
+	}
+	if orderNum != "" {
+		conditions = append(conditions, "order_number = ?")
+		args = append(args, orderNum)
+	}
+
 	whereClause := ""
 	if len(conditions) > 0 {
 		whereClause = " WHERE " + strings.Join(conditions, " AND ")
@@ -357,7 +410,7 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		return []model.Order{}, 0, nil
 	}
 
-	selectQuery := "SELECT id, tanggal, customer, area FROM orders" + whereClause + " ORDER BY id"
+	selectQuery := "SELECT id, order_number, ecatalog_number, tanggal, customer, area FROM orders" + whereClause + " ORDER BY id"
 	queryArgs := append([]any{}, args...)
 	if filter.Limit > 0 {
 		selectQuery += " LIMIT ?"
@@ -381,9 +434,12 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 	var orderIDs []string
 	for rows.Next() {
 		var ord model.Order
-		if err := rows.Scan(&ord.ID, &ord.Tanggal, &ord.Customer, &ord.Area); err != nil {
+		var orderNumber, ecatalogNumber sql.NullString
+		if err := rows.Scan(&ord.ID, &orderNumber, &ecatalogNumber, &ord.Tanggal, &ord.Customer, &ord.Area); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan order row: %w", err)
 		}
+		ord.OrderNumber = orderNumber.String
+		ord.EcatalogNumber = ecatalogNumber.String
 		ord.Items = []model.OrderItem{}
 		orders = append(orders, ord)
 		orderIDs = append(orderIDs, ord.ID)
@@ -401,7 +457,7 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 			idArgs[i] = id
 		}
 		itemQuery := fmt.Sprintf(`
-			SELECT order_id, row_index, nama_barang, jumlah, satuan, tanggal_pengiriman,
+			SELECT order_id, row_index, order_number, ecatalog_number, nama_barang, jumlah, satuan, tanggal_pengiriman,
 			       lead_time_pengiriman, jumlah_terkirim, belum_terkirim, status_order,
 			       status_barang, keterangan, catatan
 			FROM items
@@ -416,12 +472,15 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 			for itemRows.Next() {
 				var orderID string
 				var oi model.OrderItem
+				var itemOrderNum, itemEcatNum sql.NullString
 				if err := itemRows.Scan(
-					&orderID, &oi.RowIndex, &oi.NamaBarang, &oi.Jumlah, &oi.Satuan,
+					&orderID, &oi.RowIndex, &itemOrderNum, &itemEcatNum, &oi.NamaBarang, &oi.Jumlah, &oi.Satuan,
 					&oi.TanggalPengiriman, &oi.LeadTimePengiriman, &oi.JumlahTerkirim,
 					&oi.BelumTerkirim, &oi.StatusOrder, &oi.StatusBarang,
 					&oi.Keterangan, &oi.Catatan,
 				); err == nil {
+					oi.OrderNumber = itemOrderNum.String
+					oi.EcatalogNumber = itemEcatNum.String
 					orderItemMap[orderID] = append(orderItemMap[orderID], oi)
 				}
 			}
@@ -439,20 +498,23 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 // GetOrderByID retrieves an order and its associated line items by order ID.
 func (s *Storage) GetOrderByID(ctx context.Context, id string) (*model.Order, error) {
 	var ord model.Order
+	var orderNumber, ecatalogNumber sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, tanggal, customer, area
+		SELECT id, order_number, ecatalog_number, tanggal, customer, area
 		FROM orders
 		WHERE id = ?
-	`, id).Scan(&ord.ID, &ord.Tanggal, &ord.Customer, &ord.Area)
+	`, id).Scan(&ord.ID, &orderNumber, &ecatalogNumber, &ord.Tanggal, &ord.Customer, &ord.Area)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("order %q not found: %w", id, sql.ErrNoRows)
 		}
 		return nil, fmt.Errorf("failed to query order %q: %w", id, err)
 	}
+	ord.OrderNumber = orderNumber.String
+	ord.EcatalogNumber = ecatalogNumber.String
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT row_index, nama_barang, jumlah, satuan, tanggal_pengiriman,
+		SELECT row_index, order_number, ecatalog_number, nama_barang, jumlah, satuan, tanggal_pengiriman,
 		       lead_time_pengiriman, jumlah_terkirim, belum_terkirim, status_order,
 		       status_barang, keterangan, catatan
 		FROM items
@@ -467,14 +529,17 @@ func (s *Storage) GetOrderByID(ctx context.Context, id string) (*model.Order, er
 	ord.Items = []model.OrderItem{}
 	for rows.Next() {
 		var it model.OrderItem
+		var itemOrderNum, itemEcatNum sql.NullString
 		if err := rows.Scan(
-			&it.RowIndex, &it.NamaBarang, &it.Jumlah, &it.Satuan,
+			&it.RowIndex, &itemOrderNum, &itemEcatNum, &it.NamaBarang, &it.Jumlah, &it.Satuan,
 			&it.TanggalPengiriman, &it.LeadTimePengiriman, &it.JumlahTerkirim,
 			&it.BelumTerkirim, &it.StatusOrder, &it.StatusBarang,
 			&it.Keterangan, &it.Catatan,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan item for order %q: %w", id, err)
 		}
+		it.OrderNumber = itemOrderNum.String
+		it.EcatalogNumber = itemEcatNum.String
 		ord.Items = append(ord.Items, it)
 	}
 	if err := rows.Err(); err != nil {
@@ -512,6 +577,15 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 		args = append(args, "%"+date+"%")
 	}
 
+	orderNum := filter.OrderNumber
+	if orderNum == "" {
+		orderNum = filter.EcatalogNumber
+	}
+	if orderNum != "" {
+		conditions = append(conditions, "order_number = ?")
+		args = append(args, orderNum)
+	}
+
 	whereClause := ""
 	if len(conditions) > 0 {
 		whereClause = " WHERE " + strings.Join(conditions, " AND ")
@@ -527,7 +601,7 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 	}
 
 	selectQuery := `
-		SELECT row_index, tanggal, customer, area, nama_barang, jumlah, satuan,
+		SELECT row_index, order_number, ecatalog_number, tanggal, customer, area, nama_barang, jumlah, satuan,
 		       tanggal_pengiriman, lead_time_pengiriman, jumlah_terkirim, belum_terkirim,
 		       status_order, status_barang, keterangan, catatan
 		FROM items
@@ -555,14 +629,17 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 	var items []model.NormalizedItem
 	for rows.Next() {
 		var it model.NormalizedItem
+		var itemOrderNum, itemEcatNum sql.NullString
 		if err := rows.Scan(
-			&it.RowIndex, &it.Tanggal, &it.Customer, &it.Area, &it.NamaBarang,
+			&it.RowIndex, &itemOrderNum, &itemEcatNum, &it.Tanggal, &it.Customer, &it.Area, &it.NamaBarang,
 			&it.Jumlah, &it.Satuan, &it.TanggalPengiriman, &it.LeadTimePengiriman,
 			&it.JumlahTerkirim, &it.BelumTerkirim, &it.StatusOrder, &it.StatusBarang,
 			&it.Keterangan, &it.Catatan,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan item row: %w", err)
 		}
+		it.OrderNumber = itemOrderNum.String
+		it.EcatalogNumber = itemEcatNum.String
 		items = append(items, it)
 	}
 	if err := rows.Err(); err != nil {

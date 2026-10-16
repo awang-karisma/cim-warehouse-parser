@@ -25,6 +25,8 @@ type RawOrderRow struct {
 // Customer, and Area, along with the 1-based sheet row number.
 type NormalizedItem struct {
 	RowIndex           int    `json:"row_index"`
+	OrderNumber        string `json:"order_number,omitempty"`
+	EcatalogNumber     string `json:"ecatalog_number,omitempty"`
 	Tanggal            string `json:"tanggal"`
 	Customer           string `json:"customer"`
 	Area               string `json:"area"`
@@ -44,16 +46,20 @@ type NormalizedItem struct {
 // Order represents a grouped order belonging to a specific customer on a specific date,
 // containing one or more ordered line items.
 type Order struct {
-	ID       string      `json:"id"`
-	Tanggal  string      `json:"tanggal"`
-	Customer string      `json:"customer"`
-	Area     string      `json:"area"`
-	Items    []OrderItem `json:"items"`
+	ID             string      `json:"id"`
+	OrderNumber    string      `json:"order_number,omitempty"`
+	EcatalogNumber string      `json:"ecatalog_number,omitempty"`
+	Tanggal        string      `json:"tanggal"`
+	Customer       string      `json:"customer"`
+	Area           string      `json:"area"`
+	Items          []OrderItem `json:"items"`
 }
 
 // OrderItem represents a line item within a grouped Order.
 type OrderItem struct {
 	RowIndex           int    `json:"row_index"`
+	OrderNumber        string `json:"order_number,omitempty"`
+	EcatalogNumber     string `json:"ecatalog_number,omitempty"`
 	NamaBarang         string `json:"nama_barang"`
 	Jumlah             string `json:"jumlah"`
 	Satuan             string `json:"satuan"`
@@ -66,3 +72,4 @@ type OrderItem struct {
 	Keterangan         string `json:"keterangan"`
 	Catatan            string `json:"catatan"`
 }
+

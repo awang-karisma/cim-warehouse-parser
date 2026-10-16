@@ -77,6 +77,8 @@ definitions:
         type: string
       customer:
         type: string
+      ecatalog_number:
+        type: string
       jumlah:
         type: string
       jumlah_terkirim:
@@ -86,6 +88,8 @@ definitions:
       lead_time_pengiriman:
         type: string
       nama_barang:
+        type: string
+      order_number:
         type: string
       row_index:
         type: integer
@@ -106,12 +110,16 @@ definitions:
         type: string
       customer:
         type: string
+      ecatalog_number:
+        type: string
       id:
         type: string
       items:
         items:
           $ref: '#/definitions/model.OrderItem'
         type: array
+      order_number:
+        type: string
       tanggal:
         type: string
     type: object
@@ -120,6 +128,8 @@ definitions:
       belum_terkirim:
         type: string
       catatan:
+        type: string
+      ecatalog_number:
         type: string
       jumlah:
         type: string
@@ -130,6 +140,8 @@ definitions:
       lead_time_pengiriman:
         type: string
       nama_barang:
+        type: string
+      order_number:
         type: string
       row_index:
         type: integer
@@ -189,7 +201,7 @@ paths:
   /api/v1/items:
     get:
       description: List normalized line items with pagination and filters (customer,
-        nama_barang, status_order, date)
+        nama_barang, status_order, date, order_number, ecatalog_number)
       parameters:
       - description: Customer name or substring
         in: query
@@ -206,6 +218,14 @@ paths:
       - description: Date (e.g. 02/01/2026)
         in: query
         name: date
+        type: string
+      - description: Order number or E-Katalog number (e.g. EP-01...)
+        in: query
+        name: order_number
+        type: string
+      - description: Alias for order_number
+        in: query
+        name: ecatalog_number
         type: string
       - description: Number of items to return (default 50, max 1000)
         in: query
@@ -235,7 +255,8 @@ paths:
       - items
   /api/v1/orders:
     get:
-      description: List orders with pagination and filters (customer, date, area)
+      description: List orders with pagination and filters (customer, date, area,
+        order_number, ecatalog_number)
       parameters:
       - description: Customer name or substring
         in: query
@@ -248,6 +269,14 @@ paths:
       - description: Area name or substring
         in: query
         name: area
+        type: string
+      - description: Order number or E-Katalog number (e.g. EP-01...)
+        in: query
+        name: order_number
+        type: string
+      - description: Alias for order_number
+        in: query
+        name: ecatalog_number
         type: string
       - description: Number of items to return (default 50, max 1000)
         in: query

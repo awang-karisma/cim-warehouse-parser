@@ -25,7 +25,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/items": {
             "get": {
-                "description": "List normalized line items with pagination and filters (customer, nama_barang, status_order, date)",
+                "description": "List normalized line items with pagination and filters (customer, nama_barang, status_order, date, order_number, ecatalog_number)",
                 "produces": [
                     "application/json"
                 ],
@@ -56,6 +56,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Date (e.g. 02/01/2026)",
                         "name": "date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Order number or E-Katalog number (e.g. EP-01...)",
+                        "name": "order_number",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Alias for order_number",
+                        "name": "ecatalog_number",
                         "in": "query"
                     },
                     {
@@ -95,7 +107,7 @@ const docTemplate = `{
         },
         "/api/v1/orders": {
             "get": {
-                "description": "List orders with pagination and filters (customer, date, area)",
+                "description": "List orders with pagination and filters (customer, date, area, order_number, ecatalog_number)",
                 "produces": [
                     "application/json"
                 ],
@@ -120,6 +132,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Area name or substring",
                         "name": "area",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Order number or E-Katalog number (e.g. EP-01...)",
+                        "name": "order_number",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Alias for order_number",
+                        "name": "ecatalog_number",
                         "in": "query"
                     },
                     {
@@ -438,6 +462,9 @@ const docTemplate = `{
                 "customer": {
                     "type": "string"
                 },
+                "ecatalog_number": {
+                    "type": "string"
+                },
                 "jumlah": {
                     "type": "string"
                 },
@@ -451,6 +478,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "nama_barang": {
+                    "type": "string"
+                },
+                "order_number": {
                     "type": "string"
                 },
                 "row_index": {
@@ -482,6 +512,9 @@ const docTemplate = `{
                 "customer": {
                     "type": "string"
                 },
+                "ecatalog_number": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -490,6 +523,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/model.OrderItem"
                     }
+                },
+                "order_number": {
+                    "type": "string"
                 },
                 "tanggal": {
                     "type": "string"
@@ -505,6 +541,9 @@ const docTemplate = `{
                 "catatan": {
                     "type": "string"
                 },
+                "ecatalog_number": {
+                    "type": "string"
+                },
                 "jumlah": {
                     "type": "string"
                 },
@@ -518,6 +557,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "nama_barang": {
+                    "type": "string"
+                },
+                "order_number": {
                     "type": "string"
                 },
                 "row_index": {

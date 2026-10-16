@@ -145,17 +145,19 @@ func (s *Server) handleSync(c fiber.Ctx) error {
 
 // handleListOrders godoc
 // @Summary      List orders
-// @Description  List orders with pagination and filters (customer, date, area)
+// @Description  List orders with pagination and filters (customer, date, area, order_number, ecatalog_number)
 // @Tags         orders
 // @Produce      json
-// @Param        customer  query     string  false  "Customer name or substring"
-// @Param        date      query     string  false  "Order date (e.g. 02/01/2026)"
-// @Param        area      query     string  false  "Area name or substring"
-// @Param        limit     query     int     false  "Number of items to return (default 50, max 1000)"
-// @Param        offset    query     int     false  "Offset for pagination (default 0)"
-// @Success      200       {object}  OrdersResponse
-// @Failure      500       {object}  ErrorResponse
-// @Failure      503       {object}  ErrorResponse
+// @Param        customer        query     string  false  "Customer name or substring"
+// @Param        date            query     string  false  "Order date (e.g. 02/01/2026)"
+// @Param        area            query     string  false  "Area name or substring"
+// @Param        order_number    query     string  false  "Order number or E-Katalog number (e.g. EP-01...)"
+// @Param        ecatalog_number query     string  false  "Alias for order_number"
+// @Param        limit           query     int     false  "Number of items to return (default 50, max 1000)"
+// @Param        offset          query     int     false  "Offset for pagination (default 0)"
+// @Success      200             {object}  OrdersResponse
+// @Failure      500             {object}  ErrorResponse
+// @Failure      503             {object}  ErrorResponse
 // @Router       /api/v1/orders [get]
 func (s *Server) handleListOrders(c fiber.Ctx) error {
 	if s.store == nil {
@@ -170,6 +172,10 @@ func (s *Server) handleListOrders(c fiber.Ctx) error {
 		date = c.Query("tanggal")
 	}
 	area := c.Query("area")
+	orderNumber := c.Query("order_number")
+	if orderNumber == "" {
+		orderNumber = c.Query("ecatalog_number")
+	}
 	limit := queryInt(c, "limit", 50)
 	offset := queryInt(c, "offset", 0)
 
@@ -184,12 +190,14 @@ func (s *Server) handleListOrders(c fiber.Ctx) error {
 	}
 
 	orders, total, err := s.store.GetOrders(c.Context(), storage.OrderFilter{
-		Customer: customer,
-		Date:     date,
-		Tanggal:  date,
-		Area:     area,
-		Limit:    limit,
-		Offset:   offset,
+		Customer:       customer,
+		Date:           date,
+		Tanggal:        date,
+		Area:           area,
+		OrderNumber:    orderNumber,
+		EcatalogNumber: orderNumber,
+		Limit:          limit,
+		Offset:         offset,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
@@ -252,18 +260,20 @@ func (s *Server) handleGetOrderByID(c fiber.Ctx) error {
 
 // handleListItems godoc
 // @Summary      List items
-// @Description  List normalized line items with pagination and filters (customer, nama_barang, status_order, date)
+// @Description  List normalized line items with pagination and filters (customer, nama_barang, status_order, date, order_number, ecatalog_number)
 // @Tags         items
 // @Produce      json
-// @Param        customer      query     string  false  "Customer name or substring"
-// @Param        nama_barang   query     string  false  "Item name or substring"
-// @Param        status_order  query     string  false  "Order status (e.g. SELESAI, PROSES, PENDING)"
-// @Param        date          query     string  false  "Date (e.g. 02/01/2026)"
-// @Param        limit         query     int     false  "Number of items to return (default 50, max 1000)"
-// @Param        offset        query     int     false  "Offset for pagination (default 0)"
-// @Success      200           {object}  ItemsResponse
-// @Failure      500           {object}  ErrorResponse
-// @Failure      503           {object}  ErrorResponse
+// @Param        customer        query     string  false  "Customer name or substring"
+// @Param        nama_barang     query     string  false  "Item name or substring"
+// @Param        status_order    query     string  false  "Order status (e.g. SELESAI, PROSES, PENDING)"
+// @Param        date            query     string  false  "Date (e.g. 02/01/2026)"
+// @Param        order_number    query     string  false  "Order number or E-Katalog number (e.g. EP-01...)"
+// @Param        ecatalog_number query     string  false  "Alias for order_number"
+// @Param        limit           query     int     false  "Number of items to return (default 50, max 1000)"
+// @Param        offset          query     int     false  "Offset for pagination (default 0)"
+// @Success      200             {object}  ItemsResponse
+// @Failure      500             {object}  ErrorResponse
+// @Failure      503             {object}  ErrorResponse
 // @Router       /api/v1/items [get]
 func (s *Server) handleListItems(c fiber.Ctx) error {
 	if s.store == nil {
@@ -279,6 +289,10 @@ func (s *Server) handleListItems(c fiber.Ctx) error {
 	if date == "" {
 		date = c.Query("tanggal")
 	}
+	orderNumber := c.Query("order_number")
+	if orderNumber == "" {
+		orderNumber = c.Query("ecatalog_number")
+	}
 	limit := queryInt(c, "limit", 50)
 	offset := queryInt(c, "offset", 0)
 
@@ -293,13 +307,15 @@ func (s *Server) handleListItems(c fiber.Ctx) error {
 	}
 
 	items, total, err := s.store.GetItems(c.Context(), storage.ItemFilter{
-		Customer:    customer,
-		NamaBarang:  namaBarang,
-		StatusOrder: statusOrder,
-		Date:        date,
-		Tanggal:     date,
-		Limit:       limit,
-		Offset:      offset,
+		Customer:       customer,
+		NamaBarang:     namaBarang,
+		StatusOrder:    statusOrder,
+		Date:           date,
+		Tanggal:        date,
+		OrderNumber:    orderNumber,
+		EcatalogNumber: orderNumber,
+		Limit:          limit,
+		Offset:         offset,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
