@@ -111,22 +111,38 @@ func initFetcher(cfg *config.Config) worker.Fetcher {
 		credsPath = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	}
 
+	hasCreds := false
 	if credsPath != "" {
 		if info, err := os.Stat(credsPath); err == nil && !info.IsDir() {
-			ctx := context.Background()
-			svc, err := sheets.NewService(ctx,
-				option.WithCredentialsFile(credsPath),
-				option.WithScopes(sheets.SpreadsheetsReadonlyScope),
-			)
-			if err == nil {
-				log.Printf("Using Google Sheets fetcher with spreadsheet ID %s, sheet %s",
-					cfg.SpreadsheetID, cfg.SheetName)
-				return worker.NewSheetsFetcher(svc, cfg.SpreadsheetID, cfg.SheetName)
-			}
-			log.Printf("warning: failed to initialize Google Sheets service from credentials (%s): %v. Falling back to CSV", credsPath, err)
+			hasCreds = true
 		} else {
-			log.Printf("warning: Google credentials file (%s) does not exist or is invalid. Falling back to CSV", credsPath)
+			log.Printf("warning: Google credentials file (%s) does not exist or is invalid", credsPath)
 		}
+	}
+
+	if hasCreds {
+		ctx := context.Background()
+		svc, err := sheets.NewService(ctx,
+			option.WithCredentialsFile(credsPath),
+			option.WithScopes(sheets.SpreadsheetsReadonlyScope),
+		)
+		if err == nil {
+			log.Printf("Using Google Sheets fetcher with spreadsheet ID %s, sheet %s",
+				cfg.SpreadsheetID, cfg.SheetName)
+			return worker.NewSheetsFetcher(svc, cfg.SpreadsheetID, cfg.SheetName)
+		}
+		log.Printf("warning: failed to initialize Google Sheets service from credentials (%s): %v. Falling back to CSV", credsPath, err)
+	} else if cfg.GoogleAPIKey != "" || os.Getenv("GOOGLE_API_KEY") != "" {
+		apiKey := cfg.GoogleAPIKey
+		if apiKey == "" {
+			apiKey = os.Getenv("GOOGLE_API_KEY")
+		}
+		svc, err := sheets.NewService(context.Background(), option.WithAPIKey(apiKey))
+		if err == nil {
+			log.Printf("Using Google Sheets fetcher with API Key for spreadsheet ID %s, sheet %s", cfg.SpreadsheetID, cfg.SheetName)
+			return worker.NewSheetsFetcher(svc, cfg.SpreadsheetID, cfg.SheetName)
+		}
+		log.Printf("warning: failed to initialize Google Sheets service with API Key: %v. Falling back to CSV", err)
 	}
 
 	log.Printf("Using CSV fallback fetcher from: %s", cfg.CSVFallbackPath)

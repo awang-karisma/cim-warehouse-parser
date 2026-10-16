@@ -22,6 +22,7 @@ func main() {
 		sheetID     = flag.String("sheet-id", "1X3FqpqpP7utvkyFK98YE863ItVsvmmUrBTBsGfuzK3s", "Google Spreadsheet ID")
 		sheetName   = flag.String("sheet-name", "PESANAN", "Google Sheet tab name")
 		credentials = flag.String("credentials", "", "Path to Google Service Account JSON credentials file")
+		apiKey      = flag.String("api-key", os.Getenv("GOOGLE_API_KEY"), "Google Cloud API Key for public sheets")
 		format      = flag.String("format", "summary", "Output format: summary, json-orders, json-items")
 		outPath     = flag.String("out", "", "Output file path (default stdout)")
 	)
@@ -56,8 +57,21 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error parsing Google Sheet: %v\n", err)
 			os.Exit(1)
 		}
+	case *apiKey != "":
+		ctx := context.Background()
+		svc, initErr := sheets.NewService(ctx, option.WithAPIKey(*apiKey))
+		if initErr != nil {
+			fmt.Fprintf(os.Stderr, "error initializing Google Sheets client: %v\n", initErr)
+			os.Exit(1)
+		}
+
+		items, orders, err = parser.ParseSheet(ctx, svc, *sheetID, *sheetName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error parsing Google Sheet: %v\n", err)
+			os.Exit(1)
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "error: either -csv or -credentials must be provided\n\nUsage:\n")
+		fmt.Fprintf(os.Stderr, "error: either -csv, -credentials, or -api-key must be provided\n\nUsage:\n")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}

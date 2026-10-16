@@ -14,7 +14,7 @@ func TestDefaultConfig(t *testing.T) {
 		"SERVER_PORT", "PORT", "DB_PATH", "SYNC_INTERVAL",
 		"SYNC_WORK_HOURS_START", "SYNC_WORK_HOURS_END", "SYNC_TIMEZONE",
 		"SPREADSHEET_ID", "SHEET_NAME", "GOOGLE_APPLICATION_CREDENTIALS",
-		"CSV_FALLBACK_PATH",
+		"GOOGLE_API_KEY", "CSV_FALLBACK_PATH",
 	}
 	for _, k := range envKeys {
 		oldVal, exists := os.LookupEnv(k)
@@ -56,6 +56,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.CSVFallbackPath != "testdata/orders_sample.csv" {
 		t.Errorf("expected CSVFallbackPath=testdata/orders_sample.csv, got %s", cfg.CSVFallbackPath)
 	}
+	if cfg.GoogleAPIKey != "" {
+		t.Errorf("expected GoogleAPIKey default to be empty, got %s", cfg.GoogleAPIKey)
+	}
 }
 
 func TestEnvOverrides(t *testing.T) {
@@ -68,6 +71,7 @@ func TestEnvOverrides(t *testing.T) {
 	t.Setenv("SPREADSHEET_ID", "custom-sheet-id")
 	t.Setenv("SHEET_NAME", "CUSTOM_SHEET")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/creds.json")
+	t.Setenv("GOOGLE_API_KEY", "AIzaSyFakeKey123")
 	t.Setenv("CSV_FALLBACK_PATH", "custom/sample.csv")
 
 	cfg, err := config.Load()
@@ -102,6 +106,9 @@ func TestEnvOverrides(t *testing.T) {
 	if cfg.GoogleApplicationCredentials != "/path/to/creds.json" {
 		t.Errorf("expected GoogleApplicationCredentials=/path/to/creds.json, got %s", cfg.GoogleApplicationCredentials)
 	}
+	if cfg.GoogleAPIKey != "AIzaSyFakeKey123" {
+		t.Errorf("expected GoogleAPIKey=AIzaSyFakeKey123, got %s", cfg.GoogleAPIKey)
+	}
 	if cfg.CSVFallbackPath != "custom/sample.csv" {
 		t.Errorf("expected CSVFallbackPath=custom/sample.csv, got %s", cfg.CSVFallbackPath)
 	}
@@ -109,5 +116,45 @@ func TestEnvOverrides(t *testing.T) {
 	wCfg := cfg.WorkerConfig()
 	if wCfg.Interval != 45*time.Minute || wCfg.WorkHoursStart != "07:30" || wCfg.SpreadsheetID != "custom-sheet-id" {
 		t.Errorf("expected WorkerConfig to inherit config fields, got %+v", wCfg)
+	}
+}
+
+func TestGoogleAPIKeyEnv(t *testing.T) {
+	testKey := "AIzaSyDummyKeyForGoogleSheetsAccess123"
+	t.Setenv("GOOGLE_API_KEY", testKey)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error loading config: %v", err)
+	}
+
+	if cfg.GoogleAPIKey != testKey {
+		t.Errorf("expected GoogleAPIKey=%q, got %q", testKey, cfg.GoogleAPIKey)
+	}
+}
+
+func TestGoogleAPIKeyFromEnvFile(t *testing.T) {
+	oldVal, exists := os.LookupEnv("GOOGLE_API_KEY")
+	if exists {
+		os.Unsetenv("GOOGLE_API_KEY")
+		defer os.Setenv("GOOGLE_API_KEY", oldVal)
+	} else {
+		defer os.Unsetenv("GOOGLE_API_KEY")
+	}
+
+	tmpDir := t.TempDir()
+	envPath := tmpDir + "/.env"
+	content := "GOOGLE_API_KEY=AIzaSyFromEnvFile987\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp env file: %v", err)
+	}
+
+	cfg, err := config.Load(envPath)
+	if err != nil {
+		t.Fatalf("unexpected error loading config from env file: %v", err)
+	}
+
+	if cfg.GoogleAPIKey != "AIzaSyFromEnvFile987" {
+		t.Errorf("expected GoogleAPIKey=AIzaSyFromEnvFile987, got %q", cfg.GoogleAPIKey)
 	}
 }

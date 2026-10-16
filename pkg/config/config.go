@@ -24,6 +24,7 @@ type Config struct {
 	SpreadsheetID                string        `mapstructure:"spreadsheet_id" json:"spreadsheet_id"`
 	SheetName                    string        `mapstructure:"sheet_name" json:"sheet_name"`
 	GoogleApplicationCredentials string        `mapstructure:"google_application_credentials" json:"google_application_credentials"`
+	GoogleAPIKey                 string        `mapstructure:"google_api_key" json:"google_api_key"`
 	CSVFallbackPath              string        `mapstructure:"csv_fallback_path" json:"csv_fallback_path"`
 }
 
@@ -39,6 +40,7 @@ func DefaultConfig() Config {
 		SpreadsheetID:                "1X3FqpqpP7utvkyFK98YE863ItVsvmmUrBTBsGfuzK3s",
 		SheetName:                    "PESANAN",
 		GoogleApplicationCredentials: "",
+		GoogleAPIKey:                 "",
 		CSVFallbackPath:              "testdata/orders_sample.csv",
 	}
 }
@@ -67,6 +69,7 @@ func Load(envFiles ...string) (*Config, error) {
 	v.SetDefault("spreadsheet_id", defaults.SpreadsheetID)
 	v.SetDefault("sheet_name", defaults.SheetName)
 	v.SetDefault("google_application_credentials", defaults.GoogleApplicationCredentials)
+	v.SetDefault("google_api_key", defaults.GoogleAPIKey)
 	v.SetDefault("csv_fallback_path", defaults.CSVFallbackPath)
 
 	// Bind environment keys
@@ -79,6 +82,7 @@ func Load(envFiles ...string) (*Config, error) {
 	_ = v.BindEnv("spreadsheet_id", "SPREADSHEET_ID")
 	_ = v.BindEnv("sheet_name", "SHEET_NAME")
 	_ = v.BindEnv("google_application_credentials", "GOOGLE_APPLICATION_CREDENTIALS")
+	_ = v.BindEnv("google_api_key", "GOOGLE_API_KEY")
 	_ = v.BindEnv("csv_fallback_path", "CSV_FALLBACK_PATH")
 
 	var cfg Config
