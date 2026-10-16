@@ -1,22 +1,12 @@
-// @title           Warehouse Order Tracking API
-// @version         1.0
-// @description     Read-only HTTP REST API server for warehouse order tracking data with background Google Sheets synchronization.
-// @termsOfService  http://swagger.io/terms/
-
-// @contact.name    Warehouse Engineering
-// @contact.url     https://github.com/awang-karisma/warehouse-parser
-
-// @license.name    MIT
-// @license.url     https://opensource.org/licenses/MIT
-
-// @host            localhost:8080
-// @BasePath        /
 package api
 
 import (
-	"github.com/awang-karisma/warehouse-parser/docs"
+	"net/http"
+
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
@@ -29,11 +19,12 @@ type Config struct {
 	Worker *worker.Worker
 }
 
-// Server wraps the Fiber v3 HTTP application.
+// Server wraps the Fiber v3 HTTP application and Huma v2 API.
 type Server struct {
-	app    *fiber.App
-	store  *storage.Storage
-	worker *worker.Worker
+	app     *fiber.App
+	humaAPI huma.API
+	store   *storage.Storage
+	worker  *worker.Worker
 }
 
 // New creates and initializes a new Fiber v3 API Server with middlewares and routes.
@@ -47,13 +38,20 @@ func New(cfg Config) *Server {
 	app.Use(logger.New())
 	app.Use(cors.New())
 
+	humaCfg := huma.DefaultConfig("Warehouse Order Tracking API", "1.0.0")
+	humaCfg.DocsRenderer = huma.DocsRendererScalar
+	humaCfg.DocsPath = "/docs"
+	humaCfg.OpenAPIPath = "/openapi"
+	humaAPI := humafiber.New(app, humaCfg)
+
 	s := &Server{
-		app:    app,
-		store:  cfg.Store,
-		worker: cfg.Worker,
+		app:     app,
+		humaAPI: humaAPI,
+		store:   cfg.Store,
+		worker:  cfg.Worker,
 	}
 
-	s.registerRoutes()
+	s.registerOperations()
 	return s
 }
 
@@ -62,28 +60,72 @@ func (s *Server) App() *fiber.App {
 	return s.app
 }
 
-func (s *Server) registerRoutes() {
-	// Health
-	s.app.Get("/health", s.handleHealth)
-
-	// API v1
-	v1 := s.app.Group("/api/v1")
-	v1.Get("/status", s.handleStatus)
-	v1.Post("/sync", s.handleSync)
-	v1.Get("/orders", s.handleListOrders)
-	v1.Get("/orders/:id", s.handleGetOrderByID)
-	v1.Get("/items", s.handleListItems)
-	v1.Get("/stats", s.handleGetStats)
-
-	// Documentation routes
-	s.app.Get("/swagger/doc.json", s.handleSwaggerJSON)
-	s.app.Get("/swagger", handleSwaggerUI)
-	s.app.Get("/swagger/*", handleSwaggerUI)
-	s.app.Get("/scalar", handleScalarUI)
-	s.app.Get("/docs", handleSwaggerUI)
+// HumaAPI returns the underlying Huma API instance.
+func (s *Server) HumaAPI() huma.API {
+	return s.humaAPI
 }
 
-func (s *Server) handleSwaggerJSON(c fiber.Ctx) error {
-	c.Set("Content-Type", "application/json; charset=utf-8")
-	return c.SendString(docs.SwaggerInfo.ReadDoc())
+func (s *Server) registerOperations() {
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "health-check",
+		Method:      http.MethodGet,
+		Path:        "/health",
+		Summary:     "Health check",
+		Description: "Check the health and readiness of the API service",
+		Tags:        []string{"system"},
+	}, s.handleHealth)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-worker-status",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/status",
+		Summary:     "Get worker status",
+		Description: "Get background worker synchronization status and work hours info",
+		Tags:        []string{"worker"},
+	}, s.handleStatus)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "trigger-sync",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/sync",
+		Summary:     "Trigger manual sync",
+		Description: "Trigger an immediate synchronization from remote data source into local storage (force=true)",
+		Tags:        []string{"worker"},
+	}, s.handleSync)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-orders",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/orders",
+		Summary:     "List orders",
+		Description: "List orders with pagination and filters (customer, date, area, order_number, ecatalog_number)",
+		Tags:        []string{"orders"},
+	}, s.handleListOrders)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-order-by-id",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/orders/{id}",
+		Summary:     "Get order by ID",
+		Description: "Get a single order by its ID with all line items",
+		Tags:        []string{"orders"},
+	}, s.handleGetOrderByID)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-items",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/items",
+		Summary:     "List items",
+		Description: "List normalized line items with pagination and filters (customer, nama_barang, status_order, date, order_number, ecatalog_number)",
+		Tags:        []string{"items"},
+	}, s.handleListItems)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-stats",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/stats",
+		Summary:     "Get stats",
+		Description: "Get aggregated summary statistics of orders and items",
+		Tags:        []string{"stats"},
+	}, s.handleGetStats)
 }

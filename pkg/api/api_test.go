@@ -509,11 +509,11 @@ func TestStatsEndpoint(t *testing.T) {
 	}
 }
 
-func TestSwaggerDocumentation(t *testing.T) {
+func TestDocumentationRoutes(t *testing.T) {
 	srv, _, _ := setupTestServer(t)
 
-	t.Run("swagger json doc", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/swagger/doc.json", nil)
+	t.Run("openapi json doc", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/openapi.json", nil)
 		resp, err := srv.App().Test(req)
 		if err != nil {
 			t.Fatalf("failed to execute request: %v", err)
@@ -525,36 +525,18 @@ func TestSwaggerDocumentation(t *testing.T) {
 		}
 
 		ct := resp.Header.Get("Content-Type")
-		if !strings.Contains(ct, "application/json") {
-			t.Errorf("expected application/json Content-Type, got %s", ct)
+		if !strings.Contains(ct, "application/json") && !strings.Contains(ct, "application/vnd.oai.openapi+json") && !strings.Contains(ct, "application/openapi+json") {
+			t.Errorf("expected application/json or application/vnd.oai.openapi+json Content-Type, got %s", ct)
 		}
 
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		if !strings.Contains(string(bodyBytes), "Warehouse Order Tracking API") {
-			t.Errorf("expected swagger json to mention API title, got: %s", string(bodyBytes))
+			t.Errorf("expected openapi json to mention API title, got: %s", string(bodyBytes))
 		}
 	})
 
-	t.Run("swagger ui html", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/swagger", nil)
-		resp, err := srv.App().Test(req)
-		if err != nil {
-			t.Fatalf("failed to execute request: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected status 200, got %d", resp.StatusCode)
-		}
-
-		ct := resp.Header.Get("Content-Type")
-		if !strings.Contains(ct, "text/html") {
-			t.Errorf("expected text/html Content-Type, got %s", ct)
-		}
-	})
-
-	t.Run("scalar ui html", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/scalar", nil)
+	t.Run("scalar docs html", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/docs", nil)
 		resp, err := srv.App().Test(req)
 		if err != nil {
 			t.Fatalf("failed to execute request: %v", err)

@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/awang-karisma/warehouse-parser/docs"
 	"github.com/awang-karisma/warehouse-parser/pkg/api"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
@@ -74,7 +73,7 @@ func main() {
 	serverErrors := make(chan error, 1)
 	addr := ":" + cfg.Port
 	go func() {
-		log.Printf("Starting HTTP server listening on %s (Swagger: http://localhost:%s/swagger)", addr, cfg.Port)
+		log.Printf("Starting HTTP server listening on %s (Scalar Docs: http://localhost:%s/docs, OpenAPI: http://localhost:%s/openapi.json)", addr, cfg.Port, cfg.Port)
 		if err := app.Listen(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}

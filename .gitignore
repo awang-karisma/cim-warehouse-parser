@@ -24,3 +24,6 @@ Thumbs.db
 # Test and production data
 testdata/
 *.csv
+
+# Frontend mockups
+mockup/

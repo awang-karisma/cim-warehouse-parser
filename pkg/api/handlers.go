@@ -1,21 +1,16 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
-	"github.com/gofiber/fiber/v3"
+	"github.com/danielgtaylor/huma/v2"
 )
-
-// ErrorResponse defines the standard error payload.
-type ErrorResponse struct {
-	Error string `json:"error" example:"not found"`
-}
 
 // HealthResponse defines the health check response.
 type HealthResponse struct {
@@ -56,28 +51,72 @@ type ItemsResponse struct {
 	Items  []model.NormalizedItem `json:"items"`
 }
 
-// handleHealth godoc
-// @Summary      Health check
-// @Description  Check the health and readiness of the API service
-// @Tags         system
-// @Produce      json
-// @Success      200  {object}  HealthResponse
-// @Router       /health [get]
-func (s *Server) handleHealth(c fiber.Ctx) error {
-	return c.JSON(HealthResponse{
-		Status: "ok",
-	})
+// Outputs wrapping payloads in Body
+type HealthOutput struct {
+	Body HealthResponse
 }
 
-// handleStatus godoc
-// @Summary      Get worker status
-// @Description  Get background worker synchronization status and work hours info
-// @Tags         worker
-// @Produce      json
-// @Success      200  {object}  StatusResponse
-// @Failure      500  {object}  ErrorResponse
-// @Router       /api/v1/status [get]
-func (s *Server) handleStatus(c fiber.Ctx) error {
+type StatusOutput struct {
+	Body StatusResponse
+}
+
+type SyncOutput struct {
+	Body SyncResponse
+}
+
+type OrdersOutput struct {
+	Body OrdersResponse
+}
+
+type OrderDetailOutput struct {
+	Body model.Order
+}
+
+type ItemsOutput struct {
+	Body ItemsResponse
+}
+
+type StatsOutput struct {
+	Body storage.Stats
+}
+
+// Inputs
+type ListOrdersInput struct {
+	Customer       string `query:"customer" doc:"Filter by customer name"`
+	Date           string `query:"date" doc:"Filter by order date (DD/MM/YYYY)"`
+	Tanggal        string `query:"tanggal" doc:"Alias for date filter"`
+	Area           string `query:"area" doc:"Filter by area / region"`
+	OrderNumber    string `query:"order_number" doc:"Filter by E-Katalog order ID (EP-...)"`
+	EcatalogNumber string `query:"ecatalog_number" doc:"Alias for order_number"`
+	Limit          int    `query:"limit" default:"50" doc:"Max orders to return (max 1000)"`
+	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
+}
+
+type GetOrderByIDInput struct {
+	ID string `path:"id" doc:"Order ID (e.g. ORD-0001)"`
+}
+
+type ListItemsInput struct {
+	Customer       string `query:"customer" doc:"Filter by customer name"`
+	NamaBarang     string `query:"nama_barang" doc:"Filter by item name"`
+	StatusOrder    string `query:"status_order" doc:"Filter by order status"`
+	Date           string `query:"date" doc:"Filter by date"`
+	Tanggal        string `query:"tanggal" doc:"Alias for date"`
+	OrderNumber    string `query:"order_number" doc:"Filter by E-Katalog order ID"`
+	EcatalogNumber string `query:"ecatalog_number" doc:"Alias for order_number"`
+	Limit          int    `query:"limit" default:"50" doc:"Max items to return"`
+	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
+}
+
+func (s *Server) handleHealth(ctx context.Context, input *struct{}) (*HealthOutput, error) {
+	return &HealthOutput{
+		Body: HealthResponse{
+			Status: "ok",
+		},
+	}, nil
+}
+
+func (s *Server) handleStatus(ctx context.Context, input *struct{}) (*StatusOutput, error) {
 	resp := StatusResponse{
 		Status: "IDLE",
 	}
@@ -97,7 +136,7 @@ func (s *Server) handleStatus(c fiber.Ctx) error {
 	}
 
 	if s.store != nil {
-		rec, err := s.store.GetLastSync(c.Context())
+		rec, err := s.store.GetLastSync(ctx)
 		if err == nil && rec != nil {
 			resp.LastRecord = rec
 			if resp.LastSync == nil && !rec.SyncedAt.IsZero() {
@@ -106,78 +145,49 @@ func (s *Server) handleStatus(c fiber.Ctx) error {
 		}
 	}
 
-	return c.JSON(resp)
+	return &StatusOutput{Body: resp}, nil
 }
 
-// handleSync godoc
-// @Summary      Trigger manual sync
-// @Description  Trigger an immediate synchronization from remote data source into local storage (force=true)
-// @Tags         worker
-// @Produce      json
-// @Success      200  {object}  SyncResponse
-// @Failure      500  {object}  ErrorResponse
-// @Failure      503  {object}  ErrorResponse
-// @Router       /api/v1/sync [post]
-func (s *Server) handleSync(c fiber.Ctx) error {
+func (s *Server) handleSync(ctx context.Context, input *struct{}) (*SyncOutput, error) {
 	if s.worker == nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
-			Error: "sync worker not available",
-		})
+		return nil, huma.Error503ServiceUnavailable("sync worker not available")
 	}
 
-	if err := s.worker.RunOnce(c.Context(), true); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
-			Error: "sync failed: " + err.Error(),
-		})
+	if err := s.worker.RunOnce(ctx, true); err != nil {
+		return nil, huma.Error500InternalServerError("sync failed: " + err.Error())
 	}
 
 	var rec *storage.SyncRecord
 	if s.store != nil {
-		rec, _ = s.store.GetLastSync(c.Context())
+		rec, _ = s.store.GetLastSync(ctx)
 	}
 
-	return c.JSON(SyncResponse{
-		Status:  "ok",
-		Message: "sync completed successfully",
-		Record:  rec,
-	})
+	return &SyncOutput{
+		Body: SyncResponse{
+			Status:  "ok",
+			Message: "sync completed successfully",
+			Record:  rec,
+		},
+	}, nil
 }
 
-// handleListOrders godoc
-// @Summary      List orders
-// @Description  List orders with pagination and filters (customer, date, area, order_number, ecatalog_number)
-// @Tags         orders
-// @Produce      json
-// @Param        customer        query     string  false  "Customer name or substring"
-// @Param        date            query     string  false  "Order date (e.g. 02/01/2026)"
-// @Param        area            query     string  false  "Area name or substring"
-// @Param        order_number    query     string  false  "Order number or E-Katalog number (e.g. EP-01...)"
-// @Param        ecatalog_number query     string  false  "Alias for order_number"
-// @Param        limit           query     int     false  "Number of items to return (default 50, max 1000)"
-// @Param        offset          query     int     false  "Offset for pagination (default 0)"
-// @Success      200             {object}  OrdersResponse
-// @Failure      500             {object}  ErrorResponse
-// @Failure      503             {object}  ErrorResponse
-// @Router       /api/v1/orders [get]
-func (s *Server) handleListOrders(c fiber.Ctx) error {
+func (s *Server) handleListOrders(ctx context.Context, input *ListOrdersInput) (*OrdersOutput, error) {
 	if s.store == nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
-			Error: "storage service not available",
-		})
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
 
-	customer := c.Query("customer")
-	date := c.Query("date")
+	customer := input.Customer
+	date := input.Date
 	if date == "" {
-		date = c.Query("tanggal")
+		date = input.Tanggal
 	}
-	area := c.Query("area")
-	orderNumber := c.Query("order_number")
+	area := input.Area
+	orderNumber := input.OrderNumber
 	if orderNumber == "" {
-		orderNumber = c.Query("ecatalog_number")
+		orderNumber = input.EcatalogNumber
 	}
-	limit := queryInt(c, "limit", 50)
-	offset := queryInt(c, "offset", 0)
+	limit := input.Limit
+	offset := input.Offset
 
 	if limit <= 0 {
 		limit = 50
@@ -189,7 +199,7 @@ func (s *Server) handleListOrders(c fiber.Ctx) error {
 		offset = 0
 	}
 
-	orders, total, err := s.store.GetOrders(c.Context(), storage.OrderFilter{
+	orders, total, err := s.store.GetOrders(ctx, storage.OrderFilter{
 		Customer:       customer,
 		Date:           date,
 		Tanggal:        date,
@@ -200,101 +210,59 @@ func (s *Server) handleListOrders(c fiber.Ctx) error {
 		Offset:         offset,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
-			Error: err.Error(),
-		})
+		return nil, huma.Error500InternalServerError(err.Error())
 	}
 
 	if orders == nil {
 		orders = []model.Order{}
 	}
 
-	return c.JSON(OrdersResponse{
-		Total:  total,
-		Limit:  limit,
-		Offset: offset,
-		Orders: orders,
-	})
+	return &OrdersOutput{
+		Body: OrdersResponse{
+			Total:  total,
+			Limit:  limit,
+			Offset: offset,
+			Orders: orders,
+		},
+	}, nil
 }
 
-// handleGetOrderByID godoc
-// @Summary      Get order by ID
-// @Description  Get a single order by its ID with all line items
-// @Tags         orders
-// @Produce      json
-// @Param        id   path      string  true  "Order ID"
-// @Success      200  {object}  model.Order
-// @Failure      400  {object}  ErrorResponse
-// @Failure      404  {object}  ErrorResponse
-// @Failure      500  {object}  ErrorResponse
-// @Failure      503  {object}  ErrorResponse
-// @Router       /api/v1/orders/{id} [get]
-func (s *Server) handleGetOrderByID(c fiber.Ctx) error {
+func (s *Server) handleGetOrderByID(ctx context.Context, input *GetOrderByIDInput) (*OrderDetailOutput, error) {
 	if s.store == nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
-			Error: "storage service not available",
-		})
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
 
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: "order id is required",
-		})
-	}
-
-	order, err := s.store.GetOrderByID(c.Context(), id)
+	order, err := s.store.GetOrderByID(ctx, input.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || strings.Contains(strings.ToLower(err.Error()), "not found") {
-			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
-				Error: "order not found",
-			})
+			return nil, huma.Error404NotFound("order not found")
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
-			Error: err.Error(),
-		})
+		return nil, huma.Error500InternalServerError(err.Error())
 	}
 
-	return c.JSON(order)
+	return &OrderDetailOutput{
+		Body: *order,
+	}, nil
 }
 
-// handleListItems godoc
-// @Summary      List items
-// @Description  List normalized line items with pagination and filters (customer, nama_barang, status_order, date, order_number, ecatalog_number)
-// @Tags         items
-// @Produce      json
-// @Param        customer        query     string  false  "Customer name or substring"
-// @Param        nama_barang     query     string  false  "Item name or substring"
-// @Param        status_order    query     string  false  "Order status (e.g. SELESAI, PROSES, PENDING)"
-// @Param        date            query     string  false  "Date (e.g. 02/01/2026)"
-// @Param        order_number    query     string  false  "Order number or E-Katalog number (e.g. EP-01...)"
-// @Param        ecatalog_number query     string  false  "Alias for order_number"
-// @Param        limit           query     int     false  "Number of items to return (default 50, max 1000)"
-// @Param        offset          query     int     false  "Offset for pagination (default 0)"
-// @Success      200             {object}  ItemsResponse
-// @Failure      500             {object}  ErrorResponse
-// @Failure      503             {object}  ErrorResponse
-// @Router       /api/v1/items [get]
-func (s *Server) handleListItems(c fiber.Ctx) error {
+func (s *Server) handleListItems(ctx context.Context, input *ListItemsInput) (*ItemsOutput, error) {
 	if s.store == nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
-			Error: "storage service not available",
-		})
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
 
-	customer := c.Query("customer")
-	namaBarang := c.Query("nama_barang")
-	statusOrder := c.Query("status_order")
-	date := c.Query("date")
+	customer := input.Customer
+	namaBarang := input.NamaBarang
+	statusOrder := input.StatusOrder
+	date := input.Date
 	if date == "" {
-		date = c.Query("tanggal")
+		date = input.Tanggal
 	}
-	orderNumber := c.Query("order_number")
+	orderNumber := input.OrderNumber
 	if orderNumber == "" {
-		orderNumber = c.Query("ecatalog_number")
+		orderNumber = input.EcatalogNumber
 	}
-	limit := queryInt(c, "limit", 50)
-	offset := queryInt(c, "offset", 0)
+	limit := input.Limit
+	offset := input.Offset
 
 	if limit <= 0 {
 		limit = 50
@@ -306,7 +274,7 @@ func (s *Server) handleListItems(c fiber.Ctx) error {
 		offset = 0
 	}
 
-	items, total, err := s.store.GetItems(c.Context(), storage.ItemFilter{
+	items, total, err := s.store.GetItems(ctx, storage.ItemFilter{
 		Customer:       customer,
 		NamaBarang:     namaBarang,
 		StatusOrder:    statusOrder,
@@ -318,57 +286,34 @@ func (s *Server) handleListItems(c fiber.Ctx) error {
 		Offset:         offset,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
-			Error: err.Error(),
-		})
+		return nil, huma.Error500InternalServerError(err.Error())
 	}
 
 	if items == nil {
 		items = []model.NormalizedItem{}
 	}
 
-	return c.JSON(ItemsResponse{
-		Total:  total,
-		Limit:  limit,
-		Offset: offset,
-		Items:  items,
-	})
+	return &ItemsOutput{
+		Body: ItemsResponse{
+			Total:  total,
+			Limit:  limit,
+			Offset: offset,
+			Items:  items,
+		},
+	}, nil
 }
 
-// handleGetStats godoc
-// @Summary      Get stats
-// @Description  Get aggregated summary statistics of orders and items
-// @Tags         stats
-// @Produce      json
-// @Success      200  {object}  storage.Stats
-// @Failure      500  {object}  ErrorResponse
-// @Failure      503  {object}  ErrorResponse
-// @Router       /api/v1/stats [get]
-func (s *Server) handleGetStats(c fiber.Ctx) error {
+func (s *Server) handleGetStats(ctx context.Context, input *struct{}) (*StatsOutput, error) {
 	if s.store == nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
-			Error: "storage service not available",
-		})
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
 
-	stats, err := s.store.GetStats(c.Context())
+	stats, err := s.store.GetStats(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
-			Error: err.Error(),
-		})
+		return nil, huma.Error500InternalServerError(err.Error())
 	}
 
-	return c.JSON(stats)
-}
-
-func queryInt(c fiber.Ctx, key string, defaultVal int) int {
-	valStr := c.Query(key)
-	if valStr == "" {
-		return defaultVal
-	}
-	val, err := strconv.Atoi(valStr)
-	if err != nil {
-		return defaultVal
-	}
-	return val
+	return &StatsOutput{
+		Body: *stats,
+	}, nil
 }
