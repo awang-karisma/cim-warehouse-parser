@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
+	"github.com/gofiber/fiber/v3"
 )
 
 func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worker) {
@@ -550,6 +552,267 @@ func TestDocumentationRoutes(t *testing.T) {
 		ct := resp.Header.Get("Content-Type")
 		if !strings.Contains(ct, "text/html") {
 			t.Errorf("expected text/html Content-Type, got %s", ct)
+		}
+	})
+}
+
+func TestNewEndpoints(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+
+	t.Run("GET /api/v1/sync/history", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/sync/history?limit=5", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			Total   int `json:"total"`
+			Records []any `json:"records"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if data.Total < 1 {
+			t.Errorf("expected at least 1 sync history record, got %d", data.Total)
+		}
+	})
+
+	t.Run("GET /api/v1/customers", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/customers?limit=10", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			Total     int `json:"total"`
+			Customers []struct {
+				Name string `json:"name"`
+				Area string `json:"area"`
+			} `json:"customers"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if data.Total != 2 {
+			t.Errorf("expected 2 customers, got %d", data.Total)
+		}
+	})
+
+	t.Run("GET /api/v1/areas", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/areas", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			Total int `json:"total"`
+			Areas []struct {
+				Name string `json:"name"`
+			} `json:"areas"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if data.Total != 2 {
+			t.Errorf("expected 2 areas, got %d", data.Total)
+		}
+	})
+
+	t.Run("GET /api/v1/search", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/search?q=Yellowtip", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			Query string `json:"query"`
+			Items struct {
+				Total int `json:"total"`
+			} `json:"items"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if data.Items.Total < 1 {
+			t.Errorf("expected at least 1 item matching Yellowtip, got %d", data.Items.Total)
+		}
+	})
+
+	t.Run("GET /api/v1/config", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/config", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			SyncInterval string   `json:"sync_interval"`
+			WorkDays     []string `json:"work_days"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if len(data.WorkDays) == 0 {
+			t.Errorf("expected non-empty work days")
+		}
+	})
+
+	t.Run("GET /api/v1/system", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/system", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			Version string `json:"version"`
+			Port    string `json:"port"`
+			Tables  map[string]struct {
+				RowCount int `json:"row_count"`
+			} `json:"tables"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if data.Version != "v1.0.0" {
+			t.Errorf("expected version v1.0.0, got %s", data.Version)
+		}
+		if data.Tables["orders"].RowCount != 2 {
+			t.Errorf("expected 2 orders in tables, got %d", data.Tables["orders"].RowCount)
+		}
+	})
+
+	t.Run("GET /api/v1/orders with status filter", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders?status=SELESAI", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			Total int `json:"total"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if data.Total != 2 {
+			t.Errorf("expected 2 orders with SELESAI, got %d", data.Total)
+		}
+	})
+
+	t.Run("GET /api/v1/items/export CSV", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/items/export?format=csv", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		ct := resp.Header.Get("Content-Type")
+		if !strings.Contains(ct, "text/csv") {
+			t.Errorf("expected text/csv Content-Type, got %s", ct)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+		if len(lines) < 3 {
+			t.Errorf("expected at least 3 lines (1 header + 2 items), got %d", len(lines))
+		}
+		if !strings.Contains(lines[0], "Nama Barang") {
+			t.Errorf("expected header to contain 'Nama Barang', got %s", lines[0])
+		}
+	})
+
+	t.Run("GET /api/v1/sync/events", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, "GET", "/api/v1/sync/events", nil)
+		resp, err := srv.App().Test(req, fiber.TestConfig{Timeout: 500 * time.Millisecond})
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		ct := resp.Header.Get("Content-Type")
+		if !strings.Contains(ct, "text/event-stream") {
+			t.Errorf("expected text/event-stream Content-Type, got %s", ct)
+		}
+	})
+}
+
+func TestSetupStaticFiles(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+
+	tempDist := t.TempDir()
+	indexFile := filepath.Join(tempDist, "index.html")
+	_ = os.WriteFile(indexFile, []byte("<html><body>SolidJS App</body></html>"), 0644)
+
+	assetsDir := filepath.Join(tempDist, "assets")
+	_ = os.MkdirAll(assetsDir, 0755)
+	jsFile := filepath.Join(assetsDir, "bundle.js")
+	_ = os.WriteFile(jsFile, []byte("console.log('bundle');"), 0644)
+
+	srv.SetupStaticFiles(tempDist)
+
+	t.Run("GET / serves index.html", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "SolidJS App") {
+			t.Errorf("expected index.html content, got %s", string(body))
+		}
+	})
+
+	t.Run("GET /orders/ORD-0001 SPA fallback serves index.html", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/orders/ORD-0001", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "SolidJS App") {
+			t.Errorf("expected index.html content, got %s", string(body))
+		}
+	})
+
+	t.Run("GET /assets/bundle.js serves asset file", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/assets/bundle.js", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "bundle") {
+			t.Errorf("expected bundle content, got %s", string(body))
 		}
 	})
 }

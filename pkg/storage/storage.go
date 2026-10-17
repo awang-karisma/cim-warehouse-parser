@@ -26,6 +26,7 @@ type OrderFilter struct {
 	Date           string `json:"date"`
 	Tanggal        string `json:"tanggal"`
 	Area           string `json:"area"`
+	Status         string `json:"status"`
 	OrderNumber    string `json:"order_number"`
 	EcatalogNumber string `json:"ecatalog_number"`
 	Limit          int    `json:"limit"`
@@ -62,6 +63,81 @@ type SyncRecord struct {
 	ItemsCount   int       `json:"items_count"`
 	OrdersCount  int       `json:"orders_count"`
 	ErrorMessage string    `json:"error_message,omitempty"`
+	DurationMs   int64     `json:"duration_ms"`
+}
+
+// CustomerSummary represents aggregated customer statistics.
+type CustomerSummary struct {
+	Name          string         `json:"name"`
+	Area          string         `json:"area"`
+	TotalOrders   int            `json:"total_orders"`
+	TotalItems    int            `json:"total_items"`
+	LastOrderDate string         `json:"last_order_date"`
+	StatusCounts  map[string]int `json:"status_counts"`
+}
+
+// AreaSummary represents aggregated area statistics.
+type AreaSummary struct {
+	Name            string         `json:"name"`
+	TotalOrders     int            `json:"total_orders"`
+	TotalItems      int            `json:"total_items"`
+	UniqueCustomers int            `json:"unique_customers"`
+	StatusCounts    map[string]int `json:"status_counts"`
+}
+
+// TableStat represents table row count metrics.
+type TableStat struct {
+	RowCount int `json:"row_count"`
+}
+
+// SearchResult groups search results across orders, items, and customers.
+type SearchResult struct {
+	Query     string          `json:"query"`
+	Orders    SearchOrders    `json:"orders"`
+	Items     SearchItems     `json:"items"`
+	Customers SearchCustomers `json:"customers"`
+}
+
+// SearchOrders contains matched orders and count.
+type SearchOrders struct {
+	Total   int                 `json:"total"`
+	Results []SearchOrderResult `json:"results"`
+}
+
+// SearchOrderResult represents an order matching a search query.
+type SearchOrderResult struct {
+	ID           string   `json:"id"`
+	Customer     string   `json:"customer"`
+	Tanggal      string   `json:"tanggal"`
+	MatchedItems []string `json:"matched_items"`
+}
+
+// SearchItems contains matched items and count.
+type SearchItems struct {
+	Total   int                `json:"total"`
+	Results []SearchItemResult `json:"results"`
+}
+
+// SearchItemResult represents a line item matching a search query.
+type SearchItemResult struct {
+	RowIndex    int    `json:"row_index"`
+	Customer    string `json:"customer"`
+	NamaBarang  string `json:"nama_barang"`
+	Jumlah      string `json:"jumlah"`
+	StatusOrder string `json:"status_order"`
+}
+
+// SearchCustomers contains matched customers and count.
+type SearchCustomers struct {
+	Total   int                    `json:"total"`
+	Results []SearchCustomerResult `json:"results"`
+}
+
+// SearchCustomerResult represents a customer matching a search query.
+type SearchCustomerResult struct {
+	Name        string `json:"name"`
+	Area        string `json:"area"`
+	TotalOrders int    `json:"total_orders"`
 }
 
 // New opens a SQLite database at dbPath with WAL mode and busy timeout pragmas,
@@ -149,7 +225,8 @@ func (s *Storage) migrate() error {
 		status TEXT,
 		items_count INTEGER,
 		orders_count INTEGER,
-		error_message TEXT
+		error_message TEXT,
+		duration_ms INTEGER DEFAULT 0
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer);
@@ -175,6 +252,7 @@ func (s *Storage) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN ecatalog_number TEXT;`)
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);`)
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_items_order_number ON items(order_number);`)
+	_, _ = s.db.Exec(`ALTER TABLE sync_history ADD COLUMN duration_ms INTEGER DEFAULT 0;`)
 
 	return nil
 }
@@ -350,14 +428,23 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 }
 
 // RecordSync records a standalone sync history entry (e.g. for sync failures).
-func (s *Storage) RecordSync(ctx context.Context, status string, itemsCount, ordersCount int, errMsg string) error {
+func (s *Storage) RecordSync(ctx context.Context, status string, itemsCount, ordersCount int, errMsg string, durationMs int64) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sync_history (synced_at, status, items_count, orders_count, error_message)
-		VALUES (?, ?, ?, ?, ?)
-	`, now, status, itemsCount, ordersCount, errMsg)
+		INSERT INTO sync_history (synced_at, status, items_count, orders_count, error_message, duration_ms)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, now, status, itemsCount, ordersCount, errMsg, durationMs)
 	if err != nil {
 		return fmt.Errorf("failed to record sync: %w", err)
+	}
+	return nil
+}
+
+// UpdateLastSyncDuration updates the duration of the most recent sync record.
+func (s *Storage) UpdateLastSyncDuration(ctx context.Context, durationMs int64) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE sync_history SET duration_ms = ? WHERE id = (SELECT MAX(id) FROM sync_history)", durationMs)
+	if err != nil {
+		return fmt.Errorf("failed to update last sync duration: %w", err)
 	}
 	return nil
 }
@@ -394,6 +481,10 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 	if orderNum != "" {
 		conditions = append(conditions, "order_number = ?")
 		args = append(args, orderNum)
+	}
+	if filter.Status != "" {
+		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE status_order = ?)")
+		args = append(args, filter.Status)
 	}
 
 	whereClause := ""
@@ -691,14 +782,14 @@ func (s *Storage) GetStats(ctx context.Context) (*Stats, error) {
 // GetLastSync returns the most recent sync history record, or nil if no sync has occurred.
 func (s *Storage) GetLastSync(ctx context.Context) (*SyncRecord, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, synced_at, status, items_count, orders_count, error_message
+		SELECT id, synced_at, status, items_count, orders_count, error_message, COALESCE(duration_ms, 0)
 		FROM sync_history
 		ORDER BY id DESC
 		LIMIT 1
 	`)
 	var rec SyncRecord
 	var errMsg sql.NullString
-	if err := row.Scan(&rec.ID, &rec.SyncedAt, &rec.Status, &rec.ItemsCount, &rec.OrdersCount, &errMsg); err != nil {
+	if err := row.Scan(&rec.ID, &rec.SyncedAt, &rec.Status, &rec.ItemsCount, &rec.OrdersCount, &errMsg, &rec.DurationMs); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -706,6 +797,369 @@ func (s *Storage) GetLastSync(ctx context.Context) (*SyncRecord, error) {
 	}
 	rec.ErrorMessage = errMsg.String
 	return &rec, nil
+}
+
+// GetSyncHistory retrieves sync history records with pagination support.
+func (s *Storage) GetSyncHistory(ctx context.Context, limit, offset int) ([]SyncRecord, int, error) {
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sync_history").Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count sync history: %w", err)
+	}
+	if total == 0 {
+		return []SyncRecord{}, 0, nil
+	}
+
+	query := "SELECT id, synced_at, status, items_count, orders_count, error_message, COALESCE(duration_ms, 0) FROM sync_history ORDER BY id DESC"
+	var args []any
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+		if offset > 0 {
+			query += " OFFSET ?"
+			args = append(args, offset)
+		}
+	} else if offset > 0 {
+		query += " LIMIT -1 OFFSET ?"
+		args = append(args, offset)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query sync history: %w", err)
+	}
+	defer rows.Close()
+
+	var records []SyncRecord
+	for rows.Next() {
+		var rec SyncRecord
+		var errMsg sql.NullString
+		if err := rows.Scan(&rec.ID, &rec.SyncedAt, &rec.Status, &rec.ItemsCount, &rec.OrdersCount, &errMsg, &rec.DurationMs); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan sync record: %w", err)
+		}
+		rec.ErrorMessage = errMsg.String
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error reading sync history rows: %w", err)
+	}
+	if records == nil {
+		records = []SyncRecord{}
+	}
+	return records, total, nil
+}
+
+// GetCustomers returns customer summaries with aggregated metrics and status counts.
+func (s *Storage) GetCustomers(ctx context.Context, search, area string, limit, offset int) ([]CustomerSummary, int, error) {
+	var conditions []string
+	var args []any
+
+	conditions = append(conditions, "o.customer != ''")
+	if search != "" {
+		conditions = append(conditions, "o.customer LIKE ?")
+		args = append(args, "%"+search+"%")
+	}
+	if area != "" {
+		conditions = append(conditions, "o.area LIKE ?")
+		args = append(args, "%"+area+"%")
+	}
+
+	whereClause := " WHERE " + strings.Join(conditions, " AND ")
+
+	countQuery := "SELECT COUNT(DISTINCT o.customer) FROM orders o" + whereClause
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count customers: %w", err)
+	}
+	if total == 0 {
+		return []CustomerSummary{}, 0, nil
+	}
+
+	query := `
+		SELECT o.customer, COALESCE(MAX(o.area), ''), COUNT(DISTINCT o.id) as total_orders,
+		       COUNT(i.id) as total_items, COALESCE(MAX(o.tanggal), '') as last_order_date
+		FROM orders o LEFT JOIN items i ON i.order_id = o.id
+	` + whereClause + " GROUP BY o.customer ORDER BY total_orders DESC"
+
+	queryArgs := append([]any{}, args...)
+	if limit > 0 {
+		query += " LIMIT ?"
+		queryArgs = append(queryArgs, limit)
+		if offset > 0 {
+			query += " OFFSET ?"
+			queryArgs = append(queryArgs, offset)
+		}
+	} else if offset > 0 {
+		query += " LIMIT -1 OFFSET ?"
+		queryArgs = append(queryArgs, offset)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query customers: %w", err)
+	}
+	defer rows.Close()
+
+	var customers []CustomerSummary
+	var customerNames []string
+	for rows.Next() {
+		var cs CustomerSummary
+		if err := rows.Scan(&cs.Name, &cs.Area, &cs.TotalOrders, &cs.TotalItems, &cs.LastOrderDate); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan customer summary: %w", err)
+		}
+		cs.StatusCounts = make(map[string]int)
+		customers = append(customers, cs)
+		customerNames = append(customerNames, cs.Name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error reading customer rows: %w", err)
+	}
+
+	// Fetch status counts for these customers
+	if len(customerNames) > 0 {
+		placeholders := make([]string, len(customerNames))
+		statusArgs := make([]any, len(customerNames))
+		for idx, name := range customerNames {
+			placeholders[idx] = "?"
+			statusArgs[idx] = name
+		}
+		statusQuery := fmt.Sprintf(`
+			SELECT customer, status_order, COUNT(*)
+			FROM items
+			WHERE customer IN (%s) AND status_order != ''
+			GROUP BY customer, status_order
+		`, strings.Join(placeholders, ","))
+
+		sRows, err := s.db.QueryContext(ctx, statusQuery, statusArgs...)
+		if err == nil {
+			defer sRows.Close()
+			statusMap := make(map[string]map[string]int)
+			for sRows.Next() {
+				var cust, st string
+				var count int
+				if err := sRows.Scan(&cust, &st, &count); err == nil {
+					if statusMap[cust] == nil {
+						statusMap[cust] = make(map[string]int)
+					}
+					statusMap[cust][st] = count
+				}
+			}
+			for i := range customers {
+				if sm, ok := statusMap[customers[i].Name]; ok {
+					customers[i].StatusCounts = sm
+				}
+			}
+		}
+	}
+
+	if customers == nil {
+		customers = []CustomerSummary{}
+	}
+	return customers, total, nil
+}
+
+// GetAreas returns area summaries with aggregated metrics and status counts.
+func (s *Storage) GetAreas(ctx context.Context) ([]AreaSummary, error) {
+	query := `
+		SELECT o.area, COUNT(DISTINCT o.id), COUNT(i.id), COUNT(DISTINCT o.customer)
+		FROM orders o LEFT JOIN items i ON i.order_id = o.id
+		WHERE o.area != ''
+		GROUP BY o.area
+		ORDER BY COUNT(DISTINCT o.id) DESC
+	`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query areas: %w", err)
+	}
+	defer rows.Close()
+
+	var areas []AreaSummary
+	for rows.Next() {
+		var as AreaSummary
+		if err := rows.Scan(&as.Name, &as.TotalOrders, &as.TotalItems, &as.UniqueCustomers); err != nil {
+			return nil, fmt.Errorf("failed to scan area summary: %w", err)
+		}
+		as.StatusCounts = make(map[string]int)
+		areas = append(areas, as)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading area rows: %w", err)
+	}
+
+	// Status counts per area
+	sRows, err := s.db.QueryContext(ctx, `
+		SELECT area, status_order, COUNT(*)
+		FROM items
+		WHERE area != '' AND status_order != ''
+		GROUP BY area, status_order
+	`)
+	if err == nil {
+		defer sRows.Close()
+		areaStatus := make(map[string]map[string]int)
+		for sRows.Next() {
+			var a, st string
+			var count int
+			if err := sRows.Scan(&a, &st, &count); err == nil {
+				if areaStatus[a] == nil {
+					areaStatus[a] = make(map[string]int)
+				}
+				areaStatus[a][st] = count
+			}
+		}
+		for i := range areas {
+			if sm, ok := areaStatus[areas[i].Name]; ok {
+				areas[i].StatusCounts = sm
+			}
+		}
+	}
+
+	if areas == nil {
+		areas = []AreaSummary{}
+	}
+	return areas, nil
+}
+
+// SearchAll searches across orders, items, and customers.
+func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit int) (*SearchResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if searchType == "" {
+		searchType = "all"
+	}
+
+	result := &SearchResult{
+		Query: query,
+		Orders: SearchOrders{
+			Results: make([]SearchOrderResult, 0),
+		},
+		Items: SearchItems{
+			Results: make([]SearchItemResult, 0),
+		},
+		Customers: SearchCustomers{
+			Results: make([]SearchCustomerResult, 0),
+		},
+	}
+
+	likePattern := "%" + query + "%"
+
+	// 1. Orders
+	if searchType == "all" || searchType == "orders" {
+		countQuery := `
+			SELECT COUNT(*) FROM orders
+			WHERE customer LIKE ? OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
+		`
+		_ = s.db.QueryRowContext(ctx, countQuery, likePattern, likePattern).Scan(&result.Orders.Total)
+
+		if result.Orders.Total > 0 {
+			ordersQuery := `
+				SELECT id, customer, tanggal FROM orders
+				WHERE customer LIKE ? OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
+				ORDER BY id LIMIT ?
+			`
+			oRows, err := s.db.QueryContext(ctx, ordersQuery, likePattern, likePattern, limit)
+			if err == nil {
+				for oRows.Next() {
+					var ord SearchOrderResult
+					ord.MatchedItems = make([]string, 0)
+					if err := oRows.Scan(&ord.ID, &ord.Customer, &ord.Tanggal); err == nil {
+						result.Orders.Results = append(result.Orders.Results, ord)
+					}
+				}
+				oRows.Close()
+
+				for idx := range result.Orders.Results {
+					ordID := result.Orders.Results[idx].ID
+					iRows, iErr := s.db.QueryContext(ctx, `
+						SELECT DISTINCT nama_barang FROM items
+						WHERE order_id = ? AND nama_barang LIKE ? LIMIT 5
+					`, ordID, likePattern)
+					if iErr == nil {
+						for iRows.Next() {
+							var nb string
+							if err := iRows.Scan(&nb); err == nil {
+								result.Orders.Results[idx].MatchedItems = append(result.Orders.Results[idx].MatchedItems, nb)
+							}
+						}
+						iRows.Close()
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Items
+	if searchType == "all" || searchType == "items" {
+		countQuery := `
+			SELECT COUNT(*) FROM items
+			WHERE nama_barang LIKE ? OR customer LIKE ?
+		`
+		_ = s.db.QueryRowContext(ctx, countQuery, likePattern, likePattern).Scan(&result.Items.Total)
+
+		if result.Items.Total > 0 {
+			itemsQuery := `
+				SELECT row_index, customer, nama_barang, jumlah, status_order
+				FROM items
+				WHERE nama_barang LIKE ? OR customer LIKE ?
+				ORDER BY row_index LIMIT ?
+			`
+			iRows, err := s.db.QueryContext(ctx, itemsQuery, likePattern, likePattern, limit)
+			if err == nil {
+				defer iRows.Close()
+				for iRows.Next() {
+					var it SearchItemResult
+					if err := iRows.Scan(&it.RowIndex, &it.Customer, &it.NamaBarang, &it.Jumlah, &it.StatusOrder); err == nil {
+						result.Items.Results = append(result.Items.Results, it)
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Customers
+	if searchType == "all" || searchType == "customers" {
+		countQuery := `
+			SELECT COUNT(DISTINCT customer) FROM orders
+			WHERE customer LIKE ? AND customer != ''
+		`
+		_ = s.db.QueryRowContext(ctx, countQuery, likePattern).Scan(&result.Customers.Total)
+
+		if result.Customers.Total > 0 {
+			cQuery := `
+				SELECT customer, COALESCE(MAX(area), ''), COUNT(DISTINCT id)
+				FROM orders
+				WHERE customer LIKE ? AND customer != ''
+				GROUP BY customer
+				ORDER BY COUNT(DISTINCT id) DESC LIMIT ?
+			`
+			cRows, err := s.db.QueryContext(ctx, cQuery, likePattern, limit)
+			if err == nil {
+				defer cRows.Close()
+				for cRows.Next() {
+					var c SearchCustomerResult
+					if err := cRows.Scan(&c.Name, &c.Area, &c.TotalOrders); err == nil {
+						result.Customers.Results = append(result.Customers.Results, c)
+					}
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// GetTableStats returns row counts for orders, items, and sync_history tables.
+func (s *Storage) GetTableStats(ctx context.Context) (map[string]TableStat, error) {
+	stats := make(map[string]TableStat)
+	tables := []string{"orders", "items", "sync_history"}
+	for _, tbl := range tables {
+		var count int
+		query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tbl)
+		if err := s.db.QueryRowContext(ctx, query).Scan(&count); err != nil {
+			return nil, fmt.Errorf("failed to count %s: %w", tbl, err)
+		}
+		stats[tbl] = TableStat{RowCount: count}
+	}
+	return stats, nil
 }
 
 // HasSynced returns true if the database has at least one successful sync history record.

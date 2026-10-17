@@ -598,7 +598,7 @@ func TestRecordSync(t *testing.T) {
 	defer store.Close()
 
 	errMsg := "connection timeout to Google Sheets API"
-	if err := store.RecordSync(ctx, "ERROR", 0, 0, errMsg); err != nil {
+	if err := store.RecordSync(ctx, "ERROR", 0, 0, errMsg, 120); err != nil {
 		t.Fatalf("RecordSync failed: %v", err)
 	}
 
@@ -634,7 +634,7 @@ func TestHasSynced(t *testing.T) {
 	}
 
 	// Record an ERROR sync - should still return false
-	if err := store.RecordSync(ctx, "ERROR", 0, 0, "failed"); err != nil {
+	if err := store.RecordSync(ctx, "ERROR", 0, 0, "failed", 50); err != nil {
 		t.Fatalf("RecordSync ERROR failed: %v", err)
 	}
 	synced, err = store.HasSynced(ctx)
@@ -646,7 +646,7 @@ func TestHasSynced(t *testing.T) {
 	}
 
 	// Record a SUCCESS sync
-	if err := store.RecordSync(ctx, "SUCCESS", 10, 5, ""); err != nil {
+	if err := store.RecordSync(ctx, "SUCCESS", 10, 5, "", 200); err != nil {
 		t.Fatalf("RecordSync SUCCESS failed: %v", err)
 	}
 	synced, err = store.HasSynced(ctx)
@@ -655,5 +655,195 @@ func TestHasSynced(t *testing.T) {
 	}
 	if !synced {
 		t.Error("expected HasSynced to be true after successful sync")
+	}
+}
+
+func TestGetSyncHistory(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	// Empty
+	records, total, err := store.GetSyncHistory(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("GetSyncHistory failed: %v", err)
+	}
+	if total != 0 || len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d (total %d)", len(records), total)
+	}
+
+	// Insert 3 records
+	_ = store.RecordSync(ctx, "SUCCESS", 5, 2, "", 100)
+	_ = store.RecordSync(ctx, "ERROR", 0, 0, "fail", 50)
+	_ = store.RecordSync(ctx, "SUCCESS", 10, 4, "", 150)
+
+	records, total, err = store.GetSyncHistory(ctx, 2, 0)
+	if err != nil {
+		t.Fatalf("GetSyncHistory failed: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+	if records[0].DurationMs != 150 {
+		t.Fatalf("expected duration 150 on latest record, got %d", records[0].DurationMs)
+	}
+
+	// Offset
+	records, total, err = store.GetSyncHistory(ctx, 2, 2)
+	if err != nil {
+		t.Fatalf("GetSyncHistory with offset failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record at offset 2, got %d", len(records))
+	}
+}
+
+func TestGetCustomersAndAreas(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items, orders := createSampleData()
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Test GetCustomers
+	custs, total, err := store.GetCustomers(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatalf("GetCustomers failed: %v", err)
+	}
+	if total < 2 || len(custs) < 2 {
+		t.Fatalf("expected at least 2 customers, got %d (total %d)", len(custs), total)
+	}
+
+	// Search customer
+	custsSearch, totalSearch, err := store.GetCustomers(ctx, "Narmada", "", 10, 0)
+	if err != nil {
+		t.Fatalf("GetCustomers search failed: %v", err)
+	}
+	if totalSearch != 1 || custsSearch[0].Name != "RS Narmada" {
+		t.Fatalf("expected 1 customer RS Narmada, got %d", totalSearch)
+	}
+	if custsSearch[0].TotalItems == 0 {
+		t.Errorf("expected positive total items for customer")
+	}
+
+	// Test GetAreas
+	areas, err := store.GetAreas(ctx)
+	if err != nil {
+		t.Fatalf("GetAreas failed: %v", err)
+	}
+	if len(areas) == 0 {
+		t.Fatalf("expected areas, got 0")
+	}
+	if areas[0].Name == "" {
+		t.Errorf("expected non-empty area name")
+	}
+	if areas[0].TotalOrders == 0 {
+		t.Errorf("expected positive total orders for area")
+	}
+}
+
+func TestSearchAll(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items, orders := createSampleData()
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Search by item name
+	res, err := store.SearchAll(ctx, "Yellowtip", "all", 10)
+	if err != nil {
+		t.Fatalf("SearchAll failed: %v", err)
+	}
+	if res.Items.Total == 0 {
+		t.Errorf("expected at least 1 item matching Yellowtip")
+	}
+	if res.Orders.Total == 0 {
+		t.Errorf("expected at least 1 order matching Yellowtip item")
+	}
+
+	// Search by customer name
+	resCust, err := store.SearchAll(ctx, "Narmada", "customers", 10)
+	if err != nil {
+		t.Fatalf("SearchAll customers failed: %v", err)
+	}
+	if resCust.Customers.Total != 1 {
+		t.Errorf("expected 1 customer matching Narmada, got %d", resCust.Customers.Total)
+	}
+}
+
+func TestGetOrders_StatusFilter(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items, orders := createSampleData()
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	ordersCompleted, total, err := store.GetOrders(ctx, storage.OrderFilter{Status: "COMPLETED"})
+	if err != nil {
+		t.Fatalf("GetOrders with status filter failed: %v", err)
+	}
+	if total == 0 || len(ordersCompleted) == 0 {
+		t.Fatalf("expected orders with COMPLETED status, got 0")
+	}
+
+	// Filter with non-existent status
+	ordersNone, totalNone, err := store.GetOrders(ctx, storage.OrderFilter{Status: "NON_EXISTENT_STATUS"})
+	if err != nil {
+		t.Fatalf("GetOrders with non-existent status failed: %v", err)
+	}
+	if totalNone != 0 || len(ordersNone) != 0 {
+		t.Fatalf("expected 0 orders, got %d", totalNone)
+	}
+}
+
+func TestGetTableStats(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items, orders := createSampleData()
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	stats, err := store.GetTableStats(ctx)
+	if err != nil {
+		t.Fatalf("GetTableStats failed: %v", err)
+	}
+	if stats["orders"].RowCount != len(orders) {
+		t.Errorf("expected %d orders, got %d", len(orders), stats["orders"].RowCount)
+	}
+	if stats["items"].RowCount != len(items) {
+		t.Errorf("expected %d items, got %d", len(items), stats["items"].RowCount)
+	}
+	if stats["sync_history"].RowCount != 1 {
+		t.Errorf("expected 1 sync_history record, got %d", stats["sync_history"].RowCount)
 	}
 }

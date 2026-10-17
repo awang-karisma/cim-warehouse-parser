@@ -1,15 +1,24 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/csv"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // HealthResponse defines the health check response.
@@ -80,12 +89,98 @@ type StatsOutput struct {
 	Body storage.Stats
 }
 
+// Sync history
+type ListSyncHistoryInput struct {
+	Limit  int `query:"limit" default:"10" doc:"Max records"`
+	Offset int `query:"offset" default:"0" doc:"Pagination offset"`
+}
+
+type SyncHistoryResponse struct {
+	Total   int                  `json:"total"`
+	Limit   int                  `json:"limit"`
+	Offset  int                  `json:"offset"`
+	Records []storage.SyncRecord `json:"records"`
+}
+
+type SyncHistoryOutput struct {
+	Body SyncHistoryResponse
+}
+
+// Customers
+type ListCustomersInput struct {
+	Search string `query:"search" doc:"Search customer name"`
+	Area   string `query:"area" doc:"Filter by area"`
+	Limit  int    `query:"limit" default:"20" doc:"Max customers"`
+	Offset int    `query:"offset" default:"0" doc:"Pagination offset"`
+}
+
+type CustomersResponse struct {
+	Total     int                      `json:"total"`
+	Limit     int                      `json:"limit"`
+	Offset    int                      `json:"offset"`
+	Customers []storage.CustomerSummary `json:"customers"`
+}
+
+type CustomersOutput struct {
+	Body CustomersResponse
+}
+
+// Areas
+type AreasResponse struct {
+	Total int                   `json:"total"`
+	Areas []storage.AreaSummary `json:"areas"`
+}
+
+type AreasOutput struct {
+	Body AreasResponse
+}
+
+// Search
+type SearchInput struct {
+	Q     string `query:"q" required:"true" doc:"Search query"`
+	Type  string `query:"type" default:"all" doc:"all|orders|items|customers"`
+	Limit int    `query:"limit" default:"10" doc:"Results per category"`
+}
+
+type SearchOutput struct {
+	Body storage.SearchResult
+}
+
+// Config
+type ConfigResponse struct {
+	SyncInterval   string   `json:"sync_interval"`
+	WorkHoursStart string   `json:"work_hours_start"`
+	WorkHoursEnd   string   `json:"work_hours_end"`
+	Timezone       string   `json:"timezone"`
+	WorkDays       []string `json:"work_days"`
+	SpreadsheetID  string   `json:"spreadsheet_id"`
+}
+
+type ConfigOutput struct {
+	Body ConfigResponse
+}
+
+// System
+type SystemResponse struct {
+	Version       string                       `json:"version"`
+	GoVersion     string                       `json:"go_version"`
+	UptimeSeconds int64                        `json:"uptime_seconds"`
+	Port          string                       `json:"port"`
+	DBPath        string                       `json:"db_path"`
+	Tables        map[string]storage.TableStat `json:"tables"`
+}
+
+type SystemOutput struct {
+	Body SystemResponse
+}
+
 // Inputs
 type ListOrdersInput struct {
 	Customer       string `query:"customer" doc:"Filter by customer name"`
 	Date           string `query:"date" doc:"Filter by order date (DD/MM/YYYY)"`
 	Tanggal        string `query:"tanggal" doc:"Alias for date filter"`
 	Area           string `query:"area" doc:"Filter by area / region"`
+	Status         string `query:"status" doc:"Filter by dominant item status_order"`
 	OrderNumber    string `query:"order_number" doc:"Filter by E-Katalog order ID (EP-...)"`
 	EcatalogNumber string `query:"ecatalog_number" doc:"Alias for order_number"`
 	Limit          int    `query:"limit" default:"50" doc:"Max orders to return (max 1000)"`
@@ -204,6 +299,7 @@ func (s *Server) handleListOrders(ctx context.Context, input *ListOrdersInput) (
 		Date:           date,
 		Tanggal:        date,
 		Area:           area,
+		Status:         input.Status,
 		OrderNumber:    orderNumber,
 		EcatalogNumber: orderNumber,
 		Limit:          limit,
@@ -316,4 +412,258 @@ func (s *Server) handleGetStats(ctx context.Context, input *struct{}) (*StatsOut
 	return &StatsOutput{
 		Body: *stats,
 	}, nil
+}
+
+func (s *Server) handleListSyncHistory(ctx context.Context, input *ListSyncHistoryInput) (*SyncHistoryOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	records, total, err := s.store.GetSyncHistory(ctx, limit, offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+	return &SyncHistoryOutput{
+		Body: SyncHistoryResponse{
+			Total:   total,
+			Limit:   limit,
+			Offset:  offset,
+			Records: records,
+		},
+	}, nil
+}
+
+func (s *Server) handleListCustomers(ctx context.Context, input *ListCustomersInput) (*CustomersOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	custs, total, err := s.store.GetCustomers(ctx, input.Search, input.Area, limit, offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+	return &CustomersOutput{
+		Body: CustomersResponse{
+			Total:     total,
+			Limit:     limit,
+			Offset:    offset,
+			Customers: custs,
+		},
+	}, nil
+}
+
+func (s *Server) handleListAreas(ctx context.Context, input *struct{}) (*AreasOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	areas, err := s.store.GetAreas(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+	return &AreasOutput{
+		Body: AreasResponse{
+			Total: len(areas),
+			Areas: areas,
+		},
+	}, nil
+}
+
+func (s *Server) handleSearch(ctx context.Context, input *SearchInput) (*SearchOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	res, err := s.store.SearchAll(ctx, input.Q, input.Type, input.Limit)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+	return &SearchOutput{
+		Body: *res,
+	}, nil
+}
+
+func (s *Server) handleConfig(ctx context.Context, input *struct{}) (*ConfigOutput, error) {
+	cfg := s.appConfig
+	if cfg == nil {
+		def := config.DefaultConfig()
+		cfg = &def
+	}
+	resp := ConfigResponse{
+		SyncInterval:   cfg.SyncInterval.String(),
+		WorkHoursStart: cfg.WorkHoursStart,
+		WorkHoursEnd:   cfg.WorkHoursEnd,
+		Timezone:       cfg.Timezone,
+		WorkDays:       []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"},
+		SpreadsheetID:  cfg.SpreadsheetID,
+	}
+	return &ConfigOutput{Body: resp}, nil
+}
+
+func (s *Server) handleSystem(ctx context.Context, input *struct{}) (*SystemOutput, error) {
+	cfg := s.appConfig
+	port := "8080"
+	dbPath := "data/warehouse.db"
+	if cfg != nil {
+		port = cfg.Port
+		dbPath = cfg.DBPath
+	}
+
+	var tables map[string]storage.TableStat
+	if s.store != nil {
+		tStats, err := s.store.GetTableStats(ctx)
+		if err == nil {
+			tables = tStats
+		}
+	}
+	if tables == nil {
+		tables = make(map[string]storage.TableStat)
+	}
+
+	uptime := int64(0)
+	if !s.startTime.IsZero() {
+		uptime = int64(time.Since(s.startTime).Seconds())
+	}
+
+	resp := SystemResponse{
+		Version:       "v1.0.0",
+		GoVersion:     runtime.Version(),
+		UptimeSeconds: uptime,
+		Port:          port,
+		DBPath:        dbPath,
+		Tables:        tables,
+	}
+	return &SystemOutput{Body: resp}, nil
+}
+
+func (s *Server) handleExportItems(c fiber.Ctx) error {
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).SendString("storage service not available")
+	}
+
+	customer := c.Query("customer")
+	namaBarang := c.Query("nama_barang")
+	statusOrder := c.Query("status_order")
+	date := c.Query("date")
+	if date == "" {
+		date = c.Query("tanggal")
+	}
+
+	items, _, err := s.store.GetItems(c.Context(), storage.ItemFilter{
+		Customer:    customer,
+		NamaBarang:  namaBarang,
+		StatusOrder: statusOrder,
+		Date:        date,
+		Tanggal:     date,
+		Limit:       0,
+	})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	}
+
+	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("Content-Disposition", `attachment; filename="items.csv"`)
+
+	writer := csv.NewWriter(c)
+	header := []string{
+		"Row", "Order Number", "Tanggal", "Customer", "Area",
+		"Nama Barang", "Jumlah", "Satuan", "Status Order", "Status Barang",
+		"Tanggal Pengiriman", "Lead Time", "Jumlah Terkirim", "Belum Terkirim",
+		"Keterangan", "Catatan",
+	}
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+
+	for _, it := range items {
+		row := []string{
+			strconv.Itoa(it.RowIndex),
+			it.OrderNumber,
+			it.Tanggal,
+			it.Customer,
+			it.Area,
+			it.NamaBarang,
+			it.Jumlah,
+			it.Satuan,
+			it.StatusOrder,
+			it.StatusBarang,
+			it.TanggalPengiriman,
+			it.LeadTimePengiriman,
+			it.JumlahTerkirim,
+			it.BelumTerkirim,
+			it.Keterangan,
+			it.Catatan,
+		}
+		if err := writer.Write(row); err != nil {
+			return err
+		}
+	}
+
+	writer.Flush()
+	return writer.Error()
+}
+
+func (s *Server) handleSyncSSE(c fiber.Ctx) error {
+	if s.worker == nil {
+		return c.Status(fiber.StatusServiceUnavailable).SendString("worker service not available")
+	}
+
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("X-Accel-Buffering", "no")
+
+	ctx := c.Context()
+
+	return c.SendStreamWriter(func(w *bufio.Writer) {
+		ch := s.worker.Subscribe()
+		defer s.worker.Unsubscribe(ch)
+
+		// Send initial status event
+		ws := s.worker.Status()
+		initEvt := worker.SyncEvent{
+			Status: ws.Status,
+		}
+		initData, _ := json.Marshal(initEvt)
+		_, _ = fmt.Fprintf(w, "event: sync\ndata: %s\n\n", initData)
+		if err := w.Flush(); err != nil {
+			return
+		}
+
+		for {
+			select {
+			case evt, ok := <-ch:
+				if !ok {
+					return
+				}
+				data, _ := json.Marshal(evt)
+				_, _ = fmt.Fprintf(w, "event: sync\ndata: %s\n\n", data)
+				if err := w.Flush(); err != nil {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
 }

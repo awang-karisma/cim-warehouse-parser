@@ -27,3 +27,7 @@ testdata/
 
 # Frontend mockups
 mockup/
+
+# Frontend
+web/node_modules/
+web/dist/

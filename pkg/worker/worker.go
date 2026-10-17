@@ -68,6 +68,15 @@ type Status struct {
 	LastError         string        `json:"last_error,omitempty"`
 }
 
+// SyncEvent represents a progress or completion event during synchronization.
+type SyncEvent struct {
+	Status     string              `json:"status"` // "SYNCING", "SUCCESS", "ERROR"
+	Message    string              `json:"message,omitempty"`
+	Record     *storage.SyncRecord `json:"record,omitempty"`
+	DurationMs int64               `json:"duration_ms,omitempty"`
+	Error      string              `json:"error,omitempty"`
+}
+
 // Worker coordinates periodic synchronization within allowed work hours.
 type Worker struct {
 	cfg      Config
@@ -83,6 +92,9 @@ type Worker struct {
 	lastDuration time.Duration
 	status       string
 	lastError    string
+
+	subMu       sync.Mutex
+	subscribers map[chan SyncEvent]struct{}
 }
 
 // New creates and initializes a new Worker.
@@ -152,8 +164,8 @@ func New(cfg Config, store *storage.Storage, fetcher Fetcher) (*Worker, error) {
 		endMin:   endMin,
 		bypassWorkHoursOnFirstSync: bypassOnFirst,
 		status:                     "IDLE",
+		subscribers:                make(map[chan SyncEvent]struct{}),
 	}
-
 	return w, nil
 }
 
@@ -225,6 +237,41 @@ func (w *Worker) IsWithinWorkHours(t time.Time) bool {
 	return curMin >= w.startMin || curMin < w.endMin
 }
 
+// Subscribe registers a new subscriber channel for sync events.
+func (w *Worker) Subscribe() <-chan SyncEvent {
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
+	ch := make(chan SyncEvent, 16)
+	w.subscribers[ch] = struct{}{}
+	return ch
+}
+
+// Unsubscribe removes a subscriber channel and closes it.
+func (w *Worker) Unsubscribe(ch <-chan SyncEvent) {
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
+	for c := range w.subscribers {
+		if c == ch {
+			delete(w.subscribers, c)
+			close(c)
+			break
+		}
+	}
+}
+
+// broadcast sends an event to all active subscribers without blocking.
+func (w *Worker) broadcast(evt SyncEvent) {
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
+	for ch := range w.subscribers {
+		select {
+		case ch <- evt:
+		default:
+			// subscriber is slow or stale, drop
+		}
+	}
+}
+
 // RunOnce performs a single synchronization run.
 // If outside work hours and force is false, it logs and skips.
 // If inside work hours or force is true, it calls fetcher and SyncMirror.
@@ -258,6 +305,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 	w.mu.Lock()
 	w.status = "SYNCING"
 	w.mu.Unlock()
+	w.broadcast(SyncEvent{Status: "SYNCING", Message: "fetching data from source"})
 
 	startTime := time.Now()
 	items, orders, err := w.fetcher.Fetch(ctx)
@@ -270,10 +318,12 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		w.lastError = err.Error()
 		w.mu.Unlock()
 
-		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, err.Error())
+		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, err.Error(), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: "ERROR", Error: err.Error(), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("fetch failed: %w", err)
 	}
 
+	w.broadcast(SyncEvent{Status: "SYNCING", Message: "writing to database"})
 	err = w.store.SyncMirror(ctx, items, orders)
 	duration := time.Since(startTime)
 
@@ -285,13 +335,18 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		w.lastError = err.Error()
 		w.mu.Unlock()
 
-		_ = w.store.RecordSync(ctx, "ERROR", len(items), len(orders), err.Error())
+		_ = w.store.RecordSync(ctx, "ERROR", len(items), len(orders), err.Error(), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: "ERROR", Error: err.Error(), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("sync mirror failed: %w", err)
 	}
+	_ = w.store.UpdateLastSyncDuration(ctx, duration.Milliseconds())
 
 	w.status = "IDLE"
 	w.lastError = ""
 	w.mu.Unlock()
+
+	rec, _ := w.store.GetLastSync(ctx)
+	w.broadcast(SyncEvent{Status: "SUCCESS", Record: rec, DurationMs: duration.Milliseconds()})
 
 	return nil
 }

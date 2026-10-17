@@ -2,7 +2,12 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/danielgtaylor/huma/v2"
@@ -11,20 +16,24 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/static"
 )
 
 // Config holds dependencies for creating an API Server.
 type Config struct {
-	Store  *storage.Storage
-	Worker *worker.Worker
+	Store     *storage.Storage
+	Worker    *worker.Worker
+	AppConfig *config.Config
 }
 
 // Server wraps the Fiber v3 HTTP application and Huma v2 API.
 type Server struct {
-	app     *fiber.App
-	humaAPI huma.API
-	store   *storage.Storage
-	worker  *worker.Worker
+	app       *fiber.App
+	humaAPI   huma.API
+	store     *storage.Storage
+	worker    *worker.Worker
+	appConfig *config.Config
+	startTime time.Time
 }
 
 // New creates and initializes a new Fiber v3 API Server with middlewares and routes.
@@ -45,13 +54,19 @@ func New(cfg Config) *Server {
 	humaAPI := humafiber.New(app, humaCfg)
 
 	s := &Server{
-		app:     app,
-		humaAPI: humaAPI,
-		store:   cfg.Store,
-		worker:  cfg.Worker,
+		app:       app,
+		humaAPI:   humaAPI,
+		store:     cfg.Store,
+		worker:    cfg.Worker,
+		appConfig: cfg.AppConfig,
+		startTime: time.Now(),
 	}
 
 	s.registerOperations()
+
+	// Raw Fiber routes
+	app.Get("/api/v1/items/export", s.handleExportItems)
+	app.Get("/api/v1/sync/events", s.handleSyncSSE)
 	return s
 }
 
@@ -63,6 +78,22 @@ func (s *Server) App() *fiber.App {
 // HumaAPI returns the underlying Huma API instance.
 func (s *Server) HumaAPI() huma.API {
 	return s.humaAPI
+}
+
+// SetupStaticFiles configures static asset serving and SPA fallback to index.html.
+func (s *Server) SetupStaticFiles(distPath string) {
+	s.app.Use("/assets", static.New(filepath.Join(distPath, "assets")))
+	s.app.Get("/*", func(c fiber.Ctx) error {
+		p := c.Path()
+		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") {
+			return c.Next()
+		}
+		targetFile := filepath.Join(distPath, filepath.Clean(p))
+		if info, err := os.Stat(targetFile); err == nil && !info.IsDir() {
+			return c.SendFile(targetFile)
+		}
+		return c.SendFile(filepath.Join(distPath, "index.html"))
+	})
 }
 
 func (s *Server) registerOperations() {
@@ -128,4 +159,57 @@ func (s *Server) registerOperations() {
 		Description: "Get aggregated summary statistics of orders and items",
 		Tags:        []string{"stats"},
 	}, s.handleGetStats)
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-sync-history",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/sync/history",
+		Summary:     "List sync history",
+		Description: "List historical background worker sync records with pagination",
+		Tags:        []string{"worker"},
+	}, s.handleListSyncHistory)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-customers",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/customers",
+		Summary:     "List customers",
+		Description: "List aggregated customer summaries with status breakdowns and pagination",
+		Tags:        []string{"customers"},
+	}, s.handleListCustomers)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-areas",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/areas",
+		Summary:     "List areas",
+		Description: "List regional area summaries with order and status breakdowns",
+		Tags:        []string{"areas"},
+	}, s.handleListAreas)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "search",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/search",
+		Summary:     "Global search",
+		Description: "Search across orders, line items, and customers",
+		Tags:        []string{"search"},
+	}, s.handleSearch)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-config",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/config",
+		Summary:     "Get system configuration",
+		Description: "Get worker scheduling, timezone, and spreadsheet configuration parameters",
+		Tags:        []string{"system"},
+	}, s.handleConfig)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-system-info",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/system",
+		Summary:     "Get system diagnostics",
+		Description: "Get runtime stats, uptime, port, db path, and SQLite table metrics",
+		Tags:        []string{"system"},
+	}, s.handleSystem)
 }

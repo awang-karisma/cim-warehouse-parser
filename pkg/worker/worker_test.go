@@ -545,3 +545,68 @@ func TestWorker_CSVFallback(t *testing.T) {
 		t.Errorf("expected RS Siloam, got %q", orders[0].Customer)
 	}
 }
+
+func TestWorker_SubscribeAndBroadcast(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items, orders := sampleMockData()
+	fetcher := &mockFetcher{items: items, orders: orders}
+
+	cfg := worker.Config{
+		Interval:       15 * time.Minute,
+		WorkHoursStart: "00:00",
+		WorkHoursEnd:   "23:59",
+		Timezone:       "Asia/Makassar",
+		WorkDays: []time.Weekday{
+			time.Sunday, time.Monday, time.Tuesday, time.Wednesday,
+			time.Thursday, time.Friday, time.Saturday,
+		},
+	}
+
+	w, err := worker.New(cfg, store, fetcher)
+	if err != nil {
+		t.Fatalf("failed to create worker: %v", err)
+	}
+
+	ch := w.Subscribe()
+	defer w.Unsubscribe(ch)
+
+	err = w.RunOnce(ctx, true)
+	if err != nil {
+		t.Fatalf("RunOnce failed: %v", err)
+	}
+
+	// We should receive events: SYNCING (fetching) -> SYNCING (writing) -> SUCCESS
+	var events []worker.SyncEvent
+	timeout := time.After(1 * time.Second)
+collect:
+	for {
+		select {
+		case evt := <-ch:
+			events = append(events, evt)
+			if evt.Status == "SUCCESS" {
+				break collect
+			}
+		case <-timeout:
+			t.Fatalf("timed out waiting for sync events, got %d events", len(events))
+		}
+	}
+
+	if len(events) < 3 {
+		t.Fatalf("expected at least 3 events, got %d", len(events))
+	}
+	if events[0].Status != "SYNCING" || events[0].Message != "fetching data from source" {
+		t.Errorf("expected first event SYNCING (fetching), got %+v", events[0])
+	}
+	if events[1].Status != "SYNCING" || events[1].Message != "writing to database" {
+		t.Errorf("expected second event SYNCING (writing), got %+v", events[1])
+	}
+	if events[len(events)-1].Status != "SUCCESS" {
+		t.Errorf("expected last event SUCCESS, got %+v", events[len(events)-1])
+	}
+}

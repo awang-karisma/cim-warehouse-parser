@@ -65,9 +65,17 @@ func main() {
 
 	// 6. Start Fiber v3 HTTP server
 	srv := api.New(api.Config{
-		Store:  store,
-		Worker: w,
+		Store:     store,
+		Worker:    w,
+		AppConfig: cfg,
 	})
+
+	distPath := "web/dist"
+	if info, err := os.Stat(distPath); err == nil && info.IsDir() {
+		log.Printf("Serving SolidJS frontend from %s", distPath)
+		srv.SetupStaticFiles(distPath)
+	}
+
 	app := srv.App()
 
 	serverErrors := make(chan error, 1)

@@ -1,0 +1,110 @@
+import type {
+  Stats,
+  PaginatedOrders,
+  Order,
+  PaginatedItems,
+  StatusResponse,
+  SyncRecord,
+  PaginatedSyncHistory,
+  PaginatedCustomers,
+  AreaSummary,
+  SearchResult,
+  ConfigResponse,
+  SystemResponse,
+  SyncEvent,
+} from './types';
+
+function qs(params?: Record<string, string | number | boolean | undefined>): string {
+  if (!params) return '';
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      searchParams.set(key, String(value));
+    }
+  }
+  return searchParams.toString();
+}
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(path, options);
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || `HTTP ${res.status}: ${res.statusText}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export const getStats = () => apiFetch<Stats>('/api/v1/stats');
+
+export const getOrders = (params?: {
+  customer?: string;
+  date?: string;
+  tanggal?: string;
+  area?: string;
+  status?: string;
+  order_number?: string;
+  ecatalog_number?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const query = qs(params);
+  return apiFetch<PaginatedOrders>(`/api/v1/orders${query ? '?' + query : ''}`);
+};
+
+export const getOrderById = (id: string) => apiFetch<Order>(`/api/v1/orders/${encodeURIComponent(id)}`);
+
+export const getItems = (params?: {
+  customer?: string;
+  nama_barang?: string;
+  status_order?: string;
+  date?: string;
+  tanggal?: string;
+  order_number?: string;
+  ecatalog_number?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const query = qs(params);
+  return apiFetch<PaginatedItems>(`/api/v1/items${query ? '?' + query : ''}`);
+};
+
+export const getStatus = () => apiFetch<StatusResponse>('/api/v1/status');
+
+export const triggerSync = () =>
+  apiFetch<{ status: string; message: string; record?: SyncRecord }>('/api/v1/sync', {
+    method: 'POST',
+  });
+
+export const getSyncHistory = (params?: { limit?: number; offset?: number }) => {
+  const query = qs(params);
+  return apiFetch<PaginatedSyncHistory>(`/api/v1/sync/history${query ? '?' + query : ''}`);
+};
+
+export const getCustomers = (params?: { search?: string; area?: string; limit?: number; offset?: number }) => {
+  const query = qs(params);
+  return apiFetch<PaginatedCustomers>(`/api/v1/customers${query ? '?' + query : ''}`);
+};
+
+export const getAreas = () => apiFetch<{ total: number; areas: AreaSummary[] }>('/api/v1/areas');
+
+export const search = (params: { q: string; type?: string; limit?: number }) => {
+  const query = qs(params);
+  return apiFetch<SearchResult>(`/api/v1/search${query ? '?' + query : ''}`);
+};
+
+export const getConfig = () => apiFetch<ConfigResponse>('/api/v1/config');
+
+export const getSystemInfo = () => apiFetch<SystemResponse>('/api/v1/system');
+
+export function subscribeSyncEvents(onEvent: (evt: SyncEvent) => void): EventSource {
+  const es = new EventSource('/api/v1/sync/events');
+  es.addEventListener('sync', (e) => {
+    try {
+      const data = JSON.parse(e.data) as SyncEvent;
+      onEvent(data);
+    } catch (err) {
+      console.error('Failed to parse SSE event data', err);
+    }
+  });
+  return es;
+}
