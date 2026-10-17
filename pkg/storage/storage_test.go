@@ -847,3 +847,114 @@ func TestGetTableStats(t *testing.T) {
 		t.Errorf("expected 1 sync_history record, got %d", stats["sync_history"].RowCount)
 	}
 }
+
+func TestStorage_AreaNormalizationAndCaseInsensitiveQuery(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items := []model.NormalizedItem{
+		{
+			RowIndex:    2,
+			Customer:    "RSUD Bima",
+			Area:        "BIMA",
+			NamaBarang:  "Alat Suntik",
+			StatusOrder: "COMPLETED",
+		},
+		{
+			RowIndex:    3,
+			Customer:    "RS Selong",
+			Area:        "Lombok TIMUR",
+			NamaBarang:  "Infus",
+			StatusOrder: "COMPLETED",
+		},
+	}
+	orders := []model.Order{
+		{
+			ID:       "ORD-0001",
+			Customer: "RSUD Bima",
+			Area:     "BIMA",
+			Items: []model.OrderItem{
+				{RowIndex: 2, NamaBarang: "Alat Suntik", StatusOrder: "COMPLETED"},
+			},
+		},
+		{
+			ID:       "ORD-0002",
+			Customer: "RS Selong",
+			Area:     "Lombok TIMUR",
+			Items: []model.OrderItem{
+				{RowIndex: 3, NamaBarang: "Infus", StatusOrder: "COMPLETED"},
+			},
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Verify stored areas were normalized upon sync
+	ord1, err := store.GetOrderByID(ctx, "ORD-0001")
+	if err != nil {
+		t.Fatalf("GetOrderByID failed: %v", err)
+	}
+	if ord1.Area != "Bima" {
+		t.Errorf("expected stored area 'Bima', got %q", ord1.Area)
+	}
+
+	ord2, err := store.GetOrderByID(ctx, "ORD-0002")
+	if err != nil {
+		t.Fatalf("GetOrderByID failed: %v", err)
+	}
+	if ord2.Area != "Lombok Timur" {
+		t.Errorf("expected stored area 'Lombok Timur', got %q", ord2.Area)
+	}
+
+	// Test querying by various case variations of "Bima"
+	bimaQueries := []string{"bima", "BIMA", "Bima", "  bima  ", "Bima "}
+	for _, q := range bimaQueries {
+		res, total, err := store.GetOrders(ctx, storage.OrderFilter{Area: q})
+		if err != nil {
+			t.Fatalf("GetOrders failed for query %q: %v", q, err)
+		}
+		if total != 1 || len(res) != 1 {
+			t.Errorf("query %q: expected 1 order, got total=%d len=%d", q, total, len(res))
+		} else if res[0].ID != "ORD-0001" {
+			t.Errorf("query %q: expected ORD-0001, got %s", q, res[0].ID)
+		}
+	}
+
+	// Test querying by various variations of "Lombok Timur"
+	ltQueries := []string{"lombok timur", "LOMBOK TIMUR", "Lombok Timur", "Lombok TIMUR", "  Lombok Timur  ", "lotim"}
+	for _, q := range ltQueries {
+		res, total, err := store.GetOrders(ctx, storage.OrderFilter{Area: q})
+		if err != nil {
+			t.Fatalf("GetOrders failed for query %q: %v", q, err)
+		}
+		if total != 1 || len(res) != 1 {
+			t.Errorf("query %q: expected 1 order, got total=%d len=%d", q, total, len(res))
+		} else if res[0].ID != "ORD-0002" {
+			t.Errorf("query %q: expected ORD-0002, got %s", q, res[0].ID)
+		}
+	}
+
+	// Test GetCustomers with area filter variations
+	custs, cTotal, err := store.GetCustomers(ctx, "", "bima", 10, 0)
+	if err != nil {
+		t.Fatalf("GetCustomers failed: %v", err)
+	}
+	if cTotal != 1 || len(custs) != 1 || custs[0].Name != "RSUD Bima" {
+		t.Errorf("expected 1 customer RSUD Bima, got total=%d len=%d", cTotal, len(custs))
+	}
+
+	// Test GetAreas grouping
+	areas, err := store.GetAreas(ctx)
+	if err != nil {
+		t.Fatalf("GetAreas failed: %v", err)
+	}
+	if len(areas) != 2 {
+		t.Errorf("expected 2 distinct areas, got %d", len(areas))
+	}
+}

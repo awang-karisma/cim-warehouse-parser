@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 )
@@ -14,6 +15,105 @@ var (
 	epRegex               = regexp.MustCompile(`(?i)\bEP-[A-Z0-9]+\b`)
 	custEPWithParensRegex = regexp.MustCompile(`(?i)(?:\s*[(\[]\s*EP-[A-Z0-9]+\s*[)\]]|\s*EP-[A-Z0-9]+)`)
 )
+
+// canonicalAreas maps lowercase variations and abbreviations of regional areas to canonical names.
+var canonicalAreas = map[string]string{
+	"lombok timur":            "Lombok Timur",
+	"kab. lombok timur":        "Lombok Timur",
+	"kab lombok timur":         "Lombok Timur",
+	"kabupaten lombok timur":   "Lombok Timur",
+	"lotim":                   "Lombok Timur",
+	"lombok barat":            "Lombok Barat",
+	"kab. lombok barat":        "Lombok Barat",
+	"kab lombok barat":         "Lombok Barat",
+	"kabupaten lombok barat":   "Lombok Barat",
+	"lobar":                   "Lombok Barat",
+	"lombok tengah":           "Lombok Tengah",
+	"kab. lombok tengah":       "Lombok Tengah",
+	"kab lombok tengah":        "Lombok Tengah",
+	"kabupaten lombok tengah":  "Lombok Tengah",
+	"loteng":                  "Lombok Tengah",
+	"lombok utara":            "Lombok Utara",
+	"kab. lombok utara":        "Lombok Utara",
+	"kab lombok utara":         "Lombok Utara",
+	"kabupaten lombok utara":   "Lombok Utara",
+	"lotara":                  "Lombok Utara",
+	"kota mataram":            "Kota Mataram",
+	"mataram":                 "Mataram",
+	"bima":                    "Bima",
+	"kab. bima":               "Bima",
+	"kab bima":                "Bima",
+	"kabupaten bima":          "Bima",
+	"kota bima":               "Kota Bima",
+	"sumbawa":                 "Sumbawa",
+	"kab. sumbawa":            "Sumbawa",
+	"kab sumbawa":             "Sumbawa",
+	"kabupaten sumbawa":       "Sumbawa",
+	"sumbawa barat":           "Sumbawa Barat",
+	"kab. sumbawa barat":      "Sumbawa Barat",
+	"kab sumbawa barat":       "Sumbawa Barat",
+	"kabupaten sumbawa barat": "Sumbawa Barat",
+	"ksb":                     "Sumbawa Barat",
+	"sumbawa besar":           "Sumbawa Besar",
+	"dompu":                   "Dompu",
+	"kab. dompu":              "Dompu",
+	"kab dompu":               "Dompu",
+	"kabupaten dompu":         "Dompu",
+	"ampenan":                 "Ampenan",
+}
+
+// NormalizeArea normalizes regional area names by trimming whitespace,
+// collapsing multiple spaces/newlines, applying standard title casing,
+// and resolving known NTB regional variations to their canonical forms.
+// If raw is empty or "-", it returns an empty string.
+func NormalizeArea(raw string) string {
+	fields := strings.Fields(raw)
+	if len(fields) == 0 {
+		return ""
+	}
+
+	cleaned := strings.Join(fields, " ")
+	if cleaned == "-" || strings.Trim(cleaned, "- ") == "" {
+		return ""
+	}
+
+	lowered := strings.ToLower(cleaned)
+	if canonical, ok := canonicalAreas[lowered]; ok {
+		return canonical
+	}
+
+	words := make([]string, len(fields))
+	for i, f := range fields {
+		words[i] = titleCaseWord(f)
+	}
+	return strings.Join(words, " ")
+}
+
+func titleCaseWord(w string) string {
+	parts := strings.Split(w, "-")
+	for i, p := range parts {
+		upper := strings.ToUpper(p)
+		trimmedUpper := strings.Trim(upper, "()[]{}.,")
+		if trimmedUpper == "NTB" {
+			parts[i] = upper
+			continue
+		}
+		runes := []rune(strings.ToLower(p))
+		firstLetter := true
+		for j, r := range runes {
+			if unicode.IsLetter(r) {
+				if firstLetter {
+					runes[j] = unicode.ToUpper(r)
+					firstLetter = false
+ 				}
+			} else {
+				firstLetter = true
+			}
+		}
+		parts[i] = string(runes)
+	}
+	return strings.Join(parts, "-")
+}
 
 // extractAndCleanCustomer extracts an EP order code from the customer field (if present)
 // and returns the cleaned customer name and the extracted EP code.
@@ -60,7 +160,7 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 		}
 
 		cleanCust, epFromCust := extractAndCleanCustomer(raw.Customer)
-		trimmedArea := strings.TrimSpace(raw.Area)
+		trimmedArea := NormalizeArea(raw.Area)
 
 		if cleanCust != "" {
 			currentCustomer = cleanCust
@@ -139,10 +239,11 @@ func GroupOrders(items []model.NormalizedItem) []model.Order {
 	var currentOrder *model.Order
 
 	for _, item := range items {
+		itemArea := NormalizeArea(item.Area)
 		// If item matches the current order's customer and date, append to it
 		if currentOrder != nil && item.Customer == currentOrder.Customer && item.Tanggal == currentOrder.Tanggal {
-			if currentOrder.Area == "" && item.Area != "" {
-				currentOrder.Area = item.Area
+			if currentOrder.Area == "" && itemArea != "" {
+				currentOrder.Area = itemArea
 			}
 			if currentOrder.OrderNumber == "" && item.OrderNumber != "" {
 				currentOrder.OrderNumber = item.OrderNumber
@@ -166,7 +267,7 @@ func GroupOrders(items []model.NormalizedItem) []model.Order {
 			EcatalogNumber: item.EcatalogNumber,
 			Tanggal:        item.Tanggal,
 			Customer:       item.Customer,
-			Area:           item.Area,
+			Area:           itemArea,
 			Items:          []model.OrderItem{toOrderItem(item)},
 		}
 	}
@@ -183,6 +284,7 @@ func finalizeOrder(ord *model.Order) {
 	if ord == nil {
 		return
 	}
+	ord.Area = NormalizeArea(ord.Area)
 	epCode := ord.OrderNumber
 	if epCode == "" {
 		for _, item := range ord.Items {

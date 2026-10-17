@@ -438,3 +438,158 @@ func TestGroupOrders_OrderNumberPropagation(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeArea(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// User request exact cases: Lombok Timur variations
+		{"Lombok Timur canonical", "Lombok Timur", "Lombok Timur"},
+		{"Lombok TIMUR mixed upper", "Lombok TIMUR", "Lombok Timur"},
+		{"Lombok Timur leading trailing spaces", "  Lombok Timur  ", "Lombok Timur"},
+		{"LOMBOK   TIMUR all caps multiple spaces", "LOMBOK   TIMUR", "Lombok Timur"},
+		{"Lombok newline Timur", "Lombok\nTimur", "Lombok Timur"},
+		{"lombok timur all lower", "lombok timur", "Lombok Timur"},
+
+		// User request exact cases: Bima variations
+		{"Bima canonical", "Bima", "Bima"},
+		{"BIMA all caps", "BIMA", "Bima"},
+		{"bima all lower", "bima", "Bima"},
+		{"BIMA with spaces", "  BIMA  ", "Bima"},
+
+		// Empty and dash variations
+		{"empty string", "", ""},
+		{"only spaces", "    ", ""},
+		{"tabs and newlines", "\t \n \r ", ""},
+		{"single dash", "-", ""},
+		{"dash with spaces", "  -  ", ""},
+		{"multiple dashes", "--", ""},
+		{"multiple dashes with spaces", " - - ", ""},
+
+		// Other NTB regions from sample CSV & standard list
+		{"Dompu with trailing space", "Dompu ", "Dompu"},
+		{"dompu lower", "dompu", "Dompu"},
+		{"DOMPU upper", "DOMPU", "Dompu"},
+		{"Ampenan", "Ampenan", "Ampenan"},
+		{"ampenan lower", "ampenan", "Ampenan"},
+		{"Mataram", "Mataram", "Mataram"},
+		{"MATARAM upper", "MATARAM", "Mataram"},
+		{"mataram lower", "mataram", "Mataram"},
+		{"Kota Mataram", "Kota Mataram", "Kota Mataram"},
+		{"KOTA MATARAM", "KOTA MATARAM", "Kota Mataram"},
+		{"kota mataram lower", "kota mataram", "Kota Mataram"},
+		{"Lombok Barat", "Lombok Barat", "Lombok Barat"},
+		{"lombok barat lower", "lombok barat", "Lombok Barat"},
+		{"LOMBOK BARAT upper", "LOMBOK BARAT", "Lombok Barat"},
+		{"Lombok Tengah", "Lombok Tengah", "Lombok Tengah"},
+		{"LOMBOK TENGAH", "LOMBOK TENGAH", "Lombok Tengah"},
+		{"Lombok Utara", "Lombok Utara", "Lombok Utara"},
+		{"LOMBOK UTARA", "LOMBOK UTARA", "Lombok Utara"},
+		{"Sumbawa", "Sumbawa", "Sumbawa"},
+		{"SUMBAWA", "SUMBAWA", "Sumbawa"},
+		{"Sumbawa Barat", "Sumbawa Barat", "Sumbawa Barat"},
+		{"sumbawa barat lower", "sumbawa barat", "Sumbawa Barat"},
+		{"Sumbawa Besar", "Sumbawa Besar", "Sumbawa Besar"},
+		{"Kota Bima", "Kota Bima", "Kota Bima"},
+		{"KOTA BIMA", "KOTA BIMA", "Kota Bima"},
+
+		// Colloquial abbreviations and prefixes
+		{"Lotim abbreviation", "lotim", "Lombok Timur"},
+		{"Lobar abbreviation", "Lobar", "Lombok Barat"},
+		{"Loteng abbreviation", "LOTENG", "Lombok Tengah"},
+		{"Lotara abbreviation", "Lotara", "Lombok Utara"},
+		{"KSB abbreviation", "ksb", "Sumbawa Barat"},
+		{"Kab. Lombok Timur", "kab. lombok timur", "Lombok Timur"},
+		{"Kabupaten Bima", "kabupaten bima", "Bima"},
+		{"Kab. Dompu", "Kab. Dompu", "Dompu"},
+
+		// Fallback title casing for non-NTB regions
+		{"Jakarta Selatan", "jakarta selatan", "Jakarta Selatan"},
+		{"JAKARTA PUSAT", "JAKARTA PUSAT", "Jakarta Pusat"},
+		{"Denpasar", "denpasar", "Denpasar"},
+		{"Mataram NTB acronym preserved", "MATARAM NTB", "Mataram NTB"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := normalizer.NormalizeArea(tc.input)
+			if actual != tc.expected {
+				t.Errorf("NormalizeArea(%q) = %q; expected %q", tc.input, actual, tc.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeRows_AreaNormalization(t *testing.T) {
+	rawRows := []model.RawOrderRow{
+		{
+			Tanggal:    "02/01/2026",
+			Customer:   "RS Selong",
+			Area:       "LOMBOK TIMUR",
+			NamaBarang: "Spuit 5cc",
+		},
+		{
+			// Inherits area from previous row
+			NamaBarang: "Needle 21G",
+		},
+		{
+			// New customer with unnormalized area and extra spaces
+			Customer:   "RS Bima",
+			Area:       "  BIMA  ",
+			NamaBarang: "Infus Set",
+		},
+		{
+			// Same customer, dash area should be ignored and keep previous area or reset
+			Customer:   "Klinik Mataram",
+			Area:       "-",
+			NamaBarang: "Kasa Steril",
+		},
+	}
+
+	items := normalizer.NormalizeRows(rawRows)
+	if len(items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(items))
+	}
+
+	if items[0].Area != "Lombok Timur" {
+		t.Errorf("expected item 0 Area 'Lombok Timur', got %q", items[0].Area)
+	}
+	if items[1].Area != "Lombok Timur" {
+		t.Errorf("expected item 1 forward-filled Area 'Lombok Timur', got %q", items[1].Area)
+	}
+	if items[2].Area != "Bima" {
+		t.Errorf("expected item 2 Area 'Bima', got %q", items[2].Area)
+	}
+	if items[3].Area != "" {
+		t.Errorf("expected item 3 Area '', got %q", items[3].Area)
+	}
+}
+
+func TestGroupOrders_AreaNormalization(t *testing.T) {
+	items := []model.NormalizedItem{
+		{
+			RowIndex:   2,
+			Tanggal:    "02/01/2026",
+			Customer:   "RS Narmada",
+			Area:       "lombok barat",
+			NamaBarang: "Item 1",
+		},
+		{
+			RowIndex:   3,
+			Tanggal:    "02/01/2026",
+			Customer:   "RS Narmada",
+			Area:       "LOMBOK BARAT",
+			NamaBarang: "Item 2",
+		},
+	}
+
+	orders := normalizer.GroupOrders(items)
+	if len(orders) != 1 {
+		t.Fatalf("expected 1 order, got %d", len(orders))
+	}
+	if orders[0].Area != "Lombok Barat" {
+		t.Errorf("expected order Area 'Lombok Barat', got %q", orders[0].Area)
+	}
+}

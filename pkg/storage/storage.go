@@ -344,7 +344,8 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 		if total == 0 && len(ord.Items) > 0 {
 			total = len(ord.Items)
 		}
-		if _, err := orderStmt.ExecContext(ctx, ord.ID, ord.OrderNumber, ord.EcatalogNumber, ord.Tanggal, ord.Customer, ord.Area, total, now); err != nil {
+		cleanArea := normalizer.NormalizeArea(ord.Area)
+		if _, err := orderStmt.ExecContext(ctx, ord.ID, ord.OrderNumber, ord.EcatalogNumber, ord.Tanggal, ord.Customer, cleanArea, total, now); err != nil {
 			return fmt.Errorf("failed to insert order %s: %w", ord.ID, err)
 		}
 	}
@@ -378,8 +379,14 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 					ecatNum = ord.EcatalogNumber
 				}
 			}
+			cleanArea := normalizer.NormalizeArea(it.Area)
+			if cleanArea == "" {
+				if ord, ok := orderByID[ordID]; ok {
+					cleanArea = normalizer.NormalizeArea(ord.Area)
+				}
+			}
 			if _, err := itemStmt.ExecContext(ctx,
-				it.RowIndex, ordID, orderNum, ecatNum, it.Tanggal, it.Customer, it.Area,
+				it.RowIndex, ordID, orderNum, ecatNum, it.Tanggal, it.Customer, cleanArea,
 				it.NamaBarang, it.Jumlah, it.Satuan, it.TanggalPengiriman,
 				it.LeadTimePengiriman, it.JumlahTerkirim, it.BelumTerkirim,
 				it.StatusOrder, it.StatusBarang, it.Keterangan, it.Catatan,
@@ -400,8 +407,9 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 				if ecatNum == "" {
 					ecatNum = ord.EcatalogNumber
 				}
+				cleanArea := normalizer.NormalizeArea(ord.Area)
 				if _, err := itemStmt.ExecContext(ctx,
-					oi.RowIndex, ord.ID, orderNum, ecatNum, ord.Tanggal, ord.Customer, ord.Area,
+					oi.RowIndex, ord.ID, orderNum, ecatNum, ord.Tanggal, ord.Customer, cleanArea,
 					oi.NamaBarang, oi.Jumlah, oi.Satuan, oi.TanggalPengiriman,
 					oi.LeadTimePengiriman, oi.JumlahTerkirim, oi.BelumTerkirim,
 					oi.StatusOrder, oi.StatusBarang, oi.Keterangan, oi.Catatan,
@@ -470,8 +478,14 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 	}
 
 	if filter.Area != "" {
-		conditions = append(conditions, "area LIKE ?")
-		args = append(args, "%"+filter.Area+"%")
+		trimmedArea := strings.TrimSpace(filter.Area)
+		if norm := normalizer.NormalizeArea(trimmedArea); norm != "" {
+			trimmedArea = norm
+		}
+		if trimmedArea != "" && trimmedArea != "-" {
+			conditions = append(conditions, "LOWER(area) LIKE ?")
+			args = append(args, "%"+strings.ToLower(trimmedArea)+"%")
+		}
 	}
 
 	orderNum := filter.OrderNumber
@@ -859,8 +873,14 @@ func (s *Storage) GetCustomers(ctx context.Context, search, area string, limit, 
 		args = append(args, "%"+search+"%")
 	}
 	if area != "" {
-		conditions = append(conditions, "o.area LIKE ?")
-		args = append(args, "%"+area+"%")
+		trimmedArea := strings.TrimSpace(area)
+		if norm := normalizer.NormalizeArea(trimmedArea); norm != "" {
+			trimmedArea = norm
+		}
+		if trimmedArea != "" && trimmedArea != "-" {
+			conditions = append(conditions, "LOWER(o.area) LIKE ?")
+			args = append(args, "%"+strings.ToLower(trimmedArea)+"%")
+		}
 	}
 
 	whereClause := " WHERE " + strings.Join(conditions, " AND ")
