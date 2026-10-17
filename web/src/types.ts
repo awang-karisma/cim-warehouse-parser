@@ -169,3 +169,13 @@ export interface PaginatedCustomers {
   offset: number;
   customers: CustomerSummary[];
 }
+
+export interface CustomerAliasGroup {
+  canonical: string;
+  area?: string;
+  aliases: string[];
+}
+
+export interface CustomerAliasesResponse {
+  groups: CustomerAliasGroup[];
+}

@@ -73,3 +73,10 @@ type OrderItem struct {
 	Catatan            string `json:"catatan"`
 }
 
+// CustomerAlias defines a customer variant spelling alias mapped to a canonical customer name and optional linked area.
+type CustomerAlias struct {
+	Alias     string `json:"alias,omitempty"`
+	Canonical string `json:"canonical"`
+	Area      string `json:"area,omitempty"`
+}
+

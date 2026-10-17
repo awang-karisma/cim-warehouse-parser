@@ -76,6 +76,13 @@ type CustomerSummary struct {
 	StatusCounts  map[string]int `json:"status_counts"`
 }
 
+// CustomerAliasGroup groups variant aliases under a canonical customer name and optional linked area.
+type CustomerAliasGroup struct {
+	Canonical string   `json:"canonical"`
+	Area      string   `json:"area,omitempty"`
+	Aliases   []string `json:"aliases"`
+}
+
 // AreaSummary represents aggregated area statistics.
 type AreaSummary struct {
 	Name            string         `json:"name"`
@@ -240,6 +247,14 @@ func (s *Storage) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_items_nama_barang ON items(nama_barang);
 	CREATE INDEX IF NOT EXISTS idx_items_status_order ON items(status_order);
 	CREATE INDEX IF NOT EXISTS idx_items_tanggal ON items(tanggal);
+
+	CREATE TABLE IF NOT EXISTS customer_aliases (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		alias TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		canonical TEXT NOT NULL,
+		area TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_customer_aliases_alias ON customer_aliases(alias);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -253,6 +268,7 @@ func (s *Storage) migrate() error {
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);`)
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_items_order_number ON items(order_number);`)
 	_, _ = s.db.Exec(`ALTER TABLE sync_history ADD COLUMN duration_ms INTEGER DEFAULT 0;`)
+	_, _ = s.db.Exec(`ALTER TABLE customer_aliases ADD COLUMN area TEXT NOT NULL DEFAULT '';`)
 
 	return nil
 }
@@ -457,6 +473,169 @@ func (s *Storage) UpdateLastSyncDuration(ctx context.Context, durationMs int64) 
 	return nil
 }
 
+// GetCustomerAliases returns a map of lowercase alias (and lowercase canonical) to CustomerAlias.
+func (s *Storage) GetCustomerAliases(ctx context.Context) (map[string]model.CustomerAlias, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT LOWER(alias), canonical, COALESCE(area, '') FROM customer_aliases")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query customer aliases: %w", err)
+	}
+	defer rows.Close()
+
+	aliases := make(map[string]model.CustomerAlias)
+	for rows.Next() {
+		var a, c, area string
+		if err := rows.Scan(&a, &c, &area); err != nil {
+			return nil, fmt.Errorf("failed to scan customer alias: %w", err)
+		}
+		cleanArea := strings.TrimSpace(area)
+		if norm := normalizer.NormalizeArea(cleanArea); norm != "" {
+			cleanArea = norm
+		}
+		aliases[a] = model.CustomerAlias{
+			Alias:     a,
+			Canonical: c,
+			Area:      cleanArea,
+		}
+		cLower := strings.ToLower(strings.TrimSpace(c))
+		if _, exists := aliases[cLower]; !exists && cleanArea != "" {
+			aliases[cLower] = model.CustomerAlias{
+				Canonical: c,
+				Area:      cleanArea,
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading customer alias rows: %w", err)
+	}
+	return aliases, nil
+}
+
+// GetCustomerAliasesGrouped returns customer aliases grouped by canonical name, ordered by canonical then alias.
+func (s *Storage) GetCustomerAliasesGrouped(ctx context.Context) ([]CustomerAliasGroup, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT alias, canonical, COALESCE(area, '') FROM customer_aliases ORDER BY canonical COLLATE NOCASE, alias COLLATE NOCASE")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query grouped customer aliases: %w", err)
+	}
+	defer rows.Close()
+
+	groupsMap := make(map[string][]string)
+	areaMap := make(map[string]string)
+	var canonicalOrder []string
+
+	for rows.Next() {
+		var alias, canonical, area string
+		if err := rows.Scan(&alias, &canonical, &area); err != nil {
+			return nil, fmt.Errorf("failed to scan customer alias: %w", err)
+		}
+		if _, exists := groupsMap[canonical]; !exists {
+			canonicalOrder = append(canonicalOrder, canonical)
+		}
+		groupsMap[canonical] = append(groupsMap[canonical], alias)
+		if area != "" && areaMap[canonical] == "" {
+			areaMap[canonical] = area
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading grouped customer alias rows: %w", err)
+	}
+
+	result := make([]CustomerAliasGroup, 0, len(canonicalOrder))
+	for _, c := range canonicalOrder {
+		result = append(result, CustomerAliasGroup{
+			Canonical: c,
+			Area:      areaMap[c],
+			Aliases:   groupsMap[c],
+		})
+	}
+	return result, nil
+}
+
+// SetCustomerAlias creates or updates a customer alias mapping case-insensitively with linked area.
+func (s *Storage) SetCustomerAlias(ctx context.Context, alias, canonical, area string) error {
+	trimmedAlias := strings.TrimSpace(alias)
+	trimmedCanonical := strings.TrimSpace(canonical)
+	trimmedArea := strings.TrimSpace(area)
+	if norm := normalizer.NormalizeArea(trimmedArea); norm != "" {
+		trimmedArea = norm
+	}
+	if trimmedAlias == "" || trimmedCanonical == "" {
+		return fmt.Errorf("alias and canonical cannot be empty")
+	}
+	if strings.EqualFold(trimmedAlias, trimmedCanonical) {
+		return fmt.Errorf("alias cannot be equal to canonical name")
+	}
+
+	query := `
+		INSERT INTO customer_aliases (alias, canonical, area)
+		VALUES (?, ?, ?)
+		ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical, area = excluded.area
+	`
+	if _, err := s.db.ExecContext(ctx, query, trimmedAlias, trimmedCanonical, trimmedArea); err != nil {
+		return fmt.Errorf("failed to set customer alias: %w", err)
+	}
+	return nil
+}
+
+// DeleteCustomerAlias deletes a customer alias mapping case-insensitively.
+func (s *Storage) DeleteCustomerAlias(ctx context.Context, alias string) error {
+	trimmedAlias := strings.TrimSpace(alias)
+	if trimmedAlias == "" {
+		return fmt.Errorf("alias cannot be empty")
+	}
+
+	query := `DELETE FROM customer_aliases WHERE alias = ? COLLATE NOCASE`
+	if _, err := s.db.ExecContext(ctx, query, trimmedAlias); err != nil {
+		return fmt.Errorf("failed to delete customer alias: %w", err)
+	}
+	return nil
+}
+
+// customerMatchPatterns returns the search pattern for the query plus all related
+// canonical and alias patterns where alias or canonical matches the query.
+func (s *Storage) customerMatchPatterns(ctx context.Context, query string) ([]string, error) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	pattern := "%" + trimmed + "%"
+	seen := make(map[string]struct{})
+	var patterns []string
+
+	addPattern := func(p string) {
+		pLower := strings.ToLower(p)
+		if _, ok := seen[pLower]; !ok {
+			seen[pLower] = struct{}{}
+			patterns = append(patterns, p)
+		}
+	}
+
+	addPattern(pattern)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT alias, canonical FROM customer_aliases
+		WHERE alias LIKE ? OR canonical LIKE ?
+	`, pattern, pattern)
+	if err != nil {
+		return patterns, nil // fallback to base pattern if query fails
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var a, c string
+		if err := rows.Scan(&a, &c); err == nil {
+			if c != "" {
+				addPattern("%" + c + "%")
+			}
+			if a != "" {
+				addPattern("%" + a + "%")
+			}
+		}
+	}
+
+	return patterns, nil
+}
+
 // GetOrders retrieves orders matching the filter criteria with pagination support.
 // Returns matched orders slice, total count before pagination, and any error.
 func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Order, int, error) {
@@ -464,8 +643,16 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 	var args []any
 
 	if filter.Customer != "" {
-		conditions = append(conditions, "customer LIKE ?")
-		args = append(args, "%"+filter.Customer+"%")
+		patterns, err := s.customerMatchPatterns(ctx, filter.Customer)
+		if err != nil {
+			return nil, 0, err
+		}
+		custConds := make([]string, len(patterns))
+		for i, p := range patterns {
+			custConds[i] = "customer LIKE ?"
+			args = append(args, p)
+		}
+		conditions = append(conditions, "("+strings.Join(custConds, " OR ")+")")
 	}
 
 	date := filter.Date
@@ -661,8 +848,16 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 	var args []any
 
 	if filter.Customer != "" {
-		conditions = append(conditions, "customer LIKE ?")
-		args = append(args, "%"+filter.Customer+"%")
+		patterns, err := s.customerMatchPatterns(ctx, filter.Customer)
+		if err != nil {
+			return nil, 0, err
+		}
+		custConds := make([]string, len(patterns))
+		for i, p := range patterns {
+			custConds[i] = "customer LIKE ?"
+			args = append(args, p)
+		}
+		conditions = append(conditions, "("+strings.Join(custConds, " OR ")+")")
 	}
 	if filter.NamaBarang != "" {
 		conditions = append(conditions, "nama_barang LIKE ?")
@@ -869,8 +1064,16 @@ func (s *Storage) GetCustomers(ctx context.Context, search, area string, limit, 
 
 	conditions = append(conditions, "o.customer != ''")
 	if search != "" {
-		conditions = append(conditions, "o.customer LIKE ?")
-		args = append(args, "%"+search+"%")
+		patterns, err := s.customerMatchPatterns(ctx, search)
+		if err != nil {
+			return nil, 0, err
+		}
+		custConds := make([]string, len(patterns))
+		for i, p := range patterns {
+			custConds[i] = "o.customer LIKE ?"
+			args = append(args, p)
+		}
+		conditions = append(conditions, "("+strings.Join(custConds, " OR ")+")")
 	}
 	if area != "" {
 		trimmedArea := strings.TrimSpace(area)
@@ -1061,22 +1264,36 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	}
 
 	likePattern := "%" + query + "%"
+	custPatterns, _ := s.customerMatchPatterns(ctx, query)
+	if len(custPatterns) == 0 {
+		custPatterns = []string{likePattern}
+	}
+
+	var custConds []string
+	var custArgs []any
+	for _, p := range custPatterns {
+		custConds = append(custConds, "customer LIKE ?")
+		custArgs = append(custArgs, p)
+	}
+	custClause := "(" + strings.Join(custConds, " OR ") + ")"
 
 	// 1. Orders
 	if searchType == "all" || searchType == "orders" {
-		countQuery := `
+		countQuery := fmt.Sprintf(`
 			SELECT COUNT(*) FROM orders
-			WHERE customer LIKE ? OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
-		`
-		_ = s.db.QueryRowContext(ctx, countQuery, likePattern, likePattern).Scan(&result.Orders.Total)
+			WHERE %s OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
+		`, custClause)
+		countArgs := append(append([]any{}, custArgs...), likePattern)
+		_ = s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&result.Orders.Total)
 
 		if result.Orders.Total > 0 {
-			ordersQuery := `
+			ordersQuery := fmt.Sprintf(`
 				SELECT id, customer, tanggal FROM orders
-				WHERE customer LIKE ? OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
+				WHERE %s OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
 				ORDER BY id LIMIT ?
-			`
-			oRows, err := s.db.QueryContext(ctx, ordersQuery, likePattern, likePattern, limit)
+			`, custClause)
+			queryArgs := append(append(append([]any{}, custArgs...), likePattern), limit)
+			oRows, err := s.db.QueryContext(ctx, ordersQuery, queryArgs...)
 			if err == nil {
 				for oRows.Next() {
 					var ord SearchOrderResult
@@ -1109,20 +1326,22 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 
 	// 2. Items
 	if searchType == "all" || searchType == "items" {
-		countQuery := `
+		countQuery := fmt.Sprintf(`
 			SELECT COUNT(*) FROM items
-			WHERE nama_barang LIKE ? OR customer LIKE ?
-		`
-		_ = s.db.QueryRowContext(ctx, countQuery, likePattern, likePattern).Scan(&result.Items.Total)
+			WHERE nama_barang LIKE ? OR %s
+		`, custClause)
+		countArgs := append([]any{likePattern}, custArgs...)
+		_ = s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&result.Items.Total)
 
 		if result.Items.Total > 0 {
-			itemsQuery := `
+			itemsQuery := fmt.Sprintf(`
 				SELECT row_index, customer, nama_barang, jumlah, status_order
 				FROM items
-				WHERE nama_barang LIKE ? OR customer LIKE ?
+				WHERE nama_barang LIKE ? OR %s
 				ORDER BY row_index LIMIT ?
-			`
-			iRows, err := s.db.QueryContext(ctx, itemsQuery, likePattern, likePattern, limit)
+			`, custClause)
+			queryArgs := append(append([]any{likePattern}, custArgs...), limit)
+			iRows, err := s.db.QueryContext(ctx, itemsQuery, queryArgs...)
 			if err == nil {
 				defer iRows.Close()
 				for iRows.Next() {
@@ -1137,21 +1356,22 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 
 	// 3. Customers
 	if searchType == "all" || searchType == "customers" {
-		countQuery := `
+		countQuery := fmt.Sprintf(`
 			SELECT COUNT(DISTINCT customer) FROM orders
-			WHERE customer LIKE ? AND customer != ''
-		`
-		_ = s.db.QueryRowContext(ctx, countQuery, likePattern).Scan(&result.Customers.Total)
+			WHERE %s AND customer != ''
+		`, custClause)
+		_ = s.db.QueryRowContext(ctx, countQuery, custArgs...).Scan(&result.Customers.Total)
 
 		if result.Customers.Total > 0 {
-			cQuery := `
+			cQuery := fmt.Sprintf(`
 				SELECT customer, COALESCE(MAX(area), ''), COUNT(DISTINCT id)
 				FROM orders
-				WHERE customer LIKE ? AND customer != ''
+				WHERE %s AND customer != ''
 				GROUP BY customer
 				ORDER BY COUNT(DISTINCT id) DESC LIMIT ?
-			`
-			cRows, err := s.db.QueryContext(ctx, cQuery, likePattern, limit)
+			`, custClause)
+			queryArgs := append(append([]any{}, custArgs...), limit)
+			cRows, err := s.db.QueryContext(ctx, cQuery, queryArgs...)
 			if err == nil {
 				defer cRows.Close()
 				for cRows.Next() {

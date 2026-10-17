@@ -958,3 +958,144 @@ func TestStorage_AreaNormalizationAndCaseInsensitiveQuery(t *testing.T) {
 		t.Errorf("expected 2 distinct areas, got %d", len(areas))
 	}
 }
+
+func TestStorage_CustomerAliases(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create memory store: %v", err)
+	}
+	defer store.Close()
+
+	// 1. Validation checks on SetCustomerAlias
+	if err := store.SetCustomerAlias(ctx, "", "RS PKU", "Lombok Barat"); err == nil {
+		t.Errorf("expected error for empty alias")
+	}
+	if err := store.SetCustomerAlias(ctx, "RS PKU", "", "Lombok Barat"); err == nil {
+		t.Errorf("expected error for empty canonical")
+	}
+	if err := store.SetCustomerAlias(ctx, "RS PKU", "rs pku", "Lombok Barat"); err == nil {
+		t.Errorf("expected error when alias equals canonical case-insensitively")
+	}
+
+	// 2. Set aliases with linked area
+	if err := store.SetCustomerAlias(ctx, "PKU Muhammadiyah Hospital", "RS PKU Muhammadiyah", "Lombok Barat"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+	if err := store.SetCustomerAlias(ctx, "PKU Muhammadiyah", "RS PKU Muhammadiyah", "Lombok Barat"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+	// Another canonical customer
+	if err := store.SetCustomerAlias(ctx, "RSUD Tripat", "RSUD Patut Patuh Patju", "Lombok Barat"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+
+	// 3. GetCustomerAliases
+	aliasesMap, err := store.GetCustomerAliases(ctx)
+	if err != nil {
+		t.Fatalf("GetCustomerAliases failed: %v", err)
+	}
+	if len(aliasesMap) == 0 {
+		t.Fatalf("expected aliases in map, got empty")
+	}
+	pkuEntry, ok := aliasesMap["pku muhammadiyah hospital"]
+	if !ok || pkuEntry.Canonical != "RS PKU Muhammadiyah" || pkuEntry.Area != "Lombok Barat" {
+		t.Errorf("unexpected entry for pku muhammadiyah hospital: %+v", pkuEntry)
+	}
+
+	// 4. GetCustomerAliasesGrouped
+	groups, err := store.GetCustomerAliasesGrouped(ctx)
+	if err != nil {
+		t.Fatalf("GetCustomerAliasesGrouped failed: %v", err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
+	}
+	var pkuGroup *storage.CustomerAliasGroup
+	for i := range groups {
+		if groups[i].Canonical == "RS PKU Muhammadiyah" {
+			pkuGroup = &groups[i]
+			break
+		}
+	}
+	if pkuGroup == nil || len(pkuGroup.Aliases) != 2 || pkuGroup.Area != "Lombok Barat" {
+		t.Errorf("expected RS PKU Muhammadiyah group with 2 aliases and area 'Lombok Barat', got %+v", pkuGroup)
+	}
+
+	// 5. Test customerMatchPatterns via GetOrders, GetItems, GetCustomers, and SearchAll
+	items := []model.NormalizedItem{
+		{
+			RowIndex:    2,
+			Tanggal:     "01/01/2026",
+			Customer:    "RS PKU Muhammadiyah",
+			Area:        "Lombok Barat",
+			NamaBarang:  "Alcohol Swab",
+			Jumlah:      "10",
+			StatusOrder: "SELESAI",
+		},
+	}
+	orders := []model.Order{
+		{
+			ID:       "ORD-PKU-1",
+			Tanggal:  "01/01/2026",
+			Customer: "RS PKU Muhammadiyah",
+			Area:     "Lombok Barat",
+			Items: []model.OrderItem{
+				{RowIndex: 2, NamaBarang: "Alcohol Swab", Jumlah: "10", StatusOrder: "SELESAI"},
+			},
+		},
+	}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Query by alias variant
+	matchedOrders, totalOrd, err := store.GetOrders(ctx, storage.OrderFilter{Customer: "PKU Muhammadiyah Hospital"})
+	if err != nil {
+		t.Fatalf("GetOrders failed: %v", err)
+	}
+	if totalOrd != 1 || len(matchedOrders) != 1 || matchedOrders[0].Customer != "RS PKU Muhammadiyah" {
+		t.Errorf("expected 1 order with canonical customer, got total=%d orders=%+v", totalOrd, matchedOrders)
+	}
+
+	matchedItems, totalItems, err := store.GetItems(ctx, storage.ItemFilter{Customer: "PKU Muhammadiyah"})
+	if err != nil {
+		t.Fatalf("GetItems failed: %v", err)
+	}
+	if totalItems != 1 || len(matchedItems) != 1 || matchedItems[0].Customer != "RS PKU Muhammadiyah" {
+		t.Errorf("expected 1 item with canonical customer, got total=%d items=%+v", totalItems, matchedItems)
+	}
+
+	custs, totalCusts, err := store.GetCustomers(ctx, "Hospital", "", 10, 0)
+	if err != nil {
+		t.Fatalf("GetCustomers failed: %v", err)
+	}
+	if totalCusts != 1 || len(custs) != 1 || custs[0].Name != "RS PKU Muhammadiyah" {
+		t.Errorf("expected 1 customer RS PKU Muhammadiyah, got total=%d custs=%+v", totalCusts, custs)
+	}
+
+	searchRes, err := store.SearchAll(ctx, "PKU Muhammadiyah", "all", 10)
+	if err != nil {
+		t.Fatalf("SearchAll failed: %v", err)
+	}
+	if searchRes.Orders.Total != 1 || searchRes.Items.Total != 1 || searchRes.Customers.Total != 1 {
+		t.Errorf("expected search matches across orders/items/customers, got orders=%d items=%d custs=%d",
+			searchRes.Orders.Total, searchRes.Items.Total, searchRes.Customers.Total)
+	}
+
+	// 6. DeleteCustomerAlias
+	if err := store.DeleteCustomerAlias(ctx, "PKU Muhammadiyah Hospital"); err != nil {
+		t.Fatalf("DeleteCustomerAlias failed: %v", err)
+	}
+	groupsAfter, err := store.GetCustomerAliasesGrouped(ctx)
+	if err != nil {
+		t.Fatalf("GetCustomerAliasesGrouped failed: %v", err)
+	}
+	for _, g := range groupsAfter {
+		if g.Canonical == "RS PKU Muhammadiyah" {
+			if len(g.Aliases) != 1 || g.Aliases[0] != "PKU Muhammadiyah" {
+				t.Errorf("expected 1 remaining alias after delete, got %+v", g.Aliases)
+			}
+		}
+	}
+}

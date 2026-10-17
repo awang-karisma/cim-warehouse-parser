@@ -33,28 +33,28 @@ type Config struct {
 
 // Fetcher defines the interface for retrieving order items and orders from remote data.
 type Fetcher interface {
-	Fetch(ctx context.Context) ([]model.NormalizedItem, []model.Order, error)
+	Fetch(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error)
 }
 
 // FetcherFunc is an adapter to allow the use of ordinary functions as Fetchers.
-type FetcherFunc func(ctx context.Context) ([]model.NormalizedItem, []model.Order, error)
+type FetcherFunc func(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error)
 
-// Fetch calls f(ctx).
-func (f FetcherFunc) Fetch(ctx context.Context) ([]model.NormalizedItem, []model.Order, error) {
-	return f(ctx)
+// Fetch calls f(ctx, aliases).
+func (f FetcherFunc) Fetch(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
+	return f(ctx, aliases)
 }
 
 // NewSheetsFetcher creates a Fetcher backed by the Google Sheets service.
 func NewSheetsFetcher(svc *sheets.Service, spreadsheetID, sheetName string) Fetcher {
-	return FetcherFunc(func(ctx context.Context) ([]model.NormalizedItem, []model.Order, error) {
-		return parser.ParseSheet(ctx, svc, spreadsheetID, sheetName)
+	return FetcherFunc(func(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
+		return parser.ParseSheetWithAliases(ctx, svc, spreadsheetID, sheetName, aliases)
 	})
 }
 
 // NewCSVFetcher creates a Fetcher backed by a local CSV file.
 func NewCSVFetcher(filePath string) Fetcher {
-	return FetcherFunc(func(ctx context.Context) ([]model.NormalizedItem, []model.Order, error) {
-		return parser.ParseCSVFile(filePath)
+	return FetcherFunc(func(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
+		return parser.ParseCSVFileWithAliases(filePath, aliases)
 	})
 }
 
@@ -308,7 +308,22 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 	w.broadcast(SyncEvent{Status: "SYNCING", Message: "fetching data from source"})
 
 	startTime := time.Now()
-	items, orders, err := w.fetcher.Fetch(ctx)
+	aliases, err := w.store.GetCustomerAliases(ctx)
+	if err != nil {
+		duration := time.Since(startTime)
+		w.mu.Lock()
+		w.lastRunTime = startTime
+		w.lastDuration = duration
+		w.status = "ERROR"
+		w.lastError = err.Error()
+		w.mu.Unlock()
+
+		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, fmt.Sprintf("failed to load customer aliases: %v", err), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: "ERROR", Error: fmt.Sprintf("failed to load customer aliases: %v", err), DurationMs: duration.Milliseconds()})
+		return fmt.Errorf("failed to load customer aliases: %w", err)
+	}
+
+	items, orders, err := w.fetcher.Fetch(ctx, aliases)
 	if err != nil {
 		duration := time.Since(startTime)
 		w.mu.Lock()

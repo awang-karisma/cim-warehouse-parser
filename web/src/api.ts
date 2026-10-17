@@ -12,6 +12,7 @@ import type {
   ConfigResponse,
   SystemResponse,
   SyncEvent,
+  CustomerAliasesResponse,
 } from './types';
 
 function qs(params?: Record<string, string | number | boolean | undefined>): string {
@@ -108,3 +109,17 @@ export function subscribeSyncEvents(onEvent: (evt: SyncEvent) => void): EventSou
   });
   return es;
 }
+
+export const getCustomerAliases = () => apiFetch<CustomerAliasesResponse>('/api/v1/customer-aliases');
+
+export const setCustomerAlias = (alias: string, canonical: string, area?: string) =>
+  apiFetch<{ status: string }>('/api/v1/customer-aliases', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ alias, canonical, area }),
+  });
+
+export const deleteCustomerAlias = (alias: string) =>
+  apiFetch<{ status: string }>(`/api/v1/customer-aliases/${encodeURIComponent(alias)}`, {
+    method: 'DELETE',
+  });

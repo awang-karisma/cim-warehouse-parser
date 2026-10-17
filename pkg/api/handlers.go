@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"runtime"
 	"strconv"
 	"strings"
@@ -666,4 +667,90 @@ func (s *Server) handleSyncSSE(c fiber.Ctx) error {
 			}
 		}
 	})
+}
+
+// CustomerAliasesResponse defines the payload for customer aliases.
+type CustomerAliasesResponse struct {
+	Groups []storage.CustomerAliasGroup `json:"groups"`
+}
+
+type CustomerAliasesOutput struct {
+	Body CustomerAliasesResponse
+}
+
+type SetCustomerAliasInput struct {
+	Body struct {
+		Alias     string `json:"alias" doc:"Variant spelling alias" example:"PKU Muhammadiyah"`
+		Canonical string `json:"canonical" doc:"Canonical customer name" example:"RS PKU Muhammadiyah"`
+		Area      string `json:"area,omitempty" doc:"Linked area for this customer" example:"Lombok Barat"`
+	}
+}
+
+type DeleteCustomerAliasInput struct {
+	Alias string `path:"alias" doc:"Variant spelling alias to remove"`
+}
+
+type StatusOKResponse struct {
+	Status string `json:"status" example:"ok"`
+}
+
+type StatusOKOutput struct {
+	Body StatusOKResponse
+}
+
+func (s *Server) handleGetCustomerAliases(ctx context.Context, input *struct{}) (*CustomerAliasesOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	groups, err := s.store.GetCustomerAliasesGrouped(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get customer aliases", err)
+	}
+	return &CustomerAliasesOutput{
+		Body: CustomerAliasesResponse{
+			Groups: groups,
+		},
+	}, nil
+}
+
+func (s *Server) handleSetCustomerAlias(ctx context.Context, input *SetCustomerAliasInput) (*StatusOKOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	alias := strings.TrimSpace(input.Body.Alias)
+	canonical := strings.TrimSpace(input.Body.Canonical)
+	area := strings.TrimSpace(input.Body.Area)
+	if alias == "" || canonical == "" {
+		return nil, huma.Error400BadRequest("alias and canonical cannot be empty")
+	}
+	if strings.EqualFold(alias, canonical) {
+		return nil, huma.Error400BadRequest("alias cannot be equal to canonical name")
+	}
+
+	if err := s.store.SetCustomerAlias(ctx, alias, canonical, area); err != nil {
+		return nil, huma.Error500InternalServerError("failed to set customer alias", err)
+	}
+	return &StatusOKOutput{
+		Body: StatusOKResponse{Status: "ok"},
+	}, nil
+}
+
+func (s *Server) handleDeleteCustomerAlias(ctx context.Context, input *DeleteCustomerAliasInput) (*StatusOKOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	alias := strings.TrimSpace(input.Alias)
+	if unescaped, err := url.PathUnescape(alias); err == nil && unescaped != "" {
+		alias = strings.TrimSpace(unescaped)
+	}
+	if alias == "" {
+		return nil, huma.Error400BadRequest("alias cannot be empty")
+	}
+
+	if err := s.store.DeleteCustomerAlias(ctx, alias); err != nil {
+		return nil, huma.Error500InternalServerError("failed to delete customer alias", err)
+	}
+	return &StatusOKOutput{
+		Body: StatusOKResponse{Status: "ok"},
+	}, nil
 }

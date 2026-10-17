@@ -5,8 +5,19 @@ import {
   IconDatabase,
   IconTool,
   IconRefresh,
+  IconUsers,
+  IconTrash,
+  IconPlus,
 } from '@tabler/icons-solidjs';
-import { getSystemInfo, getConfig, getStatus, triggerSync } from '../api';
+import {
+  getSystemInfo,
+  getConfig,
+  getStatus,
+  triggerSync,
+  getCustomerAliases,
+  setCustomerAlias,
+  deleteCustomerAlias,
+} from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
 
@@ -14,7 +25,50 @@ export const Settings: Component = () => {
   const [system] = createResource(getSystemInfo);
   const [config] = createResource(getConfig);
   const [status, { refetch: refetchStatus }] = createResource(getStatus);
+  const [aliasesData, { refetch: refetchAliases }] = createResource(getCustomerAliases);
 
+  const [aliasInput, setAliasInput] = createSignal('');
+  const [canonicalInput, setCanonicalInput] = createSignal('');
+  const [areaInput, setAreaInput] = createSignal('');
+  const [aliasError, setAliasError] = createSignal('');
+  const [isAdding, setIsAdding] = createSignal(false);
+
+  const handleAddAlias = async (e: Event) => {
+    e.preventDefault();
+    const a = aliasInput().trim();
+    const c = canonicalInput().trim();
+    if (!a || !c) {
+      setAliasError('Both Variant Name (alias) and Canonical Name are required');
+      return;
+    }
+    if (a.toLowerCase() === c.toLowerCase()) {
+      setAliasError('Alias cannot be equal to canonical name');
+      return;
+    }
+    setIsAdding(true);
+    setAliasError('');
+    try {
+      await setCustomerAlias(a, c, areaInput().trim() || undefined);
+      setAliasInput('');
+      setCanonicalInput('');
+      setAreaInput('');
+      refetchAliases();
+    } catch (err: unknown) {
+      setAliasError(err instanceof Error ? err.message : 'Failed to add alias');
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleDeleteAlias = async (alias: string) => {
+    setAliasError('');
+    try {
+      await deleteCustomerAlias(alias);
+      refetchAliases();
+    } catch (err: unknown) {
+      setAliasError(err instanceof Error ? err.message : 'Failed to delete alias');
+    }
+  };
   const [resyncing, setResyncing] = createSignal(false);
   const [resyncMsg, setResyncMsg] = createSignal('');
 
@@ -166,6 +220,112 @@ export const Settings: Component = () => {
                 </Show>
               </tbody>
             </table>
+          </div>
+        </section>
+
+        {/* Customer Name Aliases Card */}
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
+          <div class="flex items-center gap-2 mb-2 pb-3 border-b border-border">
+            <IconUsers size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
+            <h2 class="text-base font-semibold text-text">Customer Name Aliases</h2>
+          </div>
+          <p class="text-xs text-muted mb-4">
+            Aliases are applied during sync. Trigger a re-sync after changing aliases to update stored orders and items.
+          </p>
+
+          {/* Add Alias Form */}
+          <form class="flex flex-wrap items-end gap-3 mb-5 p-4 bg-gray-50 rounded-lg border border-border" onSubmit={handleAddAlias}>
+            <div class="flex flex-col gap-1 flex-1 min-w-[200px]">
+              <label class="text-xs font-semibold text-muted">Variant Name (alias)</label>
+              <input
+                type="text"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                placeholder="e.g. PKU Muhammadiyah Hospital"
+                value={aliasInput()}
+                onInput={(e) => setAliasInput(e.currentTarget.value)}
+              />
+            </div>
+            <div class="flex flex-col gap-1 flex-1 min-w-[180px]">
+              <label class="text-xs font-semibold text-muted">Canonical Name</label>
+              <input
+                type="text"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                placeholder="e.g. RS PKU Muhammadiyah"
+                value={canonicalInput()}
+                onInput={(e) => setCanonicalInput(e.currentTarget.value)}
+              />
+            </div>
+            <div class="flex flex-col gap-1 flex-1 min-w-[150px]">
+              <label class="text-xs font-semibold text-muted">Linked Area (optional)</label>
+              <input
+                type="text"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                placeholder="e.g. Lombok Barat"
+                value={areaInput()}
+                onInput={(e) => setAreaInput(e.currentTarget.value)}
+              />
+            </div>
+            <button
+              type="submit"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 cursor-pointer transition-colors"
+              disabled={isAdding()}
+            >
+              <IconPlus size={16} stroke={1.8} aria-hidden="true" />
+              <span>{isAdding() ? 'Adding...' : 'Add Mapping'}</span>
+            </button>
+          </form>
+
+          <Show when={aliasError()}>
+            <div class="px-3 py-2 rounded-md bg-status-pending/10 text-status-pending text-xs font-medium mb-4 border border-status-pending/20">
+              {aliasError()}
+            </div>
+          </Show>
+
+          {/* Grouped Aliases Display */}
+          <div class="space-y-3">
+            <Show
+              when={aliasesData()?.groups && aliasesData()!.groups.length > 0}
+              fallback={
+                <div class="p-6 text-center text-muted text-sm border border-dashed border-border rounded-lg">
+                  No customer aliases configured yet. Add your first variant mapping above.
+                </div>
+              }
+            >
+              <For each={aliasesData()?.groups}>
+                {(grp) => (
+                  <div class="p-3.5 bg-surface border border-border rounded-lg">
+                    <div class="text-sm font-semibold text-text mb-2 flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <span>Canonical: <strong class="text-primary font-bold">{grp.canonical}</strong></span>
+                        <Show when={grp.area}>
+                          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700 font-medium">
+                            {grp.area}
+                          </span>
+                        </Show>
+                      </div>
+                      <span class="text-xs text-muted font-normal">{grp.aliases.length} alias{grp.aliases.length === 1 ? '' : 'es'}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <For each={grp.aliases}>
+                        {(al) => (
+                          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-gray-100 text-text border border-border">
+                            <span>{al}</span>
+                            <button
+                              type="button"
+                              class="text-muted hover:text-status-pending p-0.5 rounded cursor-pointer transition-colors"
+                              title={`Delete alias ${al}`}
+                              onClick={() => handleDeleteAlias(al)}
+                            >
+                              <IconTrash size={13} stroke={1.8} aria-hidden="true" />
+                            </button>
+                          </span>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </Show>
           </div>
         </section>
 

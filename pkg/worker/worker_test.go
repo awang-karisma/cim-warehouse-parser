@@ -20,7 +20,7 @@ type mockFetcher struct {
 	fetchCount int
 }
 
-func (m *mockFetcher) Fetch(ctx context.Context) ([]model.NormalizedItem, []model.Order, error) {
+func (m *mockFetcher) Fetch(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
 	m.fetchCount++
 	if m.err != nil {
 		return nil, nil, m.err

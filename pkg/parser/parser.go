@@ -15,10 +15,34 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+func applyCustomerAliases(items []model.NormalizedItem, aliases map[string]model.CustomerAlias) []model.NormalizedItem {
+	if len(aliases) == 0 {
+		return items
+	}
+	for i := range items {
+		key := strings.ToLower(strings.TrimSpace(items[i].Customer))
+		if mapping, ok := aliases[key]; ok {
+			if mapping.Canonical != "" {
+				items[i].Customer = mapping.Canonical
+			}
+			if mapping.Area != "" {
+				items[i].Area = mapping.Area
+			}
+		}
+	}
+	return items
+}
+
 // ParseSheet fetches order tracking data from a Google Sheet using the provided sheets.Service,
 // parses it into raw rows using github.com/esome/google-sheets-parser, and returns both
 // normalized items and grouped orders.
 func ParseSheet(ctx context.Context, svc *sheets.Service, spreadsheetID string, sheetName string) ([]model.NormalizedItem, []model.Order, error) {
+	return ParseSheetWithAliases(ctx, svc, spreadsheetID, sheetName, nil)
+}
+
+// ParseSheetWithAliases fetches order tracking data from a Google Sheet, applies customer aliases,
+// and groups orders using the canonical customer names.
+func ParseSheetWithAliases(ctx context.Context, svc *sheets.Service, spreadsheetID string, sheetName string, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
 	if svc == nil {
 		return nil, nil, fmt.Errorf("sheets service is nil")
 	}
@@ -42,13 +66,18 @@ func ParseSheet(ctx context.Context, svc *sheets.Service, spreadsheetID string, 
 	}
 
 	items := normalizer.NormalizeRows(rawRows)
+	items = applyCustomerAliases(items, aliases)
 	orders := normalizer.GroupOrders(items)
 	return items, orders, nil
 }
-
 // ParseCSV reads order data from an io.Reader containing CSV formatted data,
 // maps CSV header columns to RawOrderRow fields, normalizes rows, and groups orders.
 func ParseCSV(r io.Reader) ([]model.NormalizedItem, []model.Order, error) {
+	return ParseCSVWithAliases(r, nil)
+}
+
+// ParseCSVWithAliases reads CSV order data, applies customer aliases, and groups orders.
+func ParseCSVWithAliases(r io.Reader, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
 	csvReader := csv.NewReader(r)
 	csvReader.LazyQuotes = true
 	csvReader.FieldsPerRecord = -1
@@ -107,17 +136,23 @@ func ParseCSV(r io.Reader) ([]model.NormalizedItem, []model.Order, error) {
 	}
 
 	items := normalizer.NormalizeRows(rawRows)
+	items = applyCustomerAliases(items, aliases)
 	orders := normalizer.GroupOrders(items)
 	return items, orders, nil
 }
 
 // ParseCSVFile reads and parses a CSV file at filePath into normalized items and grouped orders.
 func ParseCSVFile(filePath string) ([]model.NormalizedItem, []model.Order, error) {
+	return ParseCSVFileWithAliases(filePath, nil)
+}
+
+// ParseCSVFileWithAliases reads and parses a CSV file at filePath, applies customer aliases, and groups orders.
+func ParseCSVFileWithAliases(filePath string, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open CSV file %q: %w", filePath, err)
 	}
 	defer file.Close()
 
-	return ParseCSV(file)
+	return ParseCSVWithAliases(file, aliases)
 }

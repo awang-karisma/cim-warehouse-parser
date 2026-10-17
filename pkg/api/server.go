@@ -212,4 +212,31 @@ func (s *Server) registerOperations() {
 		Description: "Get runtime stats, uptime, port, db path, and SQLite table metrics",
 		Tags:        []string{"system"},
 	}, s.handleSystem)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-customer-aliases",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/customer-aliases",
+		Summary:     "Get customer aliases",
+		Description: "Get customer name aliases grouped by canonical customer name",
+		Tags:        []string{"customers"},
+	}, s.handleGetCustomerAliases)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "set-customer-alias",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/customer-aliases",
+		Summary:     "Set customer alias",
+		Description: "Create or update a customer name alias mapping",
+		Tags:        []string{"customers"},
+	}, s.handleSetCustomerAlias)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "delete-customer-alias",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/customer-aliases/{alias}",
+		Summary:     "Delete customer alias",
+		Description: "Delete a customer name alias mapping",
+		Tags:        []string{"customers"},
+	}, s.handleDeleteCustomerAlias)
 }
