@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,7 +33,7 @@ func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worke
 	sampleItems := []model.NormalizedItem{
 		{
 			RowIndex:           2,
-			Tanggal:            "02/01/2026",
+			Tanggal:            model.ParseDate("02/01/2026"),
 			Customer:           "RS Narmada",
 			Area:               "Lombok Barat",
 			NamaBarang:         "Yellowtip",
@@ -50,7 +50,7 @@ func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worke
 			RowIndex:           3,
 			OrderNumber:        "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			EcatalogNumber:     "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
-			Tanggal:            "02/01/2026",
+			Tanggal:            model.ParseDate("02/01/2026"),
 			Customer:           "RS Patuh Karya",
 			Area:               "Lombok Tengah",
 			NamaBarang:         "BC-5D Control",
@@ -68,7 +68,7 @@ func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worke
 	sampleOrders := []model.Order{
 		{
 			ID:       "ORD-0001",
-			Tanggal:  "02/01/2026",
+			Tanggal:  model.ParseDate("02/01/2026"),
 			Customer: "RS Narmada",
 			Area:     "Lombok Barat",
 			Items: []model.OrderItem{
@@ -90,7 +90,7 @@ func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worke
 			ID:             "ORD-0002",
 			OrderNumber:    "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			EcatalogNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
-			Tanggal:        "02/01/2026",
+			Tanggal:        model.ParseDate("02/01/2026"),
 			Customer:       "RS Patuh Karya",
 			Area:           "Lombok Tengah",
 			Items: []model.OrderItem{
@@ -570,7 +570,7 @@ func TestNewEndpoints(t *testing.T) {
 			t.Fatalf("expected 200, got %d", resp.StatusCode)
 		}
 		var data struct {
-			Total   int `json:"total"`
+			Total   int   `json:"total"`
 			Records []any `json:"records"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&data)
@@ -853,11 +853,20 @@ func TestCustomerAliasesAPI(t *testing.T) {
 		}
 
 		// alias == canonical
-		req, _ = http.NewRequest("PUT", "/api/v1/customer-aliases", strings.NewReader(`{"alias":"RS PKU","canonical":"rs pku"}`))
+		// exact alias == canonical
+		req, _ = http.NewRequest("PUT", "/api/v1/customer-aliases", strings.NewReader(`{"alias":"RS PKU","canonical":"RS PKU"}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp, _ = srv.App().Test(req)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("expected 400 for identical alias and canonical, got %d", resp.StatusCode)
+		}
+
+		// case-only alias is valid
+		req, _ = http.NewRequest("PUT", "/api/v1/customer-aliases", strings.NewReader(`{"alias":"RSUD NARMADA","canonical":"RSUD Narmada"}`))
+		req.Header.Set("Content-Type", "application/json")
+		resp, _ = srv.App().Test(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for case-only alias, got %d", resp.StatusCode)
 		}
 	})
 
@@ -894,12 +903,18 @@ func TestCustomerAliasesAPI(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 			t.Fatalf("decode failed: %v", err)
 		}
-		if len(res.Groups) != 1 {
-			t.Fatalf("expected 1 group, got %d", len(res.Groups))
+		if len(res.Groups) != 2 {
+			t.Fatalf("expected 2 groups, got %d", len(res.Groups))
 		}
-		grp := res.Groups[0]
-		if grp.Canonical != "RS PKU Muhammadiyah" || grp.Area != "Lombok Barat" || len(grp.Aliases) != 2 {
-			t.Errorf("unexpected group content: %+v", grp)
+		var grp *storage.CustomerAliasGroup
+		for i := range res.Groups {
+			if res.Groups[i].Canonical == "RS PKU Muhammadiyah" {
+				grp = &res.Groups[i]
+				break
+			}
+		}
+		if grp == nil || grp.Area != "Lombok Barat" || len(grp.Aliases) != 2 {
+			t.Errorf("unexpected PKU group content: %+v", grp)
 		}
 	})
 
@@ -908,7 +923,7 @@ func TestCustomerAliasesAPI(t *testing.T) {
 		sourceItems := []model.NormalizedItem{
 			{
 				RowIndex:    2,
-				Tanggal:     "05/01/2026",
+				Tanggal:     model.ParseDate("05/01/2026"),
 				Customer:    "PKU Muhammadiyah",
 				NamaBarang:  "Item 1",
 				Jumlah:      "5",
@@ -916,7 +931,7 @@ func TestCustomerAliasesAPI(t *testing.T) {
 			},
 			{
 				RowIndex:    3,
-				Tanggal:     "05/01/2026",
+				Tanggal:     model.ParseDate("05/01/2026"),
 				Customer:    "PKU Muhammadiyah Hospital",
 				NamaBarang:  "Item 2",
 				Jumlah:      "3",
@@ -941,7 +956,7 @@ func TestCustomerAliasesAPI(t *testing.T) {
 			orders := []model.Order{
 				{
 					ID:       "ORD-CANONICAL-1",
-					Tanggal:  "05/01/2026",
+					Tanggal:  model.ParseDate("05/01/2026"),
 					Customer: itemsCopy[0].Customer,
 					Area:     itemsCopy[0].Area,
 					Items: []model.OrderItem{
@@ -1000,10 +1015,103 @@ func TestCustomerAliasesAPI(t *testing.T) {
 			Groups []storage.CustomerAliasGroup `json:"groups"`
 		}
 		_ = json.NewDecoder(getResp.Body).Decode(&res)
-		if len(res.Groups) != 1 || len(res.Groups[0].Aliases) != 1 {
-			t.Errorf("expected 1 remaining alias after delete, got %+v", res.Groups)
+		if len(res.Groups) != 2 {
+			t.Errorf("expected 2 alias groups after delete, got %+v", res.Groups)
+		}
+		for _, group := range res.Groups {
+			if group.Canonical == "RS PKU Muhammadiyah" && (len(group.Aliases) != 1 || group.Aliases[0] != "PKU Muhammadiyah") {
+				t.Errorf("expected PKU group to retain one alias, got %+v", group)
+			}
 		}
 	})
+
+}
+func TestCustomerAliasAPIImmediatelyAggregatesExistingRows(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+	items := []model.NormalizedItem{
+		{RowIndex: 1, Customer: "RSUD NARMADA", NamaBarang: "Item 1", StatusOrder: "SELESAI"},
+		{RowIndex: 2, Customer: "RSUD Narmada", Area: "Lombok Barat", NamaBarang: "Item 2", StatusOrder: "PENDING"},
+	}
+	orders := []model.Order{
+		{ID: "alias-order", Customer: "RSUD NARMADA", Items: []model.OrderItem{{RowIndex: 1}}},
+		{ID: "canonical-order", Customer: "RSUD Narmada", Area: "Lombok Barat", Items: []model.OrderItem{{RowIndex: 2}}},
+	}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	putReq, _ := http.NewRequest("PUT", "/api/v1/customer-aliases", strings.NewReader(`{"alias":"RSUD NARMADA","canonical":"RSUD Narmada"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putResp, err := srv.App().Test(putReq)
+	if err != nil || putResp.StatusCode != http.StatusOK {
+		t.Fatalf("setting case-only alias failed: status=%d err=%v", putResp.StatusCode, err)
+	}
+
+	customerReq, _ := http.NewRequest("GET", "/api/v1/customers?limit=10", nil)
+	customerResp, err := srv.App().Test(customerReq)
+	if err != nil || customerResp.StatusCode != http.StatusOK {
+		t.Fatalf("listing customers failed: status=%d err=%v", customerResp.StatusCode, err)
+	}
+	var customers api.CustomersResponse
+	if err := json.NewDecoder(customerResp.Body).Decode(&customers); err != nil {
+		t.Fatalf("decoding customers failed: %v", err)
+	}
+	customerResp.Body.Close()
+	if customers.Total != 1 || len(customers.Customers) != 1 || customers.Customers[0].Name != "RSUD Narmada" || customers.Customers[0].TotalOrders != 2 || customers.Customers[0].TotalItems != 2 {
+		t.Fatalf("expected one aggregated canonical customer, got %+v", customers)
+	}
+
+	areaCustomersReq, _ := http.NewRequest("GET", "/api/v1/customers?area=Lombok%20Barat&limit=5", nil)
+	areaCustomersResp, err := srv.App().Test(areaCustomersReq)
+	if err != nil || areaCustomersResp.StatusCode != http.StatusOK {
+		t.Fatalf("listing area customers failed: status=%d err=%v", areaCustomersResp.StatusCode, err)
+	}
+	var areaCustomers api.CustomersResponse
+	if err := json.NewDecoder(areaCustomersResp.Body).Decode(&areaCustomers); err != nil {
+		t.Fatalf("decoding area customers failed: %v", err)
+	}
+	areaCustomersResp.Body.Close()
+	if areaCustomers.Total != 1 || len(areaCustomers.Customers) != 1 || areaCustomers.Customers[0].Name != "RSUD Narmada" || areaCustomers.Customers[0].TotalOrders != 2 {
+		t.Fatalf("expected area customer aggregation under canonical name, got %+v", areaCustomers)
+	}
+
+	ordersReq, _ := http.NewRequest("GET", "/api/v1/orders?customer=RSUD%20NARMADA", nil)
+	ordersResp, err := srv.App().Test(ordersReq)
+	if err != nil || ordersResp.StatusCode != http.StatusOK {
+		t.Fatalf("searching orders by alias failed: status=%d err=%v", ordersResp.StatusCode, err)
+	}
+	var ordersResult api.OrdersResponse
+	if err := json.NewDecoder(ordersResp.Body).Decode(&ordersResult); err != nil {
+		t.Fatalf("decoding orders failed: %v", err)
+	}
+	ordersResp.Body.Close()
+	if ordersResult.Total != 2 || len(ordersResult.Orders) != 2 {
+		t.Fatalf("expected alias search to return both orders, got %+v", ordersResult)
+	}
+	for _, order := range ordersResult.Orders {
+		if order.Customer != "RSUD Narmada" {
+			t.Errorf("expected canonical customer name in order response, got %q", order.Customer)
+		}
+	}
+
+	searchReq, _ := http.NewRequest("GET", "/api/v1/search?q=RSUD%20NARMADA", nil)
+	searchResp, err := srv.App().Test(searchReq)
+	if err != nil || searchResp.StatusCode != http.StatusOK {
+		t.Fatalf("searching by alias failed: status=%d err=%v", searchResp.StatusCode, err)
+	}
+	var searchResult struct {
+		Customers struct {
+			Total int `json:"total"`
+		} `json:"customers"`
+	}
+	if err := json.NewDecoder(searchResp.Body).Decode(&searchResult); err != nil {
+		t.Fatalf("decoding search results failed: %v", err)
+	}
+	searchResp.Body.Close()
+	if searchResult.Customers.Total != 1 {
+		t.Errorf("expected alias search to find canonical customer, got %+v", searchResult)
+	}
 }
 
 func TestDeliveriesAPI(t *testing.T) {
@@ -1012,7 +1120,7 @@ func TestDeliveriesAPI(t *testing.T) {
 	// Populate item with multiple delivery pairs: "07/01/2026 (3), 03/02/2026 (1)"
 	splitItem := model.NormalizedItem{
 		RowIndex:          10,
-		Tanggal:           "02/01/2026",
+		Tanggal:           model.ParseDate("02/01/2026"),
 		Customer:          "RSUD Provinsi NTB",
 		Area:              "Mataram",
 		NamaBarang:        "Needle 23G",
@@ -1025,7 +1133,7 @@ func TestDeliveriesAPI(t *testing.T) {
 	}
 	plainItem := model.NormalizedItem{
 		RowIndex:          11,
-		Tanggal:           "02/01/2026",
+		Tanggal:           model.ParseDate("02/01/2026"),
 		Customer:          "RSUD Provinsi NTB",
 		Area:              "Mataram",
 		NamaBarang:        "Spuit 3cc",
@@ -1039,7 +1147,7 @@ func TestDeliveriesAPI(t *testing.T) {
 	orders := []model.Order{
 		{
 			ID:       "ORD-SPLIT-1",
-			Tanggal:  "02/01/2026",
+			Tanggal:  model.ParseDate("02/01/2026"),
 			Customer: "RSUD Provinsi NTB",
 			Area:     "Mataram",
 			Items: []model.OrderItem{

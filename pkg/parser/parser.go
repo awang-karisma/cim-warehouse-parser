@@ -22,10 +22,10 @@ func applyCustomerAliases(items []model.NormalizedItem, aliases map[string]model
 	for i := range items {
 		key := strings.ToLower(strings.TrimSpace(items[i].Customer))
 		if mapping, ok := aliases[key]; ok {
-			if mapping.Canonical != "" {
+			if strings.TrimSpace(mapping.Canonical) != "" {
 				items[i].Customer = mapping.Canonical
 			}
-			if mapping.Area != "" {
+			if strings.TrimSpace(mapping.Area) != "" {
 				items[i].Area = mapping.Area
 			}
 		}

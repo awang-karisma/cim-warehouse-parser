@@ -2,6 +2,7 @@ package normalizer_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/normalizer"
@@ -89,8 +90,8 @@ func TestNormalizeRows_ForwardFilling(t *testing.T) {
 		if got.RowIndex != exp.rowIndex {
 			t.Errorf("[%d] expected RowIndex %d, got %d", i, exp.rowIndex, got.RowIndex)
 		}
-		if got.Tanggal != exp.tanggal {
-			t.Errorf("[%d] expected Tanggal %q, got %q", i, exp.tanggal, got.Tanggal)
+		if !got.Tanggal.Equal(normalizer.ParseDate(exp.tanggal)) {
+			t.Errorf("[%d] expected Tanggal %q, got %v", i, exp.tanggal, got.Tanggal)
 		}
 		if got.Customer != exp.customer {
 			t.Errorf("[%d] expected Customer %q, got %q", i, exp.customer, got.Customer)
@@ -149,8 +150,8 @@ func TestNormalizeRows_SkipEmptyNamaBarang(t *testing.T) {
 	if items[1].RowIndex != 5 || items[1].NamaBarang != "BC-5D Control" {
 		t.Errorf("item 1 unexpected: %+v", items[1])
 	}
-	if items[1].Tanggal != "03/01/2026" {
-		t.Errorf("expected inherited Tanggal 03/01/2026, got %q", items[1].Tanggal)
+	if !items[1].Tanggal.Equal(normalizer.ParseDate("03/01/2026")) {
+		t.Errorf("expected inherited Tanggal 03/01/2026, got %v", items[1].Tanggal)
 	}
 	if items[1].Customer != "RS Patuh Karya" {
 		t.Errorf("expected inherited Customer RS Patuh Karya, got %q", items[1].Customer)
@@ -161,7 +162,7 @@ func TestGroupOrders(t *testing.T) {
 	items := []model.NormalizedItem{
 		{
 			RowIndex:   2,
-			Tanggal:    "02/01/2026",
+			Tanggal:    normalizer.ParseDate("02/01/2026"),
 			Customer:   "RS Narmada",
 			Area:       "Lombok Barat",
 			NamaBarang: "Yellowtip",
@@ -170,7 +171,7 @@ func TestGroupOrders(t *testing.T) {
 		},
 		{
 			RowIndex:   3,
-			Tanggal:    "02/01/2026",
+			Tanggal:    normalizer.ParseDate("02/01/2026"),
 			Customer:   "RS Patuh Karya",
 			Area:       "Lombok Tengah",
 			NamaBarang: "BC-5D Control",
@@ -179,7 +180,7 @@ func TestGroupOrders(t *testing.T) {
 		},
 		{
 			RowIndex:   4,
-			Tanggal:    "02/01/2026",
+			Tanggal:    normalizer.ParseDate("02/01/2026"),
 			Customer:   "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			Area:       "",
 			NamaBarang: "Mindray BS-230 Control",
@@ -188,7 +189,7 @@ func TestGroupOrders(t *testing.T) {
 		},
 		{
 			RowIndex:   5,
-			Tanggal:    "02/01/2026",
+			Tanggal:    normalizer.ParseDate("02/01/2026"),
 			Customer:   "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			Area:       "",
 			NamaBarang: "Clinchem Multicontrol Level 1",
@@ -197,7 +198,7 @@ func TestGroupOrders(t *testing.T) {
 		},
 		{
 			RowIndex:   6,
-			Tanggal:    "03/01/2026",
+			Tanggal:    normalizer.ParseDate("03/01/2026"),
 			Customer:   "RS Gerung",
 			Area:       "",
 			NamaBarang: "Povidone 1L",
@@ -207,7 +208,7 @@ func TestGroupOrders(t *testing.T) {
 		{
 			// Same customer RS Gerung, but new date -> separate order
 			RowIndex:   7,
-			Tanggal:    "04/01/2026",
+			Tanggal:    normalizer.ParseDate("04/01/2026"),
 			Customer:   "RS Gerung",
 			Area:       "",
 			NamaBarang: "Spinocan 25G",
@@ -240,8 +241,8 @@ func TestGroupOrders(t *testing.T) {
 		if got.ID != exp.id {
 			t.Errorf("[%d] expected ID %q, got %q", i, exp.id, got.ID)
 		}
-		if got.Tanggal != exp.tanggal {
-			t.Errorf("[%d] expected Tanggal %q, got %q", i, exp.tanggal, got.Tanggal)
+		if !got.Tanggal.Equal(normalizer.ParseDate(exp.tanggal)) {
+			t.Errorf("[%d] expected Tanggal %q, got %v", i, exp.tanggal, got.Tanggal)
 		}
 		if got.Customer != exp.customer {
 			t.Errorf("[%d] expected Customer %q, got %q", i, exp.customer, got.Customer)
@@ -403,7 +404,7 @@ func TestGroupOrders_OrderNumberPropagation(t *testing.T) {
 	items := []model.NormalizedItem{
 		{
 			RowIndex:       2,
-			Tanggal:        "02/01/2026",
+			Tanggal:        normalizer.ParseDate("02/01/2026"),
 			Customer:       "RS Patuh Karya",
 			NamaBarang:     "Spuit 3cc",
 			OrderNumber:    "",
@@ -411,7 +412,7 @@ func TestGroupOrders_OrderNumberPropagation(t *testing.T) {
 		},
 		{
 			RowIndex:       3,
-			Tanggal:        "02/01/2026",
+			Tanggal:        normalizer.ParseDate("02/01/2026"),
 			Customer:       "RS Patuh Karya",
 			NamaBarang:     "Needle 23G",
 			OrderNumber:    "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
@@ -571,14 +572,14 @@ func TestGroupOrders_AreaNormalization(t *testing.T) {
 	items := []model.NormalizedItem{
 		{
 			RowIndex:   2,
-			Tanggal:    "02/01/2026",
+			Tanggal:    normalizer.ParseDate("02/01/2026"),
 			Customer:   "RS Narmada",
 			Area:       "lombok barat",
 			NamaBarang: "Item 1",
 		},
 		{
 			RowIndex:   3,
-			Tanggal:    "02/01/2026",
+			Tanggal:    normalizer.ParseDate("02/01/2026"),
 			Customer:   "RS Narmada",
 			Area:       "LOMBOK BARAT",
 			NamaBarang: "Item 2",
@@ -661,5 +662,75 @@ func TestParseDeliveryEntries(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseDate_Regression(t *testing.T) {
+	// Valid DD/MM/YYYY
+	d1 := normalizer.ParseDate("02/01/2026")
+	expected1 := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if !d1.Equal(expected1) {
+		t.Errorf("expected %v, got %v", expected1, d1)
+	}
+
+	// Valid ISO YYYY-MM-DD
+	d2 := normalizer.ParseDate("2026-10-17")
+	expected2 := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+	if !d2.Equal(expected2) {
+		t.Errorf("expected %v, got %v", expected2, d2)
+	}
+
+	// Blank input returns zero time
+	d3 := normalizer.ParseDate("   ")
+	if !d3.IsZero() {
+		t.Errorf("expected zero time for blank input, got %v", d3)
+	}
+
+	// Invalid input does not panic and returns zero time
+	d4 := normalizer.ParseDate("not-a-date")
+	if !d4.IsZero() {
+		t.Errorf("expected zero time for invalid input, got %v", d4)
+	}
+
+	d5 := normalizer.ParseDate("32/13/2026")
+	if !d5.IsZero() {
+		t.Errorf("expected zero time for out-of-range date, got %v", d5)
+	}
+}
+
+func TestGroupOrders_CalendarDateGrouping(t *testing.T) {
+	t1 := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+
+	items := []model.NormalizedItem{
+		{
+			RowIndex:   2,
+			Tanggal:    t1,
+			Customer:   "RS Narmada",
+			NamaBarang: "Item 1",
+		},
+		{
+			RowIndex:   3,
+			Tanggal:    t1,
+			Customer:   "RS Narmada",
+			NamaBarang: "Item 2",
+		},
+		{
+			RowIndex:   4,
+			Tanggal:    t2,
+			Customer:   "RS Narmada",
+			NamaBarang: "Item 3",
+		},
+	}
+
+	orders := normalizer.GroupOrders(items)
+	if len(orders) != 2 {
+		t.Fatalf("expected 2 orders, got %d", len(orders))
+	}
+	if !orders[0].Tanggal.Equal(t1) || len(orders[0].Items) != 2 {
+		t.Errorf("unexpected order 0: %+v", orders[0])
+	}
+	if !orders[1].Tanggal.Equal(t2) || len(orders[1].Items) != 1 {
+		t.Errorf("unexpected order 1: %+v", orders[1])
 	}
 }

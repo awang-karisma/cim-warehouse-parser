@@ -1,62 +1,60 @@
-import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import { type Component, createSignal, createResource, Show, For, createMemo, createEffect, on } from 'solid-js';
 import { A } from '@solidjs/router';
-import { getOrders } from '../api';
+import { getOrders, getAreas } from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
 import { Pagination } from '../components/Pagination';
+import { createDebouncedSignal } from '../utils/debounce';
 
 export const Orders: Component = () => {
-  const [customer, setCustomer] = createSignal('');
+  const [customer, debouncedCustomer, setCustomer, flushCustomer] = createDebouncedSignal('', 300);
   const [area, setArea] = createSignal('');
   const [tanggal, setTanggal] = createSignal('');
   const [status, setStatus] = createSignal('');
   const [offset, setOffset] = createSignal(0);
   const limit = 20;
 
+  const [areasData] = createResource(getAreas);
+
+  // When any filter changes, reset pagination offset to 0
+  createEffect(
+    on(
+      [debouncedCustomer, area, tanggal, status],
+      () => {
+        setOffset(0);
+      },
+      { defer: true }
+    )
+  );
+
   // Active query state for triggering fetch
-  const [queryParams, setQueryParams] = createSignal({
-    customer: '',
-    area: '',
-    tanggal: '',
-    status: '',
+  const queryParams = createMemo(() => ({
+    customer: debouncedCustomer(),
+    area: area(),
+    tanggal: tanggal(),
+    status: status(),
     limit,
-    offset: 0,
-  });
+    offset: offset(),
+  }));
 
   const [data] = createResource(queryParams, (params) => getOrders(params));
 
   const applyFilters = (e?: Event) => {
     if (e) e.preventDefault();
+    flushCustomer();
     setOffset(0);
-    setQueryParams({
-      customer: customer(),
-      area: area(),
-      tanggal: tanggal(),
-      status: status(),
-      limit,
-      offset: 0,
-    });
   };
 
   const resetFilters = () => {
-    setCustomer('');
+    flushCustomer('');
     setArea('');
     setTanggal('');
     setStatus('');
     setOffset(0);
-    setQueryParams({
-      customer: '',
-      area: '',
-      tanggal: '',
-      status: '',
-      limit,
-      offset: 0,
-    });
   };
 
   const handlePageChange = (newOffset: number) => {
     setOffset(newOffset);
-    setQueryParams((prev) => ({ ...prev, offset: newOffset }));
   };
 
   return (
@@ -86,23 +84,26 @@ export const Orders: Component = () => {
 
             <div class="flex flex-col gap-1.5 min-w-[160px] flex-1">
               <label class="text-xs font-semibold text-muted">Area / Region</label>
-              <input
-                type="text"
+              <select
                 class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="e.g. Lombok Barat"
                 value={area()}
-                onInput={(e) => setArea(e.currentTarget.value)}
-              />
+                onChange={(e) => setArea(e.currentTarget.value)}
+              >
+                <option value="">All Areas</option>
+                <For each={areasData()?.areas}>
+                  {(a) => <option value={a.name}>{a.name}</option>}
+                </For>
+              </select>
             </div>
 
             <div class="flex flex-col gap-1.5 min-w-[140px]">
               <label class="text-xs font-semibold text-muted">Order Date</label>
               <input
-                type="text"
+                type="date"
                 class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="DD/MM/YYYY"
                 value={tanggal()}
                 onInput={(e) => setTanggal(e.currentTarget.value)}
+                onChange={(e) => setTanggal(e.currentTarget.value)}
               />
             </div>
 

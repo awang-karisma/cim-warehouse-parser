@@ -228,7 +228,7 @@ func (s *Storage) migrate() error {
 		id TEXT PRIMARY KEY,
 		order_number TEXT,
 		ecatalog_number TEXT,
-		tanggal TEXT,
+		tanggal DATE,
 		customer TEXT,
 		area TEXT,
 		total_items INTEGER,
@@ -241,7 +241,7 @@ func (s *Storage) migrate() error {
 		order_id TEXT,
 		order_number TEXT,
 		ecatalog_number TEXT,
-		tanggal TEXT,
+		tanggal DATE,
 		customer TEXT,
 		area TEXT,
 		nama_barang TEXT,
@@ -311,6 +311,10 @@ func (s *Storage) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE sync_history ADD COLUMN duration_ms INTEGER DEFAULT 0;`)
 	_, _ = s.db.Exec(`ALTER TABLE customer_aliases ADD COLUMN area TEXT NOT NULL DEFAULT '';`)
 
+	// Migrate legacy DD/MM/YYYY dates in orders and items tables to ISO YYYY-MM-DD
+	if err := s.migrateTanggal(); err != nil {
+		return fmt.Errorf("failed to migrate tanggal: %w", err)
+	}
 
 	// Backfill deliveries from existing items that have no deliveries recorded yet
 	bRows, err := s.db.Query(`
@@ -343,6 +347,94 @@ func (s *Storage) migrate() error {
 					entries := normalizer.ParseDeliveryEntries(b.dateText)
 					for idx, entry := range entries {
 						_, _ = bStmt.Exec(b.id, entry.Date, entry.Quantity, idx)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func parseStoredDate(val any) time.Time {
+	if val == nil {
+		return time.Time{}
+	}
+	switch v := val.(type) {
+	case time.Time:
+		if v.IsZero() {
+			return time.Time{}
+		}
+		return time.Date(v.Year(), v.Month(), v.Day(), 0, 0, 0, 0, time.UTC)
+	case *time.Time:
+		if v == nil || v.IsZero() {
+			return time.Time{}
+		}
+		return time.Date(v.Year(), v.Month(), v.Day(), 0, 0, 0, 0, time.UTC)
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return time.Time{}
+		}
+		return normalizer.ParseDate(trimmed)
+	case []byte:
+		trimmed := strings.TrimSpace(string(v))
+		if trimmed == "" {
+			return time.Time{}
+		}
+		return normalizer.ParseDate(trimmed)
+	}
+	return time.Time{}
+}
+
+func (s *Storage) migrateTanggal() error {
+	// 1. Orders
+	oRows, err := s.db.Query(`SELECT DISTINCT tanggal FROM orders WHERE tanggal LIKE '%/%'`)
+	if err == nil {
+		var legacyDates []string
+		for oRows.Next() {
+			var d string
+			if err := oRows.Scan(&d); err == nil && strings.TrimSpace(d) != "" {
+				legacyDates = append(legacyDates, d)
+			}
+		}
+		_ = oRows.Close()
+
+		if len(legacyDates) > 0 {
+			stmt, err := s.db.Prepare(`UPDATE orders SET tanggal = ? WHERE tanggal = ?`)
+			if err == nil {
+				defer stmt.Close()
+				for _, legacy := range legacyDates {
+					parsed := normalizer.ParseDate(legacy)
+					if !parsed.IsZero() {
+						iso := parsed.Format("2006-01-02")
+						_, _ = stmt.Exec(iso, legacy)
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Items
+	iRows, err := s.db.Query(`SELECT DISTINCT tanggal FROM items WHERE tanggal LIKE '%/%'`)
+	if err == nil {
+		var legacyDates []string
+		for iRows.Next() {
+			var d string
+			if err := iRows.Scan(&d); err == nil && strings.TrimSpace(d) != "" {
+				legacyDates = append(legacyDates, d)
+			}
+		}
+		_ = iRows.Close()
+
+		if len(legacyDates) > 0 {
+			stmt, err := s.db.Prepare(`UPDATE items SET tanggal = ? WHERE tanggal = ?`)
+			if err == nil {
+				defer stmt.Close()
+				for _, legacy := range legacyDates {
+					parsed := normalizer.ParseDate(legacy)
+					if !parsed.IsZero() {
+						iso := parsed.Format("2006-01-02")
+						_, _ = stmt.Exec(iso, legacy)
 					}
 				}
 			}
@@ -394,7 +486,7 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 			}
 		}
 		for _, ord := range orders {
-			if ord.Customer == it.Customer && ord.Tanggal == it.Tanggal {
+			if ord.Customer == it.Customer && ord.Tanggal.Equal(it.Tanggal) {
 				return ord.ID
 			}
 		}
@@ -442,7 +534,11 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 			total = len(ord.Items)
 		}
 		cleanArea := normalizer.NormalizeArea(ord.Area)
-		if _, err := orderStmt.ExecContext(ctx, ord.ID, ord.OrderNumber, ord.EcatalogNumber, ord.Tanggal, ord.Customer, cleanArea, total, now); err != nil {
+		tanggalStr := ""
+		if !ord.Tanggal.IsZero() {
+			tanggalStr = ord.Tanggal.UTC().Format("2006-01-02")
+		}
+		if _, err := orderStmt.ExecContext(ctx, ord.ID, ord.OrderNumber, ord.EcatalogNumber, tanggalStr, ord.Customer, cleanArea, total, now); err != nil {
 			return fmt.Errorf("failed to insert order %s: %w", ord.ID, err)
 		}
 	}
@@ -491,8 +587,12 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 					cleanArea = normalizer.NormalizeArea(ord.Area)
 				}
 			}
+			tanggalStr := ""
+			if !it.Tanggal.IsZero() {
+				tanggalStr = it.Tanggal.UTC().Format("2006-01-02")
+			}
 			res, err := itemStmt.ExecContext(ctx,
-				it.RowIndex, ordID, orderNum, ecatNum, it.Tanggal, it.Customer, cleanArea,
+				it.RowIndex, ordID, orderNum, ecatNum, tanggalStr, it.Customer, cleanArea,
 				it.NamaBarang, it.Jumlah, it.Satuan, it.TanggalPengiriman,
 				it.LeadTimePengiriman, it.JumlahTerkirim, it.BelumTerkirim,
 				it.StatusOrder, it.StatusBarang, it.Keterangan, it.Catatan,
@@ -525,8 +625,12 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 					ecatNum = ord.EcatalogNumber
 				}
 				cleanArea := normalizer.NormalizeArea(ord.Area)
+				tanggalStr := ""
+				if !ord.Tanggal.IsZero() {
+					tanggalStr = ord.Tanggal.UTC().Format("2006-01-02")
+				}
 				res, err := itemStmt.ExecContext(ctx,
-					oi.RowIndex, ord.ID, orderNum, ecatNum, ord.Tanggal, ord.Customer, cleanArea,
+					oi.RowIndex, ord.ID, orderNum, ecatNum, tanggalStr, ord.Customer, cleanArea,
 					oi.NamaBarang, oi.Jumlah, oi.Satuan, oi.TanggalPengiriman,
 					oi.LeadTimePengiriman, oi.JumlahTerkirim, oi.BelumTerkirim,
 					oi.StatusOrder, oi.StatusBarang, oi.Keterangan, oi.Catatan,
@@ -662,7 +766,7 @@ func (s *Storage) GetCustomerAliasesGrouped(ctx context.Context) ([]CustomerAlia
 	return result, nil
 }
 
-// SetCustomerAlias creates or updates a customer alias mapping case-insensitively with linked area.
+// SetCustomerAlias creates or updates an alias mapping and canonicalizes existing rows.
 func (s *Storage) SetCustomerAlias(ctx context.Context, alias, canonical, area string) error {
 	trimmedAlias := strings.TrimSpace(alias)
 	trimmedCanonical := strings.TrimSpace(canonical)
@@ -673,17 +777,45 @@ func (s *Storage) SetCustomerAlias(ctx context.Context, alias, canonical, area s
 	if trimmedAlias == "" || trimmedCanonical == "" {
 		return fmt.Errorf("alias and canonical cannot be empty")
 	}
-	if strings.EqualFold(trimmedAlias, trimmedCanonical) {
+	if trimmedAlias == trimmedCanonical {
 		return fmt.Errorf("alias cannot be equal to canonical name")
 	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin customer alias transaction: %w", err)
+	}
+	defer tx.Rollback()
 
 	query := `
 		INSERT INTO customer_aliases (alias, canonical, area)
 		VALUES (?, ?, ?)
 		ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical, area = excluded.area
 	`
-	if _, err := s.db.ExecContext(ctx, query, trimmedAlias, trimmedCanonical, trimmedArea); err != nil {
+	if _, err := tx.ExecContext(ctx, query, trimmedAlias, trimmedCanonical, trimmedArea); err != nil {
 		return fmt.Errorf("failed to set customer alias: %w", err)
+	}
+
+	canonicalArea := ""
+	if trimmedArea == "" {
+		for _, table := range []string{"orders", "items"} {
+			query := `SELECT COALESCE(MAX(NULLIF(TRIM(area), '')), '') FROM ` + table + ` WHERE customer = ? COLLATE BINARY`
+			if err := tx.QueryRowContext(ctx, query, trimmedCanonical).Scan(&canonicalArea); err != nil {
+				return fmt.Errorf("failed to find canonical customer area in %s: %w", table, err)
+			}
+			if canonicalArea != "" {
+				break
+			}
+		}
+	}
+	for _, table := range []string{"orders", "items"} {
+		query := `UPDATE ` + table + ` SET customer = ?, area = CASE WHEN ? != '' THEN ? WHEN TRIM(COALESCE(area, '')) = '' THEN ? ELSE area END WHERE customer = ? COLLATE NOCASE`
+		if _, err := tx.ExecContext(ctx, query, trimmedCanonical, trimmedArea, trimmedArea, canonicalArea, trimmedAlias); err != nil {
+			return fmt.Errorf("failed to canonicalize customer alias in %s: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit customer alias transaction: %w", err)
 	}
 	return nil
 }
@@ -772,8 +904,14 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		date = filter.Tanggal
 	}
 	if date != "" {
-		conditions = append(conditions, "tanggal LIKE ?")
-		args = append(args, "%"+date+"%")
+		rawDate := strings.TrimSpace(date)
+		parsed := normalizer.ParseDate(rawDate)
+		if !parsed.IsZero() {
+			conditions = append(conditions, "tanggal = ?")
+			args = append(args, parsed.Format("2006-01-02"))
+		} else {
+			conditions = append(conditions, "1 = 0")
+		}
 	}
 
 	if filter.Area != "" {
@@ -839,11 +977,13 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 	for rows.Next() {
 		var ord model.Order
 		var orderNumber, ecatalogNumber sql.NullString
-		if err := rows.Scan(&ord.ID, &orderNumber, &ecatalogNumber, &ord.Tanggal, &ord.Customer, &ord.Area); err != nil {
+		var tanggalVal any
+		if err := rows.Scan(&ord.ID, &orderNumber, &ecatalogNumber, &tanggalVal, &ord.Customer, &ord.Area); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan order row: %w", err)
 		}
 		ord.OrderNumber = orderNumber.String
 		ord.EcatalogNumber = ecatalogNumber.String
+		ord.Tanggal = parseStoredDate(tanggalVal)
 		ord.Items = []model.OrderItem{}
 		orders = append(orders, ord)
 		orderIDs = append(orderIDs, ord.ID)
@@ -903,11 +1043,12 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 func (s *Storage) GetOrderByID(ctx context.Context, id string) (*model.Order, error) {
 	var ord model.Order
 	var orderNumber, ecatalogNumber sql.NullString
+	var tanggalVal any
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, order_number, ecatalog_number, tanggal, customer, area
 		FROM orders
 		WHERE id = ?
-	`, id).Scan(&ord.ID, &orderNumber, &ecatalogNumber, &ord.Tanggal, &ord.Customer, &ord.Area)
+	`, id).Scan(&ord.ID, &orderNumber, &ecatalogNumber, &tanggalVal, &ord.Customer, &ord.Area)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("order %q not found: %w", id, sql.ErrNoRows)
@@ -916,6 +1057,7 @@ func (s *Storage) GetOrderByID(ctx context.Context, id string) (*model.Order, er
 	}
 	ord.OrderNumber = orderNumber.String
 	ord.EcatalogNumber = ecatalogNumber.String
+	ord.Tanggal = parseStoredDate(tanggalVal)
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT row_index, order_number, ecatalog_number, nama_barang, jumlah, satuan, tanggal_pengiriman,
@@ -985,8 +1127,14 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 		date = filter.Tanggal
 	}
 	if date != "" {
-		conditions = append(conditions, "tanggal LIKE ?")
-		args = append(args, "%"+date+"%")
+		rawDate := strings.TrimSpace(date)
+		parsed := normalizer.ParseDate(rawDate)
+		if !parsed.IsZero() {
+			conditions = append(conditions, "tanggal = ?")
+			args = append(args, parsed.Format("2006-01-02"))
+		} else {
+			conditions = append(conditions, "1 = 0")
+		}
 	}
 
 	orderNum := filter.OrderNumber
@@ -1042,8 +1190,9 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 	for rows.Next() {
 		var it model.NormalizedItem
 		var itemOrderNum, itemEcatNum sql.NullString
+		var tanggalVal any
 		if err := rows.Scan(
-			&it.RowIndex, &itemOrderNum, &itemEcatNum, &it.Tanggal, &it.Customer, &it.Area, &it.NamaBarang,
+			&it.RowIndex, &itemOrderNum, &itemEcatNum, &tanggalVal, &it.Customer, &it.Area, &it.NamaBarang,
 			&it.Jumlah, &it.Satuan, &it.TanggalPengiriman, &it.LeadTimePengiriman,
 			&it.JumlahTerkirim, &it.BelumTerkirim, &it.StatusOrder, &it.StatusBarang,
 			&it.Keterangan, &it.Catatan,
@@ -1052,6 +1201,7 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 		}
 		it.OrderNumber = itemOrderNum.String
 		it.EcatalogNumber = itemEcatNum.String
+		it.Tanggal = parseStoredDate(tanggalVal)
 		items = append(items, it)
 	}
 	if err := rows.Err(); err != nil {
@@ -1160,15 +1310,17 @@ func (s *Storage) GetDeliveries(ctx context.Context, filter DeliveryFilter) ([]D
 	for rows.Next() {
 		var di DeliveryItem
 		var ordID string
+		var tanggalVal any
 		if err := rows.Scan(
 			&di.DeliveryDate, &di.ShippedQuantity, &di.ShipmentIndex, &di.ShipmentCount,
-			&di.Item.RowIndex, &ordID, &di.Item.OrderNumber, &di.Item.EcatalogNumber, &di.Item.Tanggal, &di.Item.Customer, &di.Item.Area,
+			&di.Item.RowIndex, &ordID, &di.Item.OrderNumber, &di.Item.EcatalogNumber, &tanggalVal, &di.Item.Customer, &di.Item.Area,
 			&di.Item.NamaBarang, &di.Item.Jumlah, &di.Item.Satuan, &di.Item.TanggalPengiriman,
 			&di.Item.LeadTimePengiriman, &di.Item.JumlahTerkirim, &di.Item.BelumTerkirim,
 			&di.Item.StatusOrder, &di.Item.StatusBarang, &di.Item.Keterangan, &di.Item.Catatan,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan delivery row: %w", err)
 		}
+		di.Item.Tanggal = parseStoredDate(tanggalVal)
 		deliveries = append(deliveries, di)
 	}
 	if err := rows.Err(); err != nil {

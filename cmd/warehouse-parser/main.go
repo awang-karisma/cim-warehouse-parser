@@ -117,8 +117,12 @@ func printSummary(w io.Writer, items []model.NormalizedItem, orders []model.Orde
 
 	var firstDate, lastDate string
 	if len(items) > 0 {
-		firstDate = items[0].Tanggal
-		lastDate = items[len(items)-1].Tanggal
+		if !items[0].Tanggal.IsZero() {
+			firstDate = items[0].Tanggal.Format("2006-01-02")
+		}
+		if !items[len(items)-1].Tanggal.IsZero() {
+			lastDate = items[len(items)-1].Tanggal.Format("2006-01-02")
+		}
 	}
 
 	for _, it := range items {

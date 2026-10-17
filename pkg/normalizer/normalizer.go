@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
@@ -22,6 +23,12 @@ type DeliveryEntry struct {
 	Quantity string `json:"quantity"`
 }
 
+
+// ParseDate parses supported sheet date strings (DD/MM/YYYY and ISO YYYY-MM-DD)
+// as calendar dates at UTC midnight without timezone shift. Blank/invalid input becomes zero time.
+func ParseDate(raw string) time.Time {
+	return model.ParseDate(raw)
+}
 var deliveryEntryRegex = regexp.MustCompile(`(\d{1,2}/\d{1,2}/\d{4})\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*\)`)
 
 // ParseDeliveryEntries parses comma-separated or formatted shipment dates and quantities.
@@ -177,7 +184,7 @@ func extractAndCleanCustomer(raw string) (cleanCust string, epCode string) {
 // and preserving accurate 1-based sheet row indices.
 func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 	var (
-		currentTanggal     string
+		currentTanggal     time.Time
 		currentCustomer    string
 		currentArea        string
 		currentOrderNumber string
@@ -188,10 +195,11 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 	for i, raw := range rawRows {
 		trimmedTanggal := strings.TrimSpace(raw.Tanggal)
 		if trimmedTanggal != "" {
-			if trimmedTanggal != currentTanggal && currentCustomer == "" {
+			parsedDate := ParseDate(trimmedTanggal)
+			if !parsedDate.Equal(currentTanggal) && currentCustomer == "" {
 				currentOrderNumber = ""
 			}
-			currentTanggal = trimmedTanggal
+			currentTanggal = parsedDate
 		}
 
 		cleanCust, epFromCust := extractAndCleanCustomer(raw.Customer)
@@ -276,7 +284,7 @@ func GroupOrders(items []model.NormalizedItem) []model.Order {
 	for _, item := range items {
 		itemArea := NormalizeArea(item.Area)
 		// If item matches the current order's customer and date, append to it
-		if currentOrder != nil && item.Customer == currentOrder.Customer && item.Tanggal == currentOrder.Tanggal {
+		if currentOrder != nil && item.Customer == currentOrder.Customer && item.Tanggal.Equal(currentOrder.Tanggal) {
 			if currentOrder.Area == "" && itemArea != "" {
 				currentOrder.Area = itemArea
 			}

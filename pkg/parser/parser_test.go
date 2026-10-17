@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/parser"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
@@ -47,7 +48,7 @@ func TestParseCSV_RealData(t *testing.T) {
 	for _, ord := range orders {
 		switch ord.Customer {
 		case "RS Narmada":
-			if ord.Tanggal == "02/01/2026" {
+			if ord.Tanggal.Equal(model.ParseDate("02/01/2026")) {
 				foundNarmada = true
 				if ord.Area != "Lombok Barat" {
 					t.Errorf("expected RS Narmada area 'Lombok Barat', got %q", ord.Area)
@@ -59,7 +60,7 @@ func TestParseCSV_RealData(t *testing.T) {
 				}
 			}
 		case "RS Patuh Karya":
-			if ord.Tanggal == "02/01/2026" {
+			if ord.Tanggal.Equal(model.ParseDate("02/01/2026")) {
 				foundPatuhKarya = true
 				if ord.Area != "Lombok Tengah" {
 					t.Errorf("expected RS Patuh Karya area 'Lombok Tengah', got %q", ord.Area)
@@ -71,7 +72,7 @@ func TestParseCSV_RealData(t *testing.T) {
 				}
 			}
 		case "PMI Lotim":
-			if ord.Tanggal == "02/01/2026" {
+			if ord.Tanggal.Equal(model.ParseDate("02/01/2026")) {
 				foundPMILotim = true
 				if len(ord.Items) != 3 {
 					t.Errorf("expected PMI Lotim order to have 3 items, got %d", len(ord.Items))
@@ -115,8 +116,8 @@ func TestParseCSV_SyntheticData(t *testing.T) {
 	if ord1.Customer != "RS Narmada" {
 		t.Errorf("expected customer 'RS Narmada', got %q", ord1.Customer)
 	}
-	if ord1.Tanggal != "02/01/2026" {
-		t.Errorf("expected date '02/01/2026', got %q", ord1.Tanggal)
+	if !ord1.Tanggal.Equal(model.ParseDate("02/01/2026")) {
+		t.Errorf("expected date '02/01/2026', got %v", ord1.Tanggal)
 	}
 	if ord1.Area != "Lombok Barat" {
 		t.Errorf("expected area 'Lombok Barat', got %q", ord1.Area)
@@ -134,8 +135,8 @@ func TestParseCSV_SyntheticData(t *testing.T) {
 	if items[1].Customer != "RS Narmada" {
 		t.Errorf("expected forward-filled customer 'RS Narmada', got %q", items[1].Customer)
 	}
-	if items[1].Tanggal != "02/01/2026" {
-		t.Errorf("expected forward-filled date '02/01/2026', got %q", items[1].Tanggal)
+	if !items[1].Tanggal.Equal(model.ParseDate("02/01/2026")) {
+		t.Errorf("expected forward-filled date '02/01/2026', got %v", items[1].Tanggal)
 	}
 	if items[1].Area != "Lombok Barat" {
 		t.Errorf("expected forward-filled area 'Lombok Barat', got %q", items[1].Area)
@@ -146,8 +147,8 @@ func TestParseCSV_SyntheticData(t *testing.T) {
 	if ord2.Customer != "RS Patuh Karya" {
 		t.Errorf("expected customer 'RS Patuh Karya', got %q", ord2.Customer)
 	}
-	if ord2.Tanggal != "03/01/2026" {
-		t.Errorf("expected date '03/01/2026', got %q", ord2.Tanggal)
+	if !ord2.Tanggal.Equal(model.ParseDate("03/01/2026")) {
+		t.Errorf("expected date '03/01/2026', got %v", ord2.Tanggal)
 	}
 	if ord2.Area != "Lombok Tengah" {
 		t.Errorf("expected area 'Lombok Tengah', got %q", ord2.Area)
@@ -230,7 +231,7 @@ func TestParseSheet_MockServer(t *testing.T) {
 	}
 
 	// Verify order 2: RS Patuh Karya (inherited Tanggal)
-	if orders[1].ID != "ORD-0002" || orders[1].Customer != "RS Patuh Karya" || orders[1].Tanggal != "02/01/2026" {
+	if orders[1].ID != "ORD-0002" || orders[1].Customer != "RS Patuh Karya" || !orders[1].Tanggal.Equal(model.ParseDate("02/01/2026")) {
 		t.Errorf("unexpected order 1: %+v", orders[1])
 	}
 
@@ -240,5 +241,73 @@ func TestParseSheet_MockServer(t *testing.T) {
 	}
 	if orders[2].Items[0].NamaBarang != "Hbsag" || orders[2].Items[1].NamaBarang != "Syphillis" {
 		t.Errorf("unexpected item names in order 2: %+v", orders[2].Items)
+	}
+}
+
+func TestParseCSVWithAliases_AreaOverride(t *testing.T) {
+	csvData := `Tanggal,Customer,Area,Nama Barang,Jumlah,Satuan,Tanggal Pengiriman,Lead Time Pengiriman,Jumlah Terkirim,Belum Terkirim,Status Order,Status Barang,Keterangan,Catatan
+02/01/2026,RS Variant A,Lombok Barat,Item 1,10,pack,03/01/2026,1,10,0,Selesai,Terkirim,,
+02/01/2026,RS Variant B,,Item 2,5,pack,03/01/2026,1,5,0,Selesai,Terkirim,,
+02/01/2026,RS Variant C,Mataram,Item 3,1,box,03/01/2026,1,1,0,Selesai,Terkirim,,
+`
+	aliases := map[string]model.CustomerAlias{
+		"rs variant a": {
+			Alias:     "RS Variant A",
+			Canonical: "RS Canonical",
+			Area:      "Mataram", // non-empty area should override source "Lombok Barat"
+		},
+		"rs variant b": {
+			Alias:     "RS Variant B",
+			Canonical: "RS Canonical",
+			Area:      "Lombok Tengah", // non-empty area should set area on empty source row
+		},
+		"rs variant c": {
+			Alias:     "RS Variant C",
+			Canonical: "RS Variant C Canonical",
+			Area:      "", // empty mapping area should retain source "Mataram"
+		},
+	}
+
+	items, orders, err := parser.ParseCSVWithAliases(strings.NewReader(csvData), aliases)
+	if err != nil {
+		t.Fatalf("ParseCSVWithAliases failed: %v", err)
+	}
+
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+
+	// Item 1: source area "Lombok Barat" overridden by alias "Mataram"
+	if items[0].Area != "Mataram" {
+		t.Errorf("expected item[0].Area 'Mataram', got %q", items[0].Area)
+	}
+	if items[0].Customer != "RS Canonical" {
+		t.Errorf("expected item[0].Customer 'RS Canonical', got %q", items[0].Customer)
+	}
+
+	// Item 2: empty source area set to "Lombok Tengah" by alias
+	if items[1].Area != "Lombok Tengah" {
+		t.Errorf("expected item[1].Area 'Lombok Tengah', got %q", items[1].Area)
+	}
+	if items[1].Customer != "RS Canonical" {
+		t.Errorf("expected item[1].Customer 'RS Canonical', got %q", items[1].Customer)
+	}
+
+	// Item 3: empty alias area retains source area "Mataram"
+	if items[2].Area != "Mataram" {
+		t.Errorf("expected item[2].Area 'Mataram', got %q", items[2].Area)
+	}
+
+	// Grouped orders:
+	// items[0] and items[1] share date 02/01/2026 and canonical customer "RS Canonical"
+	// Verify grouped order area reflects the alias
+	if len(orders) < 2 {
+		t.Fatalf("expected 2 orders, got %d", len(orders))
+	}
+	if orders[0].Customer != "RS Canonical" {
+		t.Errorf("expected order[0].Customer 'RS Canonical', got %q", orders[0].Customer)
+	}
+	if orders[0].Area != "Mataram" {
+		t.Errorf("expected order[0].Area 'Mataram', got %q", orders[0].Area)
 	}
 }

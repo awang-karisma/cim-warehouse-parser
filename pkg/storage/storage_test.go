@@ -2,9 +2,13 @@ package storage_test
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
@@ -14,7 +18,7 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 	items := []model.NormalizedItem{
 		{
 			RowIndex:           2,
-			Tanggal:            "02/01/2026",
+			Tanggal:            model.ParseDate("02/01/2026"),
 			Customer:           "RS Narmada",
 			Area:               "Lombok Barat",
 			NamaBarang:         "Yellowtip",
@@ -31,7 +35,7 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 		},
 		{
 			RowIndex:           3,
-			Tanggal:            "02/01/2026",
+			Tanggal:            model.ParseDate("02/01/2026"),
 			Customer:           "RS Narmada",
 			Area:               "Lombok Barat",
 			NamaBarang:         "Bluetip",
@@ -50,7 +54,7 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 			RowIndex:           4,
 			OrderNumber:        "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			EcatalogNumber:     "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
-			Tanggal:            "03/01/2026",
+			Tanggal:            model.ParseDate("03/01/2026"),
 			Customer:           "RSUD Praya",
 			Area:               "Lombok Tengah",
 			NamaBarang:         "Needle 23G",
@@ -67,7 +71,7 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 		},
 		{
 			RowIndex:           5,
-			Tanggal:            "04/01/2026",
+			Tanggal:            model.ParseDate("04/01/2026"),
 			Customer:           "Klinik Surya",
 			Area:               "Mataram",
 			NamaBarang:         "Spuit 3cc",
@@ -87,7 +91,7 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 	orders := []model.Order{
 		{
 			ID:       "ORD-0001",
-			Tanggal:  "02/01/2026",
+			Tanggal:  model.ParseDate("02/01/2026"),
 			Customer: "RS Narmada",
 			Area:     "Lombok Barat",
 			Items: []model.OrderItem{
@@ -125,7 +129,7 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 			ID:             "ORD-0002",
 			OrderNumber:    "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
 			EcatalogNumber: "EP-01KPSBM6ANVBV1MMJ2G8QYDDD2",
-			Tanggal:        "03/01/2026",
+			Tanggal:        model.ParseDate("03/01/2026"),
 			Customer:       "RSUD Praya",
 			Area:           "Lombok Tengah",
 			Items: []model.OrderItem{
@@ -149,7 +153,7 @@ func createSampleData() ([]model.NormalizedItem, []model.Order) {
 		},
 		{
 			ID:       "ORD-0003",
-			Tanggal:  "04/01/2026",
+			Tanggal:  model.ParseDate("04/01/2026"),
 			Customer: "Klinik Surya",
 			Area:     "Mataram",
 			Items: []model.OrderItem{
@@ -487,12 +491,12 @@ func TestSyncMirror_AtomicRollback(t *testing.T) {
 		{
 			ID:       "ORD-DUPE",
 			Customer: "Cust 1",
-			Tanggal:  "01/01/2026",
+			Tanggal:  model.ParseDate("01/01/2026"),
 		},
 		{
 			ID:       "ORD-DUPE", // Duplicate primary key
 			Customer: "Cust 2",
-			Tanggal:  "01/01/2026",
+			Tanggal:  model.ParseDate("01/01/2026"),
 		},
 	}
 	invalidItems := []model.NormalizedItem{
@@ -542,7 +546,7 @@ func TestSyncMirror_MirrorOverwritesPrevious(t *testing.T) {
 	newItems := []model.NormalizedItem{
 		{
 			RowIndex:   2,
-			Tanggal:    "10/01/2026",
+			Tanggal:    model.ParseDate("10/01/2026"),
 			Customer:   "RS Baru",
 			Area:       "Denpasar",
 			NamaBarang: "Alkohol 70%",
@@ -553,7 +557,7 @@ func TestSyncMirror_MirrorOverwritesPrevious(t *testing.T) {
 	newOrders := []model.Order{
 		{
 			ID:       "ORD-0099",
-			Tanggal:  "10/01/2026",
+			Tanggal:  model.ParseDate("10/01/2026"),
 			Customer: "RS Baru",
 			Area:     "Denpasar",
 			Items: []model.OrderItem{
@@ -974,8 +978,11 @@ func TestStorage_CustomerAliases(t *testing.T) {
 	if err := store.SetCustomerAlias(ctx, "RS PKU", "", "Lombok Barat"); err == nil {
 		t.Errorf("expected error for empty canonical")
 	}
-	if err := store.SetCustomerAlias(ctx, "RS PKU", "rs pku", "Lombok Barat"); err == nil {
-		t.Errorf("expected error when alias equals canonical case-insensitively")
+	if err := store.SetCustomerAlias(ctx, "RS PKU", "RS PKU", "Lombok Barat"); err == nil {
+		t.Errorf("expected error when alias exactly equals canonical")
+	}
+	if err := store.SetCustomerAlias(ctx, "RSUD NARMADA", "RSUD Narmada", ""); err != nil {
+		t.Fatalf("expected case-only alias to succeed: %v", err)
 	}
 
 	// 2. Set aliases with linked area
@@ -1008,8 +1015,8 @@ func TestStorage_CustomerAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCustomerAliasesGrouped failed: %v", err)
 	}
-	if len(groups) != 2 {
-		t.Fatalf("expected 2 groups, got %d", len(groups))
+	if len(groups) != 3 {
+		t.Fatalf("expected 3 groups, got %d", len(groups))
 	}
 	var pkuGroup *storage.CustomerAliasGroup
 	for i := range groups {
@@ -1026,7 +1033,7 @@ func TestStorage_CustomerAliases(t *testing.T) {
 	items := []model.NormalizedItem{
 		{
 			RowIndex:    2,
-			Tanggal:     "01/01/2026",
+			Tanggal:     model.ParseDate("01/01/2026"),
 			Customer:    "RS PKU Muhammadiyah",
 			Area:        "Lombok Barat",
 			NamaBarang:  "Alcohol Swab",
@@ -1037,7 +1044,7 @@ func TestStorage_CustomerAliases(t *testing.T) {
 	orders := []model.Order{
 		{
 			ID:       "ORD-PKU-1",
-			Tanggal:  "01/01/2026",
+			Tanggal:  model.ParseDate("01/01/2026"),
 			Customer: "RS PKU Muhammadiyah",
 			Area:     "Lombok Barat",
 			Items: []model.OrderItem{
@@ -1100,6 +1107,65 @@ func TestStorage_CustomerAliases(t *testing.T) {
 	}
 }
 
+func TestStorage_SetCustomerAliasCanonicalizesExistingRows(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create memory store: %v", err)
+	}
+	defer store.Close()
+
+	items := []model.NormalizedItem{
+		{RowIndex: 1, Customer: "RSUD NARMADA", NamaBarang: "Item 1", StatusOrder: "SELESAI"},
+		{RowIndex: 2, Customer: "RSUD Narmada", Area: "Lombok Barat", NamaBarang: "Item 2", StatusOrder: "PENDING"},
+	}
+	orders := []model.Order{
+		{ID: "alias-order", Customer: "RSUD NARMADA", Items: []model.OrderItem{{RowIndex: 1}}},
+		{ID: "canonical-order", Customer: "RSUD Narmada", Area: "Lombok Barat", Items: []model.OrderItem{{RowIndex: 2}}},
+	}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+	if err := store.SetCustomerAlias(ctx, "RSUD NARMADA", "RSUD Narmada", ""); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+
+	customers, total, err := store.GetCustomers(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatalf("GetCustomers failed: %v", err)
+	}
+	if total != 1 || len(customers) != 1 || customers[0].Name != "RSUD Narmada" || customers[0].TotalOrders != 2 || customers[0].TotalItems != 2 {
+		t.Fatalf("expected one canonical customer with 2 orders and items, total=%d customers=%+v", total, customers)
+	}
+	if customers[0].StatusCounts["SELESAI"] != 1 || customers[0].StatusCounts["PENDING"] != 1 {
+		t.Errorf("expected status counts merged under canonical customer, got %+v", customers[0].StatusCounts)
+	}
+
+	gotOrders, orderCount, err := store.GetOrders(ctx, storage.OrderFilter{Customer: "RSUD NARMADA"})
+	if err != nil {
+		t.Fatalf("GetOrders failed: %v", err)
+	}
+	if orderCount != 2 || len(gotOrders) != 2 {
+		t.Fatalf("expected alias search to return both orders, total=%d orders=%+v", orderCount, gotOrders)
+	}
+	for _, order := range gotOrders {
+		if order.Customer != "RSUD Narmada" || order.Area != "Lombok Barat" {
+			t.Errorf("expected canonical customer and retained area, got %+v", order)
+		}
+	}
+	gotItems, itemCount, err := store.GetItems(ctx, storage.ItemFilter{Customer: "RSUD NARMADA"})
+	if err != nil {
+		t.Fatalf("GetItems failed: %v", err)
+	}
+	if itemCount != 2 || len(gotItems) != 2 {
+		t.Fatalf("expected alias search to return both items, total=%d items=%+v", itemCount, gotItems)
+	}
+	for _, item := range gotItems {
+		if item.Customer != "RSUD Narmada" || item.Area != "Lombok Barat" {
+			t.Errorf("expected canonical customer and inherited area, got %+v", item)
+		}
+	}
+}
 func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.New(":memory:")
@@ -1113,7 +1179,7 @@ func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 	items := []model.NormalizedItem{
 		{
 			RowIndex:          2,
-			Tanggal:           "02/01/2026",
+			Tanggal:           model.ParseDate("02/01/2026"),
 			Customer:          "RSUD Provinsi NTB",
 			Area:              "Mataram",
 			NamaBarang:        "Needle 23G",
@@ -1126,7 +1192,7 @@ func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 		},
 		{
 			RowIndex:          3,
-			Tanggal:           "02/01/2026",
+			Tanggal:           model.ParseDate("02/01/2026"),
 			Customer:          "RSUD Provinsi NTB",
 			Area:              "Mataram",
 			NamaBarang:        "Spuit 3cc",
@@ -1139,7 +1205,7 @@ func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 		},
 		{
 			RowIndex:          4,
-			Tanggal:           "02/01/2026",
+			Tanggal:           model.ParseDate("02/01/2026"),
 			Customer:          "RSUD Provinsi NTB",
 			Area:              "Mataram",
 			NamaBarang:        "Spuit 5cc",
@@ -1155,7 +1221,7 @@ func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 	orders := []model.Order{
 		{
 			ID:       "ORD-DEL-1",
-			Tanggal:  "02/01/2026",
+			Tanggal:  model.ParseDate("02/01/2026"),
 			Customer: "RSUD Provinsi NTB",
 			Area:     "Mataram",
 			Items: []model.OrderItem{
@@ -1260,5 +1326,229 @@ func TestStorage_DeliveriesMigrationBackfill(t *testing.T) {
 	}
 	if dels[1].DeliveryDate != "15/01/2026" || dels[1].ShippedQuantity != "5" {
 		t.Errorf("unexpected delivery 1: %+v", dels[1])
+	}
+}
+
+func TestDateMigration_LegacyDDMMYYYY(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "legacy_dates.db")
+
+	// 1. Manually create legacy schema with TEXT tanggal and insert legacy dates
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open raw sqlite: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE orders (
+			id TEXT PRIMARY KEY,
+			order_number TEXT,
+			ecatalog_number TEXT,
+			tanggal TEXT,
+			customer TEXT,
+			area TEXT,
+			total_items INTEGER,
+			updated_at DATETIME
+		);
+		CREATE TABLE items (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			row_index INTEGER,
+			order_id TEXT,
+			order_number TEXT,
+			ecatalog_number TEXT,
+			tanggal TEXT,
+			customer TEXT,
+			area TEXT,
+			nama_barang TEXT,
+			jumlah TEXT,
+			satuan TEXT,
+			tanggal_pengiriman TEXT,
+			lead_time_pengiriman TEXT,
+			jumlah_terkirim TEXT,
+			belum_terkirim TEXT,
+			status_order TEXT,
+			status_barang TEXT,
+			keterangan TEXT,
+			catatan TEXT
+		);
+		INSERT INTO orders (id, order_number, ecatalog_number, tanggal, customer, area, total_items)
+		VALUES ('ORD-LEGACY-1', 'EP-1', '', '02/01/2026', 'RS Legacy', 'Mataram', 1),
+		       ('ORD-LEGACY-BAD', 'EP-2', '', 'unparseable/date', 'RS Legacy Bad', 'Mataram', 1);
+
+		INSERT INTO items (id, row_index, order_id, order_number, tanggal, customer, area, nama_barang, jumlah, satuan)
+		VALUES (1, 2, 'ORD-LEGACY-1', 'EP-1', '02/01/2026', 'RS Legacy', 'Mataram', 'Spuit 3cc', '10', 'BOX'),
+		       (2, 3, 'ORD-LEGACY-BAD', 'EP-2', 'unparseable/date', 'RS Legacy Bad', 'Mataram', 'Kapas', '5', 'ROLL');
+	`)
+	if err != nil {
+		t.Fatalf("failed to setup legacy tables: %v", err)
+	}
+	db.Close()
+
+	// 2. Open via storage.New() which runs migrate() and migrateTanggal()
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("storage.New failed on legacy db: %v", err)
+	}
+	defer store.Close()
+
+	// Verify SQLite storage has migrated valid DD/MM/YYYY to ISO YYYY-MM-DD
+	var rawTanggal string
+	if err := store.DB().QueryRow("SELECT tanggal FROM orders WHERE id = 'ORD-LEGACY-1'").Scan(&rawTanggal); err != nil {
+		t.Fatalf("failed to query raw tanggal from orders: %v", err)
+	}
+	if rawTanggal != "2026-01-02" {
+		t.Errorf("expected migrated ISO date '2026-01-02', got %q", rawTanggal)
+	}
+
+	// Verify unparseable legacy value preserved verbatim
+	var badTanggal string
+	if err := store.DB().QueryRow("SELECT tanggal FROM orders WHERE id = 'ORD-LEGACY-BAD'").Scan(&badTanggal); err != nil {
+		t.Fatalf("failed to query bad tanggal from orders: %v", err)
+	}
+	if badTanggal != "unparseable/date" {
+		t.Errorf("expected preserved verbatim date 'unparseable/date', got %q", badTanggal)
+	}
+
+	// Verify GetOrders scans as typed Go date
+	orders, total, err := store.GetOrders(context.Background(), storage.OrderFilter{OrderNumber: "EP-1"})
+	if err != nil || total != 1 {
+		t.Fatalf("GetOrders failed: total=%d err=%v", total, err)
+	}
+	expectedDate := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if !orders[0].Tanggal.Equal(expectedDate) {
+		t.Errorf("expected scanned date %v, got %v", expectedDate, orders[0].Tanggal)
+	}
+
+	// Verify JSON serialization emits date-only ISO YYYY-MM-DD
+	jsonBytes, err := json.Marshal(orders[0])
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	if !strings.Contains(string(jsonBytes), `"tanggal":"2026-01-02"`) {
+		t.Errorf("expected JSON to contain date-only ISO '\"tanggal\":\"2026-01-02\"', got: %s", string(jsonBytes))
+	}
+
+	// 3. Insert a new order with typed date via SyncMirror
+	typedDate := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+	newOrders := []model.Order{
+		{
+			ID:          "ORD-NEW-1",
+			OrderNumber: "EP-NEW",
+			Tanggal:     typedDate,
+			Customer:    "RS Baru",
+			Area:        "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 10, NamaBarang: "Needle", Jumlah: "1"},
+			},
+		},
+	}
+	newItems := []model.NormalizedItem{
+		{
+			RowIndex:    10,
+			OrderNumber: "EP-NEW",
+			Tanggal:     typedDate,
+			Customer:    "RS Baru",
+			Area:        "Mataram",
+			NamaBarang:  "Needle",
+			Jumlah:      "1",
+		},
+	}
+	if err := store.SyncMirror(context.Background(), newItems, newOrders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Verify SQLite stored canonical ISO date
+	var storedNewDate string
+	if err := store.DB().QueryRow("SELECT tanggal FROM orders WHERE id = 'ORD-NEW-1'").Scan(&storedNewDate); err != nil {
+		t.Fatalf("failed to query stored date: %v", err)
+	}
+	if storedNewDate != "2026-10-17" {
+		t.Errorf("expected SQLite canonical ISO date '2026-10-17', got %q", storedNewDate)
+	}
+
+	// Verify retrieval returns the exact same typed date
+	retrieved, total, err := store.GetOrders(context.Background(), storage.OrderFilter{OrderNumber: "EP-NEW"})
+	if err != nil || total != 1 {
+		t.Fatalf("GetOrders for new order failed: %v", err)
+	}
+	if !retrieved[0].Tanggal.Equal(typedDate) {
+		t.Errorf("expected retrieved date %v, got %v", typedDate, retrieved[0].Tanggal)
+	}
+}
+
+func TestDateFilter_ISOAndLegacyAndInvalid(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "filter_dates.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+
+	targetDate := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+	items := []model.NormalizedItem{
+		{
+			RowIndex:    2,
+			OrderNumber: "EP-17",
+			Tanggal:     targetDate,
+			Customer:    "RS Target",
+			Area:        "Mataram",
+			NamaBarang:  "Target Item",
+			Jumlah:      "5",
+		},
+	}
+	orders := []model.Order{
+		{
+			ID:          "ORD-17",
+			OrderNumber: "EP-17",
+			Tanggal:     targetDate,
+			Customer:    "RS Target",
+			Area:        "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 2, NamaBarang: "Target Item", Jumlah: "5"},
+			},
+		},
+	}
+	if err := store.SyncMirror(context.Background(), items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// 1. Filter with ISO YYYY-MM-DD
+	resISO, totalISO, err := store.GetOrders(ctx, storage.OrderFilter{Date: "2026-10-17"})
+	if err != nil || totalISO != 1 || len(resISO) != 1 {
+		t.Errorf("expected 1 match for ISO filter '2026-10-17', got total=%d err=%v", totalISO, err)
+	}
+
+	// 2. Filter with legacy DD/MM/YYYY
+	resLegacy, totalLegacy, err := store.GetOrders(ctx, storage.OrderFilter{Date: "17/10/2026"})
+	if err != nil || totalLegacy != 1 || len(resLegacy) != 1 {
+		t.Errorf("expected 1 match for legacy filter '17/10/2026', got total=%d err=%v", totalLegacy, err)
+	}
+
+	// 3. Filter with non-matching date
+	_, totalOther, err := store.GetOrders(ctx, storage.OrderFilter{Date: "2026-10-18"})
+	if err != nil || totalOther != 0 {
+		t.Errorf("expected 0 matches for non-matching date, got total=%d err=%v", totalOther, err)
+	}
+
+	// 4. Filter with invalid date input -> returns no matches
+	_, totalInvalid, err := store.GetOrders(ctx, storage.OrderFilter{Date: "not-a-valid-date"})
+	if err != nil || totalInvalid != 0 {
+		t.Errorf("expected 0 matches for invalid date, got total=%d err=%v", totalInvalid, err)
+	}
+
+	// 5. Test same for GetItems
+	itemsISO, iTotalISO, err := store.GetItems(ctx, storage.ItemFilter{Date: "2026-10-17"})
+	if err != nil || iTotalISO != 1 || len(itemsISO) != 1 {
+		t.Errorf("GetItems: expected 1 match for ISO date, got %d", iTotalISO)
+	}
+	itemsLegacy, iTotalLegacy, err := store.GetItems(ctx, storage.ItemFilter{Date: "17/10/2026"})
+	if err != nil || iTotalLegacy != 1 || len(itemsLegacy) != 1 {
+		t.Errorf("GetItems: expected 1 match for legacy date, got %d", iTotalLegacy)
+	}
+	_, iTotalInvalid, err := store.GetItems(ctx, storage.ItemFilter{Date: "invalid-date"})
+	if err != nil || iTotalInvalid != 0 {
+		t.Errorf("GetItems: expected 0 matches for invalid date, got %d", iTotalInvalid)
 	}
 }

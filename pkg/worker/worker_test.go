@@ -32,7 +32,7 @@ func sampleMockData() ([]model.NormalizedItem, []model.Order) {
 	items := []model.NormalizedItem{
 		{
 			RowIndex:    2,
-			Tanggal:     "02/01/2026",
+			Tanggal:     model.ParseDate("02/01/2026"),
 			Customer:    "RS Narmada",
 			Area:        "Lombok Barat",
 			NamaBarang:  "Yellowtip",
@@ -43,7 +43,7 @@ func sampleMockData() ([]model.NormalizedItem, []model.Order) {
 	orders := []model.Order{
 		{
 			ID:       "ORD-0001",
-			Tanggal:  "02/01/2026",
+			Tanggal:  model.ParseDate("02/01/2026"),
 			Customer: "RS Narmada",
 			Area:     "Lombok Barat",
 			Items: []model.OrderItem{

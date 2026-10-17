@@ -116,9 +116,9 @@ type ListCustomersInput struct {
 }
 
 type CustomersResponse struct {
-	Total     int                      `json:"total"`
-	Limit     int                      `json:"limit"`
-	Offset    int                      `json:"offset"`
+	Total     int                       `json:"total"`
+	Limit     int                       `json:"limit"`
+	Offset    int                       `json:"offset"`
 	Customers []storage.CustomerSummary `json:"customers"`
 }
 
@@ -680,10 +680,14 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 	}
 
 	for _, it := range items {
+		dateStr := ""
+		if !it.Tanggal.IsZero() {
+			dateStr = it.Tanggal.UTC().Format("2006-01-02")
+		}
 		row := []string{
 			strconv.Itoa(it.RowIndex),
 			it.OrderNumber,
-			it.Tanggal,
+			dateStr,
 			it.Customer,
 			it.Area,
 			it.NamaBarang,
@@ -806,7 +810,7 @@ func (s *Server) handleSetCustomerAlias(ctx context.Context, input *SetCustomerA
 	if alias == "" || canonical == "" {
 		return nil, huma.Error400BadRequest("alias and canonical cannot be empty")
 	}
-	if strings.EqualFold(alias, canonical) {
+	if alias == canonical {
 		return nil, huma.Error400BadRequest("alias cannot be equal to canonical name")
 	}
 

@@ -9,20 +9,22 @@ import {
 import { search } from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
+import { createDebouncedSignal } from '../utils/debounce';
 
 export const Search: Component = () => {
-  const [queryInput, setQueryInput] = createSignal('');
-  const [submittedQuery, setSubmittedQuery] = createSignal('');
+  const [queryInput, debouncedQuery, setQueryInput, flushQuery] = createDebouncedSignal('', 300);
   const [filterType, setFilterType] = createSignal<'all' | 'orders' | 'items' | 'customers'>('all');
 
-  const [data] = createResource(
-    () => (submittedQuery().trim() ? { q: submittedQuery().trim(), type: filterType() } : null),
-    (params) => search(params)
-  );
+  const activeParams = createMemo(() => {
+    const q = debouncedQuery().trim();
+    return q ? { q, type: filterType() } : null;
+  });
 
-  const handleSubmit = (e: Event) => {
-    e.preventDefault();
-    setSubmittedQuery(queryInput());
+  const [data] = createResource(activeParams, (params) => search(params));
+
+  const handleSubmit = (e?: Event) => {
+    if (e) e.preventDefault();
+    flushQuery();
   };
 
   const totalMatches = createMemo(() => {
@@ -123,14 +125,14 @@ export const Search: Component = () => {
         </div>
 
         {/* Results Area */}
-        <Show when={submittedQuery().trim()}>
+        <Show when={debouncedQuery().trim()}>
           <Show
             when={!data.loading}
             fallback={<div class="p-10 text-center text-muted text-sm">Searching across warehouse database...</div>}
           >
             <div class="mb-4 text-xs text-muted">
               Found <strong class="text-text font-semibold">{totalMatches()}</strong> total matches for "
-              <strong class="text-text font-semibold">{submittedQuery()}</strong>"
+              <strong class="text-text font-semibold">{debouncedQuery()}</strong>"
             </div>
 
             {/* 1. Matched Orders */}

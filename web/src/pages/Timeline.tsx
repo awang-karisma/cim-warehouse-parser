@@ -10,14 +10,14 @@ import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
 import { MiniProgress } from '../components/MiniProgress';
 import { KpiCard } from '../components/KpiCard';
-
+import { createDebouncedSignal } from '../utils/debounce';
 export const Timeline: Component = () => {
   const [statusFilter, setStatusFilter] = createSignal('');
-  const [dateFilter, setDateFilter] = createSignal('');
+  const [dateFilter, debouncedDateFilter, setDateFilter, flushDateFilter] = createDebouncedSignal('', 300);
 
   // Fetch individual deliveries with limit 100 for timeline analysis
   const [deliveriesData] = createResource(
-    () => ({ status_order: statusFilter(), date: dateFilter() }),
+    () => ({ status_order: statusFilter(), date: debouncedDateFilter() }),
     (params) => getDeliveries({ limit: 100, ...params })
   );
 
@@ -117,7 +117,7 @@ export const Timeline: Component = () => {
               class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-text hover:bg-gray-200 cursor-pointer transition-colors"
               onClick={() => {
                 setStatusFilter('');
-                setDateFilter('');
+                flushDateFilter('');
               }}
             >
               Reset Filters

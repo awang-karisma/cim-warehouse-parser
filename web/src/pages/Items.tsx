@@ -1,62 +1,59 @@
-import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import { type Component, createSignal, createResource, Show, For, createMemo, createEffect, on } from 'solid-js';
 import { A } from '@solidjs/router';
 import { IconDownload } from '@tabler/icons-solidjs';
 import { getItems } from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
 import { Pagination } from '../components/Pagination';
+import { createDebouncedSignal } from '../utils/debounce';
 
 export const Items: Component = () => {
-  const [customer, setCustomer] = createSignal('');
-  const [namaBarang, setNamaBarang] = createSignal('');
+  const [customer, debouncedCustomer, setCustomer, flushCustomer] = createDebouncedSignal('', 300);
+  const [namaBarang, debouncedNamaBarang, setNamaBarang, flushNamaBarang] = createDebouncedSignal('', 300);
   const [statusOrder, setStatusOrder] = createSignal('');
   const [tanggal, setTanggal] = createSignal('');
   const [offset, setOffset] = createSignal(0);
   const limit = 25;
 
-  const [queryParams, setQueryParams] = createSignal({
-    customer: '',
-    nama_barang: '',
-    status_order: '',
-    tanggal: '',
+  // When any filter changes, reset pagination offset to 0
+  createEffect(
+    on(
+      [debouncedCustomer, debouncedNamaBarang, statusOrder, tanggal],
+      () => {
+        setOffset(0);
+      },
+      { defer: true }
+    )
+  );
+
+  const queryParams = createMemo(() => ({
+    customer: debouncedCustomer(),
+    nama_barang: debouncedNamaBarang(),
+    status_order: statusOrder(),
+    tanggal: tanggal(),
     limit,
-    offset: 0,
-  });
+    offset: offset(),
+  }));
 
   const [data] = createResource(queryParams, (params) => getItems(params));
 
   const applyFilters = (e?: Event) => {
     if (e) e.preventDefault();
+    flushCustomer();
+    flushNamaBarang();
     setOffset(0);
-    setQueryParams({
-      customer: customer(),
-      nama_barang: namaBarang(),
-      status_order: statusOrder(),
-      tanggal: tanggal(),
-      limit,
-      offset: 0,
-    });
   };
 
   const resetFilters = () => {
-    setCustomer('');
-    setNamaBarang('');
+    flushCustomer('');
+    flushNamaBarang('');
     setStatusOrder('');
     setTanggal('');
     setOffset(0);
-    setQueryParams({
-      customer: '',
-      nama_barang: '',
-      status_order: '',
-      tanggal: '',
-      limit,
-      offset: 0,
-    });
   };
 
   const handlePageChange = (newOffset: number) => {
     setOffset(newOffset);
-    setQueryParams((prev) => ({ ...prev, offset: newOffset }));
   };
 
   const getExportUrl = () => {
@@ -132,11 +129,11 @@ export const Items: Component = () => {
             <div class="flex flex-col gap-1.5 min-w-[140px]">
               <label class="text-xs font-semibold text-muted">Date</label>
               <input
-                type="text"
+                type="date"
                 class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="DD/MM/YYYY"
                 value={tanggal()}
                 onInput={(e) => setTanggal(e.currentTarget.value)}
+                onChange={(e) => setTanggal(e.currentTarget.value)}
               />
             </div>
 
