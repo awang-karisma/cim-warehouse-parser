@@ -28,64 +28,67 @@ export const Areas: Component = () => {
     <div>
       <TopBar title="Regional Area Breakdown">
         <Show when={areasData()?.total !== undefined}>
-          <span class="badge badge-pill badge-primary">
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
             {areasData()?.total} Active Regions
           </span>
         </Show>
       </TopBar>
 
-      <main class="content">
+      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
         {/* Top 4 Area Cards */}
-        <div class="grid-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6 items-stretch">
           <For each={topAreas()}>
-            {(area) => (
-              <div
-                class="card"
-                style={{
-                  cursor: 'pointer',
-                  border: currentArea() === area.name ? '2px solid var(--primary)' : '1px solid var(--border)',
-                }}
-                onClick={() => setSelectedArea(area.name)}
-              >
-                <div class="card-header" style={{ 'margin-bottom': '8px', 'padding-bottom': '6px' }}>
-                  <h3 class="card-title" style={{ 'font-size': '15px' }}>
-                    📍 {area.name}
-                  </h3>
+            {(area) => {
+              const isSelected = () => currentArea() === area.name;
+              return (
+                <div
+                  class={`bg-surface rounded-lg p-5 flex flex-col justify-between h-full cursor-pointer transition-all shadow-sm ${
+                    isSelected()
+                      ? 'border-2 border-primary ring-2 ring-primary/10'
+                      : 'border border-border hover:border-gray-400'
+                  }`}
+                  onClick={() => setSelectedArea(area.name)}
+                >
+                  <div class="mb-2 pb-2 border-b border-border">
+                    <h3 class="text-base font-semibold text-text">
+                      {area.name}
+                    </h3>
+                  </div>
+                  <div class="space-y-1.5 flex-1">
+                    <div class="flex justify-between items-center py-1 text-sm border-b border-border/50">
+                      <span class="text-xs text-muted">Orders</span>
+                      <span class="font-semibold text-text">{area.total_orders}</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 text-sm border-b border-border/50">
+                      <span class="text-xs text-muted">Items</span>
+                      <span class="font-semibold text-text">{area.total_items}</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 text-sm">
+                      <span class="text-xs text-muted">Customers</span>
+                      <span class="font-semibold text-text">{area.unique_customers}</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="prop-list">
-                  <div class="prop-item" style={{ padding: '4px 0' }}>
-                    <span class="prop-label">Orders</span>
-                    <span class="prop-value">{area.total_orders}</span>
-                  </div>
-                  <div class="prop-item" style={{ padding: '4px 0' }}>
-                    <span class="prop-label">Items</span>
-                    <span class="prop-value">{area.total_items}</span>
-                  </div>
-                  <div class="prop-item" style={{ padding: '4px 0' }}>
-                    <span class="prop-label">Customers</span>
-                    <span class="prop-value">{area.unique_customers}</span>
-                  </div>
-                </div>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
 
         {/* Full Area Breakdown Table */}
-        <section class="card" style={{ 'margin-bottom': '24px' }}>
-          <div class="card-header">
-            <h2 class="card-title">All Regional Areas ({areasData()?.areas?.length || 0})</h2>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
+          <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
+            <h2 class="text-base font-semibold text-text">All Regional Areas ({areasData()?.areas?.length || 0})</h2>
           </div>
-          <div class="table-responsive">
-            <table>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
               <thead>
-                <tr>
-                  <th>Area Name</th>
-                  <th>Customers</th>
-                  <th>Total Orders</th>
-                  <th>Total Items</th>
-                  <th style={{ 'min-width': '160px' }}>Status Breakdown</th>
-                  <th>Action</th>
+                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
+                  <th class="py-2.5 px-3">Area Name</th>
+                  <th class="py-2.5 px-3">Customers</th>
+                  <th class="py-2.5 px-3">Total Orders</th>
+                  <th class="py-2.5 px-3">Total Items</th>
+                  <th class="py-2.5 px-3 min-w-[160px]">Status Breakdown</th>
+                  <th class="py-2.5 px-3">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -93,46 +96,43 @@ export const Areas: Component = () => {
                   when={!areasData.loading}
                   fallback={
                     <tr>
-                      <td colspan="6" class="loading-box">
+                      <td colspan="6" class="p-8 text-center text-muted text-sm">
                         Loading regional areas...
                       </td>
                     </tr>
                   }
                 >
                   <For each={areasData()?.areas}>
-                    {(area) => (
-                      <tr
-                        style={{
-                          'background-color': currentArea() === area.name ? 'rgba(67, 97, 238, 0.05)' : undefined,
-                        }}
-                      >
-                        <td style={{ 'font-weight': '600' }}>
-                          <button
-                            type="button"
-                            class="btn-link"
-                            style={{ padding: '0', 'font-weight': '600' }}
-                            onClick={() => setSelectedArea(area.name)}
-                          >
-                            📍 {area.name}
-                          </button>
-                        </td>
-                        <td>{area.unique_customers}</td>
-                        <td>{area.total_orders}</td>
-                        <td>{area.total_items}</td>
-                        <td>
-                          <StatusBar statusCounts={area.status_counts} height={16} />
-                        </td>
-                        <td>
-                          <A
-                            href={`/orders?area=${encodeURIComponent(area.name)}`}
-                            class="btn btn-secondary"
-                            style={{ 'padding': '4px 10px', 'font-size': '12px' }}
-                          >
-                            View Orders
-                          </A>
-                        </td>
-                      </tr>
-                    )}
+                    {(area) => {
+                      const isSelected = () => currentArea() === area.name;
+                      return (
+                        <tr class={`border-b border-border last:border-b-0 transition-colors ${isSelected() ? 'bg-primary/5' : 'hover:bg-gray-50'}`}>
+                          <td class="py-2.5 px-3 font-semibold">
+                            <button
+                              type="button"
+                              class="bg-transparent border-none p-0 font-semibold text-primary cursor-pointer hover:underline text-sm"
+                              onClick={() => setSelectedArea(area.name)}
+                            >
+                              {area.name}
+                            </button>
+                          </td>
+                          <td class="py-2.5 px-3 text-text">{area.unique_customers}</td>
+                          <td class="py-2.5 px-3 text-text">{area.total_orders}</td>
+                          <td class="py-2.5 px-3 text-text">{area.total_items}</td>
+                          <td class="py-2.5 px-3">
+                            <StatusBar statusCounts={area.status_counts} height={16} />
+                          </td>
+                          <td class="py-2.5 px-3">
+                            <A
+                              href={`/orders?area=${encodeURIComponent(area.name)}`}
+                              class="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
+                            >
+                              View Orders
+                            </A>
+                          </td>
+                        </tr>
+                      );
+                    }}
                   </For>
                 </Show>
               </tbody>
@@ -142,28 +142,27 @@ export const Areas: Component = () => {
 
         {/* Selected Area Customers Sub-table */}
         <Show when={currentArea()}>
-          <section class="card">
-            <div class="card-header">
-              <h2 class="card-title">
-                Top Customers in <strong>📍 {currentArea()}</strong>
+          <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
+            <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
+              <h2 class="text-base font-semibold text-text">
+                Top Customers in <strong class="text-primary">{currentArea()}</strong>
               </h2>
               <A
                 href={`/orders?area=${encodeURIComponent(currentArea())}`}
-                class="order-link"
-                style={{ 'font-size': '13px' }}
+                class="text-primary font-semibold text-xs hover:underline"
               >
                 View All Area Orders &rarr;
               </A>
             </div>
-            <div class="table-responsive">
-              <table>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse text-sm">
                 <thead>
-                  <tr>
-                    <th>Customer Name</th>
-                    <th>Orders</th>
-                    <th>Items</th>
-                    <th>Status Breakdown</th>
-                    <th>Action</th>
+                  <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
+                    <th class="py-2.5 px-3">Customer Name</th>
+                    <th class="py-2.5 px-3">Orders</th>
+                    <th class="py-2.5 px-3">Items</th>
+                    <th class="py-2.5 px-3 min-w-[140px]">Status Breakdown</th>
+                    <th class="py-2.5 px-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -171,7 +170,7 @@ export const Areas: Component = () => {
                     when={areaCustomers()?.customers && areaCustomers()!.customers.length > 0}
                     fallback={
                       <tr>
-                        <td colspan="5" class="empty-box">
+                        <td colspan="5" class="p-8 text-center text-muted text-sm">
                           No customers found for {currentArea()}
                         </td>
                       </tr>
@@ -179,18 +178,17 @@ export const Areas: Component = () => {
                   >
                     <For each={areaCustomers()?.customers}>
                       {(cust) => (
-                        <tr>
-                          <td style={{ 'font-weight': '500' }}>🏥 {cust.name}</td>
-                          <td>{cust.total_orders}</td>
-                          <td>{cust.total_items}</td>
-                          <td style={{ 'min-width': '140px' }}>
+                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
+                          <td class="py-2.5 px-3 font-medium text-text">{cust.name}</td>
+                          <td class="py-2.5 px-3 text-text">{cust.total_orders}</td>
+                          <td class="py-2.5 px-3 text-text">{cust.total_items}</td>
+                          <td class="py-2.5 px-3">
                             <StatusBar statusCounts={cust.status_counts} height={14} />
                           </td>
-                          <td>
+                          <td class="py-2.5 px-3">
                             <A
                               href={`/orders?customer=${encodeURIComponent(cust.name)}`}
-                              class="btn btn-secondary"
-                              style={{ 'padding': '4px 10px', 'font-size': '12px' }}
+                              class="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
                             >
                               Orders
                             </A>

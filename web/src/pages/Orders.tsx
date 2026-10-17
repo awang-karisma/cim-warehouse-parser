@@ -63,53 +63,53 @@ export const Orders: Component = () => {
     <div>
       <TopBar title="Orders Explorer">
         <Show when={data()?.total !== undefined}>
-          <span class="badge badge-pill badge-primary">
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
             {data()?.total} Orders Total
           </span>
         </Show>
       </TopBar>
 
-      <main class="content">
+      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
         {/* Filter Bar */}
-        <section class="card" style={{ 'margin-bottom': '20px' }}>
-          <form class="filter-bar" onSubmit={applyFilters}>
-            <div class="form-group">
-              <label>Customer Name</label>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-5">
+          <form class="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
+            <div class="flex flex-col gap-1.5 min-w-[160px] flex-1">
+              <label class="text-xs font-semibold text-muted">Customer Name</label>
               <input
                 type="text"
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="e.g. RSUD, Puskesmas"
                 value={customer()}
                 onInput={(e) => setCustomer(e.currentTarget.value)}
               />
             </div>
 
-            <div class="form-group">
-              <label>Area / Region</label>
+            <div class="flex flex-col gap-1.5 min-w-[160px] flex-1">
+              <label class="text-xs font-semibold text-muted">Area / Region</label>
               <input
                 type="text"
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="e.g. Lombok Barat"
                 value={area()}
                 onInput={(e) => setArea(e.currentTarget.value)}
               />
             </div>
 
-            <div class="form-group">
-              <label>Order Date</label>
+            <div class="flex flex-col gap-1.5 min-w-[140px]">
+              <label class="text-xs font-semibold text-muted">Order Date</label>
               <input
                 type="text"
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="DD/MM/YYYY"
                 value={tanggal()}
                 onInput={(e) => setTanggal(e.currentTarget.value)}
               />
             </div>
 
-            <div class="form-group">
-              <label>Status</label>
+            <div class="flex flex-col gap-1.5 min-w-[140px]">
+              <label class="text-xs font-semibold text-muted">Status</label>
               <select
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={status()}
                 onChange={(e) => setStatus(e.currentTarget.value)}
               >
@@ -117,14 +117,22 @@ export const Orders: Component = () => {
                 <option value="SELESAI">SELESAI</option>
                 <option value="PROSES">PROSES</option>
                 <option value="PENDING">PENDING</option>
+                <option value="BATAL">BATAL</option>
               </select>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="submit" class="btn btn-primary">
+            <div class="flex items-center gap-2">
+              <button
+                type="submit"
+                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover cursor-pointer transition-colors"
+              >
                 Apply Filters
               </button>
-              <button type="button" class="btn btn-secondary" onClick={resetFilters}>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-text hover:bg-gray-200 cursor-pointer transition-colors"
+                onClick={resetFilters}
+              >
                 Reset
               </button>
             </div>
@@ -132,19 +140,19 @@ export const Orders: Component = () => {
         </section>
 
         {/* Orders Table */}
-        <section class="card">
-          <div class="table-responsive">
-            <table>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
               <thead>
-                <tr>
-                  <th>Order ID</th>
-                  <th>Order / E-Katalog No.</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th>Area</th>
-                  <th>Items</th>
-                  <th>Status</th>
-                  <th>Action</th>
+                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
+                  <th class="py-2.5 px-3">Order ID</th>
+                  <th class="py-2.5 px-3">Order / E-Katalog No.</th>
+                  <th class="py-2.5 px-3">Date</th>
+                  <th class="py-2.5 px-3">Customer</th>
+                  <th class="py-2.5 px-3">Area</th>
+                  <th class="py-2.5 px-3">Items</th>
+                  <th class="py-2.5 px-3">Status</th>
+                  <th class="py-2.5 px-3">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -152,7 +160,7 @@ export const Orders: Component = () => {
                   when={!data.loading}
                   fallback={
                     <tr>
-                      <td colspan="8" class="loading-box">
+                      <td colspan="8" class="p-8 text-center text-muted text-sm">
                         Loading orders...
                       </td>
                     </tr>
@@ -162,7 +170,7 @@ export const Orders: Component = () => {
                     when={data()?.orders && data()!.orders.length > 0}
                     fallback={
                       <tr>
-                        <td colspan="8" class="empty-box">
+                        <td colspan="8" class="p-8 text-center text-muted text-sm">
                           No orders matching current filters
                         </td>
                       </tr>
@@ -172,26 +180,27 @@ export const Orders: Component = () => {
                       {(order) => {
                         const firstStatus = order.items?.[0]?.status_order || 'PENDING';
                         return (
-                          <tr>
-                            <td>
-                              <A href={`/orders/${order.id}`} class="order-link">
+                          <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
+                            <td class="py-2.5 px-3">
+                              <A href={`/orders/${order.id}`} class="text-primary font-semibold hover:underline">
                                 {order.id}
                               </A>
                             </td>
-                            <td>
-                              <span style={{ 'font-family': 'monospace', 'font-size': '12px' }}>
-                                {order.order_number || order.ecatalog_number || '-'}
-                              </span>
+                            <td class="py-2.5 px-3 font-mono text-xs text-text">
+                              {order.order_number || order.ecatalog_number || '-'}
                             </td>
-                            <td>{order.tanggal}</td>
-                            <td style={{ 'font-weight': '500' }}>{order.customer}</td>
-                            <td>{order.area}</td>
-                            <td>{order.total_items || order.items?.length || 0} items</td>
-                            <td>
+                            <td class="py-2.5 px-3 text-text">{order.tanggal}</td>
+                            <td class="py-2.5 px-3 font-medium text-text">{order.customer}</td>
+                            <td class="py-2.5 px-3 text-text">{order.area}</td>
+                            <td class="py-2.5 px-3 text-text">{order.total_items || order.items?.length || 0} items</td>
+                            <td class="py-2.5 px-3">
                               <Badge status={firstStatus} />
                             </td>
-                            <td>
-                              <A href={`/orders/${order.id}`} class="btn btn-secondary" style={{ 'padding': '4px 10px', 'font-size': '12px' }}>
+                            <td class="py-2.5 px-3">
+                              <A
+                                href={`/orders/${order.id}`}
+                                class="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
+                              >
                                 View Detail
                               </A>
                             </td>

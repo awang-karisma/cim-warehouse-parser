@@ -1,5 +1,6 @@
 import { type Component, createSignal, createResource, Show, For } from 'solid-js';
 import { A } from '@solidjs/router';
+import { IconDownload } from '@tabler/icons-solidjs';
 import { getItems } from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
@@ -60,7 +61,6 @@ export const Items: Component = () => {
 
   const getExportUrl = () => {
     const p = new URLSearchParams();
-    p.set('format', 'csv');
     if (customer()) p.set('customer', customer());
     if (namaBarang()) p.set('nama_barang', namaBarang());
     if (statusOrder()) p.set('status_order', statusOrder());
@@ -71,53 +71,53 @@ export const Items: Component = () => {
   return (
     <div>
       <TopBar title="All Line Items">
-        <div style={{ display: 'flex', gap: '10px', 'align-items': 'center' }}>
+        <div class="flex items-center gap-2.5">
           <Show when={data()?.total !== undefined}>
-            <span class="badge badge-pill badge-primary">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
               {data()?.total} Items Total
             </span>
           </Show>
           <a
             href={getExportUrl()}
-            class="btn btn-secondary"
+            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
             download="items.csv"
-            style={{ 'font-size': '13px', 'padding': '6px 14px' }}
           >
-            📥 Export CSV
+            <IconDownload size={16} stroke={1.8} aria-hidden="true" />
+            <span>Export CSV</span>
           </a>
         </div>
       </TopBar>
 
-      <main class="content">
+      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
         {/* Filters */}
-        <section class="card" style={{ 'margin-bottom': '20px' }}>
-          <form class="filter-bar" onSubmit={applyFilters}>
-            <div class="form-group">
-              <label>Customer Name</label>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-5">
+          <form class="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
+            <div class="flex flex-col gap-1.5 min-w-[160px] flex-1">
+              <label class="text-xs font-semibold text-muted">Customer Name</label>
               <input
                 type="text"
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="e.g. RS Harapan"
                 value={customer()}
                 onInput={(e) => setCustomer(e.currentTarget.value)}
               />
             </div>
 
-            <div class="form-group">
-              <label>Item Name (Nama Barang)</label>
+            <div class="flex flex-col gap-1.5 min-w-[160px] flex-1">
+              <label class="text-xs font-semibold text-muted">Item Name (Nama Barang)</label>
               <input
                 type="text"
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="e.g. Needle, Spuit, Tip"
                 value={namaBarang()}
                 onInput={(e) => setNamaBarang(e.currentTarget.value)}
               />
             </div>
 
-            <div class="form-group">
-              <label>Status Order</label>
+            <div class="flex flex-col gap-1.5 min-w-[140px]">
+              <label class="text-xs font-semibold text-muted">Status Order</label>
               <select
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={statusOrder()}
                 onChange={(e) => setStatusOrder(e.currentTarget.value)}
               >
@@ -125,25 +125,33 @@ export const Items: Component = () => {
                 <option value="SELESAI">SELESAI</option>
                 <option value="PROSES">PROSES</option>
                 <option value="PENDING">PENDING</option>
+                <option value="BATAL">BATAL</option>
               </select>
             </div>
 
-            <div class="form-group">
-              <label>Date</label>
+            <div class="flex flex-col gap-1.5 min-w-[140px]">
+              <label class="text-xs font-semibold text-muted">Date</label>
               <input
                 type="text"
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="DD/MM/YYYY"
                 value={tanggal()}
                 onInput={(e) => setTanggal(e.currentTarget.value)}
               />
             </div>
 
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="submit" class="btn btn-primary">
+            <div class="flex items-center gap-2">
+              <button
+                type="submit"
+                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover cursor-pointer transition-colors"
+              >
                 Filter
               </button>
-              <button type="button" class="btn btn-secondary" onClick={resetFilters}>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-text hover:bg-gray-200 cursor-pointer transition-colors"
+                onClick={resetFilters}
+              >
                 Reset
               </button>
             </div>
@@ -151,22 +159,22 @@ export const Items: Component = () => {
         </section>
 
         {/* Items Table */}
-        <section class="card">
-          <div class="table-responsive">
-            <table>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
               <thead>
-                <tr>
-                  <th>Row</th>
-                  <th>Order No.</th>
-                  <th>Customer</th>
-                  <th>Area</th>
-                  <th>Date</th>
-                  <th>Item Name</th>
-                  <th>Qty</th>
-                  <th>Status Order</th>
-                  <th>Status Barang</th>
-                  <th>Delivery Date</th>
-                  <th>Notes</th>
+                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
+                  <th class="py-2.5 px-3">Row</th>
+                  <th class="py-2.5 px-3">Order No.</th>
+                  <th class="py-2.5 px-3">Customer</th>
+                  <th class="py-2.5 px-3">Area</th>
+                  <th class="py-2.5 px-3">Date</th>
+                  <th class="py-2.5 px-3">Item Name</th>
+                  <th class="py-2.5 px-3">Qty</th>
+                  <th class="py-2.5 px-3">Status Order</th>
+                  <th class="py-2.5 px-3">Status Barang</th>
+                  <th class="py-2.5 px-3">Delivery Date</th>
+                  <th class="py-2.5 px-3">Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -174,7 +182,7 @@ export const Items: Component = () => {
                   when={!data.loading}
                   fallback={
                     <tr>
-                      <td colspan="11" class="loading-box">
+                      <td colspan="11" class="p-8 text-center text-muted text-sm">
                         Loading line items...
                       </td>
                     </tr>
@@ -184,7 +192,7 @@ export const Items: Component = () => {
                     when={data()?.items && data()!.items.length > 0}
                     fallback={
                       <tr>
-                        <td colspan="11" class="empty-box">
+                        <td colspan="11" class="p-8 text-center text-muted text-sm">
                           No items match the current filters
                         </td>
                       </tr>
@@ -192,37 +200,37 @@ export const Items: Component = () => {
                   >
                     <For each={data()?.items}>
                       {(item) => (
-                        <tr>
-                          <td>{item.row_index}</td>
-                          <td>
+                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
+                          <td class="py-2.5 px-3 text-muted">{item.row_index}</td>
+                          <td class="py-2.5 px-3">
                             <Show
                               when={item.order_id}
                               fallback={
-                                <span style={{ 'font-family': 'monospace', 'font-size': '12px' }}>
+                                <span class="font-mono text-xs text-text">
                                   {item.order_number || item.ecatalog_number || '-'}
                                 </span>
                               }
                             >
-                              <A href={`/orders/${item.order_id}`} class="order-link">
+                              <A href={`/orders/${item.order_id}`} class="text-primary font-semibold hover:underline">
                                 {item.order_number || item.order_id}
                               </A>
                             </Show>
                           </td>
-                          <td style={{ 'font-weight': '500' }}>{item.customer}</td>
-                          <td>{item.area}</td>
-                          <td>{item.tanggal}</td>
-                          <td style={{ 'font-weight': '600' }}>{item.nama_barang}</td>
-                          <td>
+                          <td class="py-2.5 px-3 font-medium text-text">{item.customer}</td>
+                          <td class="py-2.5 px-3 text-text">{item.area}</td>
+                          <td class="py-2.5 px-3 text-text">{item.tanggal}</td>
+                          <td class="py-2.5 px-3 font-semibold text-text">{item.nama_barang}</td>
+                          <td class="py-2.5 px-3 text-text">
                             {item.jumlah} {item.satuan}
                           </td>
-                          <td>
+                          <td class="py-2.5 px-3">
                             <Badge status={item.status_order} />
                           </td>
-                          <td>
+                          <td class="py-2.5 px-3">
                             <Badge status={item.status_barang} />
                           </td>
-                          <td>{item.tanggal_pengiriman || '-'}</td>
-                          <td style={{ 'font-size': '12px', 'max-width': '180px' }}>
+                          <td class="py-2.5 px-3 text-text">{item.tanggal_pengiriman || '-'}</td>
+                          <td class="py-2.5 px-3 text-xs text-muted max-w-[180px] truncate">
                             {item.keterangan || item.catatan || '-'}
                           </td>
                         </tr>

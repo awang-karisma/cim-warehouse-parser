@@ -17,17 +17,18 @@ export const Customers: Component = () => {
     <div>
       <TopBar title="Customer View">
         <Show when={data()?.total !== undefined}>
-          <span class="badge badge-pill badge-primary">
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
             {data()?.total} Registered Customers
           </span>
         </Show>
       </TopBar>
 
-      <main class="content">
+      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
         {/* Search */}
-        <div class="search-hero" style={{ 'margin-bottom': '20px' }}>
+        <div class="relative mb-5">
           <input
             type="text"
+            class="w-full px-4 py-3 text-base border-2 border-border rounded-lg outline-none bg-surface text-text focus:border-primary focus:ring-4 focus:ring-primary/15 transition-all"
             placeholder="Search customers by name (e.g. RSUD, Puskesmas, Klinik)..."
             value={search()}
             onInput={(e) => setSearch(e.currentTarget.value)}
@@ -37,51 +38,49 @@ export const Customers: Component = () => {
         {/* 3-Column Card Grid */}
         <Show
           when={!data.loading}
-          fallback={<div class="loading-box">Loading customers...</div>}
+          fallback={<div class="p-10 text-center text-muted text-sm">Loading customers...</div>}
         >
           <Show
             when={data()?.customers && data()!.customers.length > 0}
             fallback={
-              <div class="card empty-box">
-                No customers found matching <strong>{search()}</strong>
+              <div class="bg-surface rounded-lg border border-border shadow-sm p-10 text-center text-muted text-sm">
+                No customers found matching <strong class="text-text">{search()}</strong>
               </div>
             }
           >
-            <div class="grid-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
               <For each={data()?.customers}>
                 {(cust) => (
-                  <div class="card" style={{ display: 'flex', 'flex-direction': 'column', 'justify-content': 'space-between' }}>
+                  <div class="bg-surface rounded-lg border border-border shadow-sm p-5 flex flex-col justify-between h-full">
                     <div>
-                      <div class="card-header" style={{ 'margin-bottom': '12px', 'padding-bottom': '8px' }}>
-                        <div>
-                          <h3 class="card-title" style={{ 'font-size': '15px' }}>
-                            🏥 {cust.name}
-                          </h3>
-                          <span style={{ color: 'var(--text-muted)', 'font-size': '12px' }}>
-                            📍 {cust.area || 'Unknown Area'}
-                          </span>
-                        </div>
+                      <div class="mb-3 pb-2 border-b border-border">
+                        <h3 class="text-base font-semibold text-text">
+                          {cust.name}
+                        </h3>
+                        <span class="text-xs text-muted">
+                          {cust.area || 'Unknown Area'}
+                        </span>
                       </div>
 
-                      <div class="prop-list" style={{ 'margin-bottom': '16px' }}>
-                        <div class="prop-item">
-                          <span class="prop-label">Total Orders</span>
-                          <span class="prop-value">{cust.total_orders}</span>
+                      <div class="space-y-2 mb-4">
+                        <div class="flex justify-between items-center py-1.5 border-b border-border text-sm">
+                          <span class="text-muted text-xs">Total Orders</span>
+                          <span class="font-semibold text-text">{cust.total_orders}</span>
                         </div>
-                        <div class="prop-item">
-                          <span class="prop-label">Total Line Items</span>
-                          <span class="prop-value">{cust.total_items}</span>
+                        <div class="flex justify-between items-center py-1.5 border-b border-border text-sm">
+                          <span class="text-muted text-xs">Total Line Items</span>
+                          <span class="font-semibold text-text">{cust.total_items}</span>
                         </div>
-                        <div class="prop-item">
-                          <span class="prop-label">Latest Order Date</span>
-                          <span class="prop-value" style={{ 'font-size': '13px' }}>
+                        <div class="flex justify-between items-center py-1.5 border-b border-border text-sm">
+                          <span class="text-muted text-xs">Latest Order Date</span>
+                          <span class="font-semibold text-text text-xs">
                             {cust.last_order_date || '-'}
                           </span>
                         </div>
                       </div>
 
-                      <div style={{ 'margin-bottom': '16px' }}>
-                        <div style={{ 'font-size': '11px', color: 'var(--text-muted)', 'margin-bottom': '6px', 'font-weight': '600' }}>
+                      <div class="mb-4">
+                        <div class="text-[11px] text-muted mb-1.5 font-semibold uppercase tracking-wider">
                           ORDER STATUS BREAKDOWN
                         </div>
                         <StatusBar statusCounts={cust.status_counts} height={18} />
@@ -90,8 +89,7 @@ export const Customers: Component = () => {
 
                     <A
                       href={`/orders?customer=${encodeURIComponent(cust.name)}`}
-                      class="btn btn-secondary"
-                      style={{ width: '100%', 'font-size': '12px' }}
+                      class="inline-flex items-center justify-center w-full px-3 py-2 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors mt-2"
                     >
                       View Customer Orders &rarr;
                     </A>
@@ -102,10 +100,10 @@ export const Customers: Component = () => {
 
             {/* Load More Button */}
             <Show when={data() && data()!.total > limit()}>
-              <div style={{ 'text-align': 'center', 'margin-top': '24px' }}>
+              <div class="text-center mt-6">
                 <button
                   type="button"
-                  class="btn btn-primary"
+                  class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover cursor-pointer transition-colors"
                   onClick={() => setLimit((prev) => prev + 24)}
                 >
                   Load More Customers ({data()!.total - limit()} remaining)

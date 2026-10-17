@@ -1,4 +1,10 @@
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
+import {
+  IconTruckDelivery,
+  IconCircleCheck,
+  IconClockHour4,
+  IconTimeline,
+} from '@tabler/icons-solidjs';
 import { getItems } from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
@@ -55,38 +61,38 @@ export const Timeline: Component = () => {
     <div>
       <TopBar title="Delivery Timeline & Lead Time Tracker" />
 
-      <main class="content">
+      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
         {/* KPI Summary */}
-        <div class="grid-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6 items-stretch">
           <KpiCard
             title="DELIVERIES SCHEDULED"
             value={summary().total}
-            icon="🚚"
+            icon={IconTruckDelivery}
           />
           <KpiCard
             title="COMPLETED DELIVERIES"
             value={summary().completed}
-            icon="✅"
+            icon={IconCircleCheck}
           />
           <KpiCard
             title="IN-TRANSIT / PENDING"
             value={summary().pending}
-            icon="⏳"
+            icon={IconClockHour4}
           />
           <KpiCard
             title="AVG LEAD TIME"
             value={`${summary().avgLead} Days`}
-            icon="⏱️"
+            icon={IconTimeline}
           />
         </div>
 
         {/* Filter Bar */}
-        <section class="card" style={{ 'margin-bottom': '20px' }}>
-          <div class="filter-bar">
-            <div class="form-group">
-              <label>Delivery Status</label>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-5">
+          <div class="flex flex-wrap items-end gap-4">
+            <div class="flex flex-col gap-1.5 min-w-[140px]">
+              <label class="text-xs font-semibold text-muted">Delivery Status</label>
               <select
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={statusFilter()}
                 onChange={(e) => setStatusFilter(e.currentTarget.value)}
               >
@@ -94,14 +100,15 @@ export const Timeline: Component = () => {
                 <option value="SELESAI">SELESAI</option>
                 <option value="PROSES">PROSES</option>
                 <option value="PENDING">PENDING</option>
+                <option value="BATAL">BATAL</option>
               </select>
             </div>
 
-            <div class="form-group">
-              <label>Delivery Date</label>
+            <div class="flex flex-col gap-1.5 min-w-[140px]">
+              <label class="text-xs font-semibold text-muted">Delivery Date</label>
               <input
                 type="text"
-                class="form-control"
+                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="DD/MM/YYYY"
                 value={dateFilter()}
                 onInput={(e) => setDateFilter(e.currentTarget.value)}
@@ -110,7 +117,7 @@ export const Timeline: Component = () => {
 
             <button
               type="button"
-              class="btn btn-secondary"
+              class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-text hover:bg-gray-200 cursor-pointer transition-colors"
               onClick={() => {
                 setStatusFilter('');
                 setDateFilter('');
@@ -122,23 +129,23 @@ export const Timeline: Component = () => {
         </section>
 
         {/* Deliveries Schedule Table */}
-        <section class="card">
-          <div class="card-header">
-            <h2 class="card-title">Delivery Shipments & Schedule</h2>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
+          <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
+            <h2 class="text-base font-semibold text-text">Delivery Shipments & Schedule</h2>
           </div>
-          <div class="table-responsive">
-            <table>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
               <thead>
-                <tr>
-                  <th>Delivery Date</th>
-                  <th>Customer</th>
-                  <th>Area</th>
-                  <th>Item Name</th>
-                  <th>Order Qty</th>
-                  <th>Lead Time</th>
-                  <th>Delivery Progress</th>
-                  <th>Remaining</th>
-                  <th>Status</th>
+                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
+                  <th class="py-2.5 px-3">Delivery Date</th>
+                  <th class="py-2.5 px-3">Customer</th>
+                  <th class="py-2.5 px-3">Area</th>
+                  <th class="py-2.5 px-3">Item Name</th>
+                  <th class="py-2.5 px-3">Order Qty</th>
+                  <th class="py-2.5 px-3">Lead Time</th>
+                  <th class="py-2.5 px-3 min-w-[120px]">Delivery Progress</th>
+                  <th class="py-2.5 px-3">Remaining</th>
+                  <th class="py-2.5 px-3">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -146,7 +153,7 @@ export const Timeline: Component = () => {
                   when={!itemsData.loading}
                   fallback={
                     <tr>
-                      <td colspan="9" class="loading-box">
+                      <td colspan="9" class="p-8 text-center text-muted text-sm">
                         Loading delivery schedule...
                       </td>
                     </tr>
@@ -156,7 +163,7 @@ export const Timeline: Component = () => {
                     when={itemsWithDelivery().length > 0}
                     fallback={
                       <tr>
-                        <td colspan="9" class="empty-box">
+                        <td colspan="9" class="p-8 text-center text-muted text-sm">
                           No shipments with delivery dates recorded
                         </td>
                       </tr>
@@ -164,40 +171,40 @@ export const Timeline: Component = () => {
                   >
                     <For each={itemsWithDelivery()}>
                       {(item) => (
-                        <tr>
-                          <td style={{ 'font-weight': '600' }}>
-                            📅 {item.tanggal_pengiriman}
+                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
+                          <td class="py-2.5 px-3 font-semibold text-text">
+                            {item.tanggal_pengiriman}
                           </td>
-                          <td style={{ 'font-weight': '500' }}>{item.customer}</td>
-                          <td>{item.area}</td>
-                          <td style={{ 'font-weight': '600' }}>{item.nama_barang}</td>
-                          <td>
+                          <td class="py-2.5 px-3 font-medium text-text">{item.customer}</td>
+                          <td class="py-2.5 px-3 text-text">{item.area}</td>
+                          <td class="py-2.5 px-3 font-semibold text-text">{item.nama_barang}</td>
+                          <td class="py-2.5 px-3 text-text">
                             {item.jumlah} {item.satuan}
                           </td>
-                          <td>
-                            {item.lead_time_pengiriman ? (
-                              <span class="badge badge-gray">{item.lead_time_pengiriman} Days</span>
-                            ) : (
-                              '-'
-                            )}
+                          <td class="py-2.5 px-3">
+                            <Show when={item.lead_time_pengiriman} fallback={<span>-</span>}>
+                              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium">
+                                {item.lead_time_pengiriman} Days
+                              </span>
+                            </Show>
                           </td>
-                          <td style={{ 'min-width': '120px' }}>
+                          <td class="py-2.5 px-3 min-w-[120px]">
                             <MiniProgress
                               terkirim={item.jumlah_terkirim}
                               total={item.jumlah}
                             />
                           </td>
-                          <td>
+                          <td class="py-2.5 px-3">
                             <Show
                               when={parseFloat(item.belum_terkirim) > 0}
-                              fallback={<span style={{ color: 'var(--success)' }}>Completed</span>}
+                              fallback={<span class="text-status-selesai font-medium">Completed</span>}
                             >
-                              <span style={{ color: 'var(--danger)', 'font-weight': '600' }}>
+                              <span class="text-status-pending font-semibold">
                                 {item.belum_terkirim} {item.satuan}
                               </span>
                             </Show>
                           </td>
-                          <td>
+                          <td class="py-2.5 px-3">
                             <Badge status={item.status_order} />
                           </td>
                         </tr>

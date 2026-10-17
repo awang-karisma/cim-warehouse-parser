@@ -3,9 +3,9 @@ import { Sidebar } from './components/Sidebar';
 
 export const App: Component<RouteSectionProps> = (props) => {
   return (
-    <div class="app">
+    <div class="flex min-h-screen">
       <Sidebar />
-      <div class="main-wrapper">{props.children}</div>
+      <div class="ml-60 flex-1 flex flex-col min-w-0 bg-bg">{props.children}</div>
     </div>
   );
 };

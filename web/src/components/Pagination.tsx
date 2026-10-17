@@ -28,37 +28,45 @@ export const Pagination: Component<PaginationProps> = (props) => {
   });
 
   return (
-    <div class="pagination-wrapper">
-      <div class="page-info">
-        Showing <strong>{startRecord()}</strong> to <strong>{endRecord()}</strong> of{' '}
-        <strong>{props.total}</strong> results
+    <div class="flex flex-wrap items-center justify-between gap-4 mt-5 pt-3.5 border-t border-border">
+      <div class="text-xs text-muted">
+        Showing <strong class="text-text font-semibold">{startRecord()}</strong> to{' '}
+        <strong class="text-text font-semibold">{endRecord()}</strong> of{' '}
+        <strong class="text-text font-semibold">{props.total}</strong> results
       </div>
-      <ul class="pagination">
-        <li class={`page-item ${currentPage() <= 1 ? 'disabled' : ''}`}>
+      <ul class="flex items-center gap-1 list-none m-0 p-0">
+        <li>
           <button
             type="button"
-            class="page-link"
+            class="flex items-center justify-center min-w-8 h-8 px-2 border border-border rounded-md bg-surface text-xs text-text hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             disabled={currentPage() <= 1}
             onClick={() => props.onPageChange(Math.max(0, props.offset - props.limit))}
           >
             &laquo; Prev
           </button>
         </li>
-        {pageNumbers().map((p) => (
-          <li class={`page-item ${p === currentPage() ? 'active' : ''}`}>
-            <button
-              type="button"
-              class="page-link"
-              onClick={() => props.onPageChange((p - 1) * props.limit)}
-            >
-              {p}
-            </button>
-          </li>
-        ))}
-        <li class={`page-item ${currentPage() >= totalPages() ? 'disabled' : ''}`}>
+        {pageNumbers().map((p) => {
+          const isCurrent = () => p === currentPage();
+          return (
+            <li>
+              <button
+                type="button"
+                class={`flex items-center justify-center min-w-8 h-8 px-2 border rounded-md text-xs cursor-pointer transition-colors ${
+                  isCurrent()
+                    ? 'bg-primary text-white border-primary font-semibold'
+                    : 'border-border bg-surface text-text hover:bg-gray-50'
+                }`}
+                onClick={() => props.onPageChange((p - 1) * props.limit)}
+              >
+                {p}
+              </button>
+            </li>
+          );
+        })}
+        <li>
           <button
             type="button"
-            class="page-link"
+            class="flex items-center justify-center min-w-8 h-8 px-2 border border-border rounded-md bg-surface text-xs text-text hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             disabled={currentPage() >= totalPages()}
             onClick={() => props.onPageChange(props.offset + props.limit)}
           >

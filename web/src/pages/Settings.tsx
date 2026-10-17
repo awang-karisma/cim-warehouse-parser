@@ -1,4 +1,11 @@
 import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import {
+  IconDeviceDesktop,
+  IconSettings as IconSettingsIcon,
+  IconDatabase,
+  IconTool,
+  IconRefresh,
+} from '@tabler/icons-solidjs';
 import { getSystemInfo, getConfig, getStatus, triggerSync } from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
@@ -40,88 +47,95 @@ export const Settings: Component = () => {
         <Badge status="HEALTHY" pill />
       </TopBar>
 
-      <main class="content">
-        <div class="grid-2">
+      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 items-stretch">
           {/* Server Runtime Info */}
-          <section class="card">
-            <div class="card-header">
-              <h2 class="card-title">🖥️ Server Runtime Information</h2>
-            </div>
-            <div class="prop-list">
-              <div class="prop-item">
-                <span class="prop-label">Application Version</span>
-                <span class="prop-value">{system()?.version || 'v1.0.0'}</span>
+          <section class="bg-surface rounded-lg border border-border shadow-sm p-5 flex flex-col justify-between h-full">
+            <div>
+              <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
+                <IconDeviceDesktop size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
+                <h2 class="text-base font-semibold text-text">Server Runtime Information</h2>
               </div>
-              <div class="prop-item">
-                <span class="prop-label">Go Runtime Version</span>
-                <span class="prop-value">{system()?.go_version || '-'}</span>
-              </div>
-              <div class="prop-item">
-                <span class="prop-label">HTTP Server Port</span>
-                <span class="prop-value">:{system()?.port || '8080'}</span>
-              </div>
-              <div class="prop-item">
-                <span class="prop-label">SQLite Database Path</span>
-                <span class="prop-value" style={{ 'font-family': 'monospace', 'font-size': '12px' }}>
-                  {system()?.db_path || 'data/warehouse.db'}
-                </span>
-              </div>
-              <div class="prop-item">
-                <span class="prop-label">Server Uptime</span>
-                <span class="prop-value">{formatUptime(system()?.uptime_seconds)}</span>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">Application Version</span>
+                  <span class="font-semibold text-text">{system()?.version || 'v1.0.0'}</span>
+                </div>
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">Go Runtime Version</span>
+                  <span class="font-semibold text-text">{system()?.go_version || '-'}</span>
+                </div>
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">HTTP Server Port</span>
+                  <span class="font-semibold text-text">:{system()?.port || '8080'}</span>
+                </div>
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">SQLite Database Path</span>
+                  <span class="font-mono text-xs font-semibold text-text">
+                    {system()?.db_path || 'data/warehouse.db'}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center py-2 text-sm">
+                  <span class="text-xs text-muted">Server Uptime</span>
+                  <span class="font-semibold text-text">{formatUptime(system()?.uptime_seconds)}</span>
+                </div>
               </div>
             </div>
           </section>
 
           {/* Sync Configuration */}
-          <section class="card">
-            <div class="card-header">
-              <h2 class="card-title">⚙️ Data Source & Scheduling</h2>
-            </div>
-            <div class="prop-list">
-              <div class="prop-item">
-                <span class="prop-label">Sync Interval</span>
-                <span class="prop-value">{config()?.sync_interval || '15m'}</span>
+          <section class="bg-surface rounded-lg border border-border shadow-sm p-5 flex flex-col justify-between h-full">
+            <div>
+              <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
+                <IconSettingsIcon size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
+                <h2 class="text-base font-semibold text-text">Data Source & Scheduling</h2>
               </div>
-              <div class="prop-item">
-                <span class="prop-label">Working Hours Window</span>
-                <span class="prop-value">
-                  {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
-                </span>
-              </div>
-              <div class="prop-item">
-                <span class="prop-label">Timezone</span>
-                <span class="prop-value">{config()?.timezone || 'Asia/Makassar'}</span>
-              </div>
-              <div class="prop-item">
-                <span class="prop-label">Active Work Days</span>
-                <span class="prop-value">
-                  {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
-                </span>
-              </div>
-              <div class="prop-item">
-                <span class="prop-label">Worker Status</span>
-                <span class="prop-value">
-                  <Badge status={status()?.status || 'IDLE'} />
-                </span>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">Sync Interval</span>
+                  <span class="font-semibold text-text">{config()?.sync_interval || '15m'}</span>
+                </div>
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">Working Hours Window</span>
+                  <span class="font-semibold text-text">
+                    {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">Timezone</span>
+                  <span class="font-semibold text-text">{config()?.timezone || 'Asia/Makassar'}</span>
+                </div>
+                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
+                  <span class="text-xs text-muted">Active Work Days</span>
+                  <span class="font-semibold text-text">
+                    {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center py-2 text-sm">
+                  <span class="text-xs text-muted">Worker Status</span>
+                  <span>
+                    <Badge status={status()?.status || 'IDLE'} />
+                  </span>
+                </div>
               </div>
             </div>
           </section>
         </div>
 
         {/* Database Table Diagnostics Table */}
-        <section class="card" style={{ 'margin-bottom': '24px' }}>
-          <div class="card-header">
-            <h2 class="card-title">💾 SQLite Database Tables Diagnostics</h2>
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
+          <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
+            <IconDatabase size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
+            <h2 class="text-base font-semibold text-text">SQLite Database Tables Diagnostics</h2>
           </div>
-          <div class="table-responsive">
-            <table>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
               <thead>
-                <tr>
-                  <th>Table Name</th>
-                  <th>Row Count</th>
-                  <th>Storage Engine</th>
-                  <th>Status</th>
+                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
+                  <th class="py-2.5 px-3">Table Name</th>
+                  <th class="py-2.5 px-3">Row Count</th>
+                  <th class="py-2.5 px-3">Storage Engine</th>
+                  <th class="py-2.5 px-3">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -129,7 +143,7 @@ export const Settings: Component = () => {
                   when={system()?.tables}
                   fallback={
                     <tr>
-                      <td colspan="4" class="loading-box">
+                      <td colspan="4" class="p-8 text-center text-muted text-sm">
                         Loading database table stats...
                       </td>
                     </tr>
@@ -137,13 +151,13 @@ export const Settings: Component = () => {
                 >
                   <For each={Object.entries(system()!.tables)}>
                     {([tableName, stat]) => (
-                      <tr>
-                        <td style={{ 'font-weight': '600', 'font-family': 'monospace' }}>
+                      <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
+                        <td class="py-2.5 px-3 font-semibold font-mono text-xs text-text">
                           {tableName}
                         </td>
-                        <td style={{ 'font-weight': '600' }}>{stat.row_count} rows</td>
-                        <td>SQLite 3 (WAL mode)</td>
-                        <td>
+                        <td class="py-2.5 px-3 font-semibold text-text">{stat.row_count} rows</td>
+                        <td class="py-2.5 px-3 text-muted">SQLite 3 (WAL mode)</td>
+                        <td class="py-2.5 px-3">
                           <Badge status="READY" />
                         </td>
                       </tr>
@@ -155,77 +169,51 @@ export const Settings: Component = () => {
           </div>
         </section>
 
-        {/* Maintenance & Dangerous Operations */}
-        <section class="card">
-          <div class="card-header">
-            <h2 class="card-title">🛠️ Maintenance Operations</h2>
+        {/* Maintenance Operations */}
+        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
+          <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
+            <IconTool size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
+            <h2 class="text-base font-semibold text-text">Maintenance Operations</h2>
           </div>
-          <div style={{ display: 'flex', 'flex-direction': 'column', gap: '16px' }}>
-            <div
-              style={{
-                display: 'flex',
-                'justify-content': 'space-between',
-                'align-items': 'center',
-                padding: '12px',
-                background: '#f8f9fa',
-                'border-radius': '6px',
-                border: '1px solid var(--border)',
-              }}
-            >
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-wrap justify-between items-center gap-4 p-4 bg-gray-50 rounded-lg border border-border">
               <div>
-                <h4 style={{ 'font-size': '14px', 'font-weight': '600' }}>
+                <h4 class="text-sm font-semibold text-text">
                   Force Full Data Resynchronization
                 </h4>
-                <p style={{ 'font-size': '12px', color: 'var(--text-muted)', 'margin-top': '4px' }}>
+                <p class="text-xs text-muted mt-1">
                   Bypasses working hours checks and executes an atomic mirror sync from the configured remote source.
                 </p>
               </div>
               <button
                 type="button"
-                class="btn btn-primary"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 cursor-pointer transition-colors"
                 disabled={resyncing()}
                 onClick={handleForceResync}
               >
-                {resyncing() ? 'Syncing...' : 'Force Resync'}
+                <IconRefresh size={16} stroke={1.8} class={resyncing() ? 'animate-spin' : ''} aria-hidden="true" />
+                <span>{resyncing() ? 'Syncing...' : 'Force Resync'}</span>
               </button>
             </div>
 
             <Show when={resyncMsg()}>
-              <div
-                style={{
-                  padding: '8px 12px',
-                  'border-radius': '6px',
-                  background: 'rgba(67, 97, 238, 0.1)',
-                  color: 'var(--primary)',
-                  'font-size': '13px',
-                }}
-              >
+              <div class="px-3 py-2 rounded-md bg-primary/10 text-primary text-xs font-medium">
                 {resyncMsg()}
               </div>
             </Show>
 
-            <div
-              style={{
-                display: 'flex',
-                'justify-content': 'space-between',
-                'align-items': 'center',
-                padding: '12px',
-                background: '#fff5f5',
-                'border-radius': '6px',
-                border: '1px solid rgba(230, 57, 70, 0.2)',
-              }}
-            >
+            <div class="flex flex-wrap justify-between items-center gap-4 p-4 bg-red-50/50 rounded-lg border border-red-200">
               <div>
-                <h4 style={{ 'font-size': '14px', 'font-weight': '600', color: 'var(--danger)' }}>
+                <h4 class="text-sm font-semibold text-status-pending">
                   Clear Local Storage Database
                 </h4>
-                <p style={{ 'font-size': '12px', color: 'var(--text-muted)', 'margin-top': '4px' }}>
+                <p class="text-xs text-muted mt-1">
                   Destructive operation: removes all orders, items, and sync history. Disabled in production.
                 </p>
               </div>
               <button
                 type="button"
-                class="btn btn-danger"
+                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-status-pending text-white opacity-50 cursor-not-allowed"
                 disabled
                 title="Disabled for safety"
               >
