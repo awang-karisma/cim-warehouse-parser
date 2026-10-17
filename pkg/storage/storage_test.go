@@ -1099,3 +1099,166 @@ func TestStorage_CustomerAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create memory store: %v", err)
+	}
+	defer store.Close()
+
+	// 1. Sync one item with split shipments: "07/01/2026 (3), 03/02/2026 (1)"
+	// and another with plain date "05/01/2026", and another with blank date
+	items := []model.NormalizedItem{
+		{
+			RowIndex:          2,
+			Tanggal:           "02/01/2026",
+			Customer:          "RSUD Provinsi NTB",
+			Area:              "Mataram",
+			NamaBarang:        "Needle 23G",
+			Jumlah:            "4",
+			Satuan:            "BOX",
+			TanggalPengiriman: "07/01/2026 (3), 03/02/2026 (1)",
+			JumlahTerkirim:    "4",
+			BelumTerkirim:     "0",
+			StatusOrder:       "SELESAI",
+		},
+		{
+			RowIndex:          3,
+			Tanggal:           "02/01/2026",
+			Customer:          "RSUD Provinsi NTB",
+			Area:              "Mataram",
+			NamaBarang:        "Spuit 3cc",
+			Jumlah:            "10",
+			Satuan:            "BOX",
+			TanggalPengiriman: "05/01/2026",
+			JumlahTerkirim:    "10",
+			BelumTerkirim:     "0",
+			StatusOrder:       "SELESAI",
+		},
+		{
+			RowIndex:          4,
+			Tanggal:           "02/01/2026",
+			Customer:          "RSUD Provinsi NTB",
+			Area:              "Mataram",
+			NamaBarang:        "Spuit 5cc",
+			Jumlah:            "5",
+			Satuan:            "BOX",
+			TanggalPengiriman: "", // blank date -> 0 delivery rows
+			JumlahTerkirim:    "0",
+			BelumTerkirim:     "5",
+			StatusOrder:       "PENDING",
+		},
+	}
+
+	orders := []model.Order{
+		{
+			ID:       "ORD-DEL-1",
+			Tanggal:  "02/01/2026",
+			Customer: "RSUD Provinsi NTB",
+			Area:     "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 2, NamaBarang: "Needle 23G", Jumlah: "4", TanggalPengiriman: items[0].TanggalPengiriman},
+				{RowIndex: 3, NamaBarang: "Spuit 3cc", Jumlah: "10", TanggalPengiriman: items[1].TanggalPengiriman},
+				{RowIndex: 4, NamaBarang: "Spuit 5cc", Jumlah: "5", TanggalPengiriman: ""},
+			},
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Verify original item table has 3 rows with unchanged date strings
+	storedItems, totalItems, err := store.GetItems(ctx, storage.ItemFilter{})
+	if err != nil || totalItems != 3 {
+		t.Fatalf("expected 3 items, got %d (err: %v)", totalItems, err)
+	}
+	if storedItems[0].TanggalPengiriman != "07/01/2026 (3), 03/02/2026 (1)" {
+		t.Errorf("original item tanggal_pengiriman altered: %s", storedItems[0].TanggalPengiriman)
+	}
+
+	// Verify deliveries: split item produced 2 rows, single date produced 1 row, blank produced 0. Total = 3
+	deliveries, totalDel, err := store.GetDeliveries(ctx, storage.DeliveryFilter{})
+	if err != nil {
+		t.Fatalf("GetDeliveries failed: %v", err)
+	}
+	if totalDel != 3 || len(deliveries) != 3 {
+		t.Fatalf("expected 3 delivery records, got total=%d len=%d", totalDel, len(deliveries))
+	}
+
+	// Check ordering and properties
+	// Item with split shipments should have shipment_count = 2
+	var needleDeliveries []storage.DeliveryItem
+	for _, d := range deliveries {
+		if d.Item.NamaBarang == "Needle 23G" {
+			needleDeliveries = append(needleDeliveries, d)
+		}
+	}
+	if len(needleDeliveries) != 2 {
+		t.Fatalf("expected 2 deliveries for Needle 23G, got %d", len(needleDeliveries))
+	}
+	if needleDeliveries[0].DeliveryDate != "07/01/2026" || needleDeliveries[0].ShippedQuantity != "3" || needleDeliveries[0].ShipmentIndex != 0 || needleDeliveries[0].ShipmentCount != 2 {
+		t.Errorf("unexpected first shipment: %+v", needleDeliveries[0])
+	}
+	if needleDeliveries[1].DeliveryDate != "03/02/2026" || needleDeliveries[1].ShippedQuantity != "1" || needleDeliveries[1].ShipmentIndex != 1 || needleDeliveries[1].ShipmentCount != 2 {
+		t.Errorf("unexpected second shipment: %+v", needleDeliveries[1])
+	}
+
+	// Test pagination on deliveries
+	page1, pTotal, err := store.GetDeliveries(ctx, storage.DeliveryFilter{Limit: 2, Offset: 0})
+	if err != nil || pTotal != 3 || len(page1) != 2 {
+		t.Errorf("expected pagination limit 2 to return 2 items with total 3, got len=%d total=%d", len(page1), pTotal)
+	}
+
+	// 2. Re-running sync replaces rather than duplicates
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("second SyncMirror failed: %v", err)
+	}
+	_, totalDelAfter, err := store.GetDeliveries(ctx, storage.DeliveryFilter{})
+	if err != nil || totalDelAfter != 3 {
+		t.Fatalf("expected 3 deliveries after resync, got %d", totalDelAfter)
+	}
+}
+
+func TestStorage_DeliveriesMigrationBackfill(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "legacy.db")
+
+	// Create store
+	store1, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// Directly insert item without deliveries (simulating legacy database before deliveries table)
+	_, err = store1.DB().Exec(`
+		INSERT INTO items (row_index, order_id, order_number, customer, area, nama_barang, jumlah, satuan, tanggal_pengiriman, status_order)
+		VALUES (2, 'ORD-OLD', 'EP-123', 'RS Legacy', 'Mataram', 'Kapas', '10', 'ROLL', '10/01/2026 (5), 15/01/2026 (5)', 'SELESAI')
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert legacy item: %v", err)
+	}
+	// Delete deliveries for this item to simulate pre-migration state
+	_, _ = store1.DB().Exec(`DELETE FROM deliveries`)
+	store1.Close()
+
+	// Reopen store to trigger migrate() backfill
+	store2, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to reopen store: %v", err)
+	}
+	defer store2.Close()
+
+	dels, total, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{})
+	if err != nil || total != 2 {
+		t.Fatalf("expected 2 backfilled deliveries, got total=%d err=%v", total, err)
+	}
+	if dels[0].DeliveryDate != "10/01/2026" || dels[0].ShippedQuantity != "5" {
+		t.Errorf("unexpected delivery 0: %+v", dels[0])
+	}
+	if dels[1].DeliveryDate != "15/01/2026" || dels[1].ShippedQuantity != "5" {
+		t.Errorf("unexpected delivery 1: %+v", dels[1])
+	}
+}

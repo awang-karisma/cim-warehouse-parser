@@ -13,6 +13,7 @@ import type {
   SystemResponse,
   SyncEvent,
   CustomerAliasesResponse,
+  PaginatedDeliveries,
 } from './types';
 
 function qs(params?: Record<string, string | number | boolean | undefined>): string {
@@ -123,3 +124,18 @@ export const deleteCustomerAlias = (alias: string) =>
   apiFetch<{ status: string }>(`/api/v1/customer-aliases/${encodeURIComponent(alias)}`, {
     method: 'DELETE',
   });
+
+export const getDeliveries = (params?: {
+  customer?: string;
+  nama_barang?: string;
+  status_order?: string;
+  date?: string;
+  tanggal?: string;
+  order_number?: string;
+  ecatalog_number?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const query = qs(params);
+  return apiFetch<PaginatedDeliveries>(`/api/v1/deliveries${query ? '?' + query : ''}`);
+};

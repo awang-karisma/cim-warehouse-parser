@@ -1005,3 +1005,120 @@ func TestCustomerAliasesAPI(t *testing.T) {
 		}
 	})
 }
+
+func TestDeliveriesAPI(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+
+	// Populate item with multiple delivery pairs: "07/01/2026 (3), 03/02/2026 (1)"
+	splitItem := model.NormalizedItem{
+		RowIndex:          10,
+		Tanggal:           "02/01/2026",
+		Customer:          "RSUD Provinsi NTB",
+		Area:              "Mataram",
+		NamaBarang:        "Needle 23G",
+		Jumlah:            "4",
+		Satuan:            "BOX",
+		TanggalPengiriman: "07/01/2026 (3), 03/02/2026 (1)",
+		JumlahTerkirim:    "4",
+		BelumTerkirim:     "0",
+		StatusOrder:       "SELESAI",
+	}
+	plainItem := model.NormalizedItem{
+		RowIndex:          11,
+		Tanggal:           "02/01/2026",
+		Customer:          "RSUD Provinsi NTB",
+		Area:              "Mataram",
+		NamaBarang:        "Spuit 3cc",
+		Jumlah:            "10",
+		Satuan:            "BOX",
+		TanggalPengiriman: "15/01/2026",
+		JumlahTerkirim:    "10",
+		BelumTerkirim:     "0",
+		StatusOrder:       "SELESAI",
+	}
+	orders := []model.Order{
+		{
+			ID:       "ORD-SPLIT-1",
+			Tanggal:  "02/01/2026",
+			Customer: "RSUD Provinsi NTB",
+			Area:     "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 10, NamaBarang: splitItem.NamaBarang, Jumlah: splitItem.Jumlah, TanggalPengiriman: splitItem.TanggalPengiriman},
+				{RowIndex: 11, NamaBarang: plainItem.NamaBarang, Jumlah: plainItem.Jumlah, TanggalPengiriman: plainItem.TanggalPengiriman},
+			},
+		},
+	}
+
+	if err := store.SyncMirror(context.Background(), []model.NormalizedItem{splitItem, plainItem}, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	t.Run("GET /api/v1/deliveries lists split shipments", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/deliveries", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("request failed: status=%d err=%v", resp.StatusCode, err)
+		}
+		defer resp.Body.Close()
+
+		var res struct {
+			Total      int                    `json:"total"`
+			Limit      int                    `json:"limit"`
+			Offset     int                    `json:"offset"`
+			Deliveries []storage.DeliveryItem `json:"deliveries"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode deliveries: %v", err)
+		}
+
+		// Total shipments should be 3 (2 from splitItem, 1 from plainItem)
+		if res.Total != 3 || len(res.Deliveries) != 3 {
+			t.Fatalf("expected 3 deliveries, got total=%d len=%d", res.Total, len(res.Deliveries))
+		}
+
+		// First shipment should be 07/01/2026 with quantity 3
+		d0 := res.Deliveries[0]
+		if d0.DeliveryDate != "07/01/2026" || d0.ShippedQuantity != "3" || d0.ShipmentIndex != 0 || d0.ShipmentCount != 2 {
+			t.Errorf("unexpected d0: %+v", d0)
+		}
+		if d0.Item.NamaBarang != "Needle 23G" || d0.Item.Customer != "RSUD Provinsi NTB" {
+			t.Errorf("unexpected d0 item: %+v", d0.Item)
+		}
+	})
+
+	t.Run("GET /api/v1/deliveries filter by customer", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/deliveries?customer=RSUD%20Provinsi", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("request failed: status=%d err=%v", resp.StatusCode, err)
+		}
+		defer resp.Body.Close()
+		var res struct {
+			Total int `json:"total"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&res)
+		if res.Total != 3 {
+			t.Errorf("expected 3 deliveries for RSUD Provinsi, got %d", res.Total)
+		}
+	})
+
+	t.Run("GET /api/v1/items remains unchanged with raw date strings", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/items", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("request failed: status=%d err=%v", resp.StatusCode, err)
+		}
+		defer resp.Body.Close()
+		var res struct {
+			Total int                    `json:"total"`
+			Items []model.NormalizedItem `json:"items"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&res)
+		if res.Total != 2 || len(res.Items) != 2 {
+			t.Fatalf("expected 2 items, got total=%d len=%d", res.Total, len(res.Items))
+		}
+		if res.Items[0].TanggalPengiriman != "07/01/2026 (3), 03/02/2026 (1)" {
+			t.Errorf("items endpoint changed raw tanggal_pengiriman: %s", res.Items[0].TanggalPengiriman)
+		}
+	})
+}

@@ -152,6 +152,15 @@ func (s *Server) registerOperations() {
 	}, s.handleListItems)
 
 	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-deliveries",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/deliveries",
+		Summary:     "List delivery shipments",
+		Description: "Timeline shipment feed returning individual delivery shipments joined to source items",
+		Tags:        []string{"deliveries"},
+	}, s.handleListDeliveries)
+
+	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "get-stats",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/stats",

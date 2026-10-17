@@ -593,3 +593,73 @@ func TestGroupOrders_AreaNormalization(t *testing.T) {
 		t.Errorf("expected order Area 'Lombok Barat', got %q", orders[0].Area)
 	}
 }
+
+func TestParseDeliveryEntries(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		expected []normalizer.DeliveryEntry
+	}{
+		{
+			name:     "empty string",
+			raw:      "",
+			expected: []normalizer.DeliveryEntry{},
+		},
+		{
+			name:     "whitespace string",
+			raw:      "   ",
+			expected: []normalizer.DeliveryEntry{},
+		},
+		{
+			name: "single plain date",
+			raw:  "07/01/2026",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "07/01/2026", Quantity: ""},
+			},
+		},
+		{
+			name: "single date with quantity",
+			raw:  "07/01/2026 (4)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "07/01/2026", Quantity: "4"},
+			},
+		},
+		{
+			name: "multiple dates with quantities",
+			raw:  "07/01/2026 (3), 03/02/2026 (1)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "07/01/2026", Quantity: "3"},
+				{Date: "03/02/2026", Quantity: "1"},
+			},
+		},
+		{
+			name: "multiple dates with decimal quantities",
+			raw:  "07/01/2026 (2.5), 03/02/2026 (1.5)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "07/01/2026", Quantity: "2.5"},
+				{Date: "03/02/2026", Quantity: "1.5"},
+			},
+		},
+		{
+			name: "malformed text without pattern",
+			raw:  "Pengiriman via ekspedisi",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "Pengiriman via ekspedisi", Quantity: ""},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizer.ParseDeliveryEntries(tc.raw)
+			if len(got) != len(tc.expected) {
+				t.Fatalf("expected %d entries, got %d (%+v)", len(tc.expected), len(got), got)
+			}
+			for i := range got {
+				if got[i].Date != tc.expected[i].Date || got[i].Quantity != tc.expected[i].Quantity {
+					t.Errorf("entry %d: expected %+v, got %+v", i, tc.expected[i], got[i])
+				}
+			}
+		})
+	}
+}

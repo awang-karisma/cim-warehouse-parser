@@ -400,6 +400,89 @@ func (s *Server) handleListItems(ctx context.Context, input *ListItemsInput) (*I
 	}, nil
 }
 
+// ListDeliveriesInput defines query filters for deliveries.
+type ListDeliveriesInput struct {
+	Customer       string `query:"customer" doc:"Filter by customer name"`
+	NamaBarang     string `query:"nama_barang" doc:"Filter by item name"`
+	StatusOrder    string `query:"status_order" doc:"Filter by order status"`
+	Date           string `query:"date" doc:"Filter by date"`
+	Tanggal        string `query:"tanggal" doc:"Filter by date alias"`
+	OrderNumber    string `query:"order_number" doc:"Filter by order number"`
+	EcatalogNumber string `query:"ecatalog_number" doc:"Filter by e-katalog number"`
+	Limit          int    `query:"limit" default:"25" doc:"Max records to return"`
+	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
+}
+
+// DeliveriesResponse defines the paginated response for delivery shipments.
+type DeliveriesResponse struct {
+	Total      int                    `json:"total"`
+	Limit      int                    `json:"limit"`
+	Offset     int                    `json:"offset"`
+	Deliveries []storage.DeliveryItem `json:"deliveries"`
+}
+
+type DeliveriesOutput struct {
+	Body DeliveriesResponse
+}
+
+func (s *Server) handleListDeliveries(ctx context.Context, input *ListDeliveriesInput) (*DeliveriesOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+
+	customer := input.Customer
+	namaBarang := input.NamaBarang
+	statusOrder := input.StatusOrder
+	date := input.Date
+	if date == "" {
+		date = input.Tanggal
+	}
+	orderNumber := input.OrderNumber
+	if orderNumber == "" {
+		orderNumber = input.EcatalogNumber
+	}
+	limit := input.Limit
+	offset := input.Offset
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	deliveries, total, err := s.store.GetDeliveries(ctx, storage.DeliveryFilter{
+		Customer:       customer,
+		NamaBarang:     namaBarang,
+		StatusOrder:    statusOrder,
+		Date:           date,
+		Tanggal:        date,
+		OrderNumber:    orderNumber,
+		EcatalogNumber: orderNumber,
+		Limit:          limit,
+		Offset:         offset,
+	})
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+
+	if deliveries == nil {
+		deliveries = []storage.DeliveryItem{}
+	}
+
+	return &DeliveriesOutput{
+		Body: DeliveriesResponse{
+			Total:      total,
+			Limit:      limit,
+			Offset:     offset,
+			Deliveries: deliveries,
+		},
+	}, nil
+}
+
 func (s *Server) handleGetStats(ctx context.Context, input *struct{}) (*StatsOutput, error) {
 	if s.store == nil {
 		return nil, huma.Error503ServiceUnavailable("storage service not available")

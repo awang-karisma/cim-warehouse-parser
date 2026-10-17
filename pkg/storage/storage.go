@@ -46,6 +46,37 @@ type ItemFilter struct {
 	Offset         int    `json:"offset"`
 }
 
+// Delivery represents a single shipment row in the deliveries table.
+type Delivery struct {
+	ID              int64  `json:"id"`
+	ItemID          int64  `json:"item_id"`
+	DeliveryDate    string `json:"delivery_date"`
+	ShippedQuantity string `json:"shipped_quantity"`
+	ShipmentIndex   int    `json:"shipment_index"`
+}
+
+// DeliveryItem joins a delivery row with its original normalized line item.
+type DeliveryItem struct {
+	DeliveryDate    string               `json:"delivery_date"`
+	ShippedQuantity string               `json:"shipped_quantity"`
+	ShipmentIndex   int                  `json:"shipment_index"`
+	ShipmentCount   int                  `json:"shipment_count"`
+	Item            model.NormalizedItem `json:"item"`
+}
+
+// DeliveryFilter defines criteria for querying shipments.
+type DeliveryFilter struct {
+	Customer       string `json:"customer"`
+	NamaBarang     string `json:"nama_barang"`
+	StatusOrder    string `json:"status_order"`
+	Date           string `json:"date"`
+	Tanggal        string `json:"tanggal"`
+	OrderNumber    string `json:"order_number"`
+	EcatalogNumber string `json:"ecatalog_number"`
+	Limit          int    `json:"limit"`
+	Offset         int    `json:"offset"`
+}
+
 // Stats contains aggregated metrics about stored orders and items.
 type Stats struct {
 	TotalOrders     int            `json:"total_orders"`
@@ -255,6 +286,16 @@ func (s *Storage) migrate() error {
 		area TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX IF NOT EXISTS idx_customer_aliases_alias ON customer_aliases(alias);
+
+	CREATE TABLE IF NOT EXISTS deliveries (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+		delivery_date TEXT NOT NULL,
+		shipped_quantity TEXT NOT NULL,
+		shipment_index INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX IF NOT EXISTS idx_deliveries_item_id ON deliveries(item_id);
+	CREATE INDEX IF NOT EXISTS idx_deliveries_delivery_date ON deliveries(delivery_date);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -270,6 +311,43 @@ func (s *Storage) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE sync_history ADD COLUMN duration_ms INTEGER DEFAULT 0;`)
 	_, _ = s.db.Exec(`ALTER TABLE customer_aliases ADD COLUMN area TEXT NOT NULL DEFAULT '';`)
 
+
+	// Backfill deliveries from existing items that have no deliveries recorded yet
+	bRows, err := s.db.Query(`
+		SELECT id, tanggal_pengiriman FROM items
+		WHERE id NOT IN (SELECT DISTINCT item_id FROM deliveries)
+		  AND tanggal_pengiriman != ''
+	`)
+	if err == nil {
+		type backfillItem struct {
+			id       int64
+			dateText string
+		}
+		var toBackfill []backfillItem
+		for bRows.Next() {
+			var b backfillItem
+			if err := bRows.Scan(&b.id, &b.dateText); err == nil {
+				toBackfill = append(toBackfill, b)
+			}
+		}
+		bRows.Close()
+
+		if len(toBackfill) > 0 {
+			bStmt, err := s.db.Prepare(`
+				INSERT INTO deliveries (item_id, delivery_date, shipped_quantity, shipment_index)
+				VALUES (?, ?, ?, ?)
+			`)
+			if err == nil {
+				defer bStmt.Close()
+				for _, b := range toBackfill {
+					entries := normalizer.ParseDeliveryEntries(b.dateText)
+					for idx, entry := range entries {
+						_, _ = bStmt.Exec(b.id, entry.Date, entry.Quantity, idx)
+					}
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -282,7 +360,10 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	}
 	defer tx.Rollback()
 
-	// Clear existing items and orders
+	// Clear existing deliveries, items and orders
+	if _, err := tx.ExecContext(ctx, "DELETE FROM deliveries"); err != nil {
+		return fmt.Errorf("failed to clear existing deliveries: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM items"); err != nil {
 		return fmt.Errorf("failed to clear existing items: %w", err)
 	}
@@ -380,6 +461,15 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	}
 	defer itemStmt.Close()
 
+	deliveryStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO deliveries (item_id, delivery_date, shipped_quantity, shipment_index)
+		VALUES (?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare delivery statement: %w", err)
+	}
+	defer deliveryStmt.Close()
+
 	totalItemsCount := 0
 	if len(items) > 0 {
 		totalItemsCount = len(items)
@@ -401,13 +491,24 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 					cleanArea = normalizer.NormalizeArea(ord.Area)
 				}
 			}
-			if _, err := itemStmt.ExecContext(ctx,
+			res, err := itemStmt.ExecContext(ctx,
 				it.RowIndex, ordID, orderNum, ecatNum, it.Tanggal, it.Customer, cleanArea,
 				it.NamaBarang, it.Jumlah, it.Satuan, it.TanggalPengiriman,
 				it.LeadTimePengiriman, it.JumlahTerkirim, it.BelumTerkirim,
 				it.StatusOrder, it.StatusBarang, it.Keterangan, it.Catatan,
-			); err != nil {
+			)
+			if err != nil {
 				return fmt.Errorf("failed to insert item (row %d): %w", it.RowIndex, err)
+			}
+			itemID, err := res.LastInsertId()
+			if err != nil {
+				return fmt.Errorf("failed to get item insert id (row %d): %w", it.RowIndex, err)
+			}
+			delEntries := normalizer.ParseDeliveryEntries(it.TanggalPengiriman)
+			for dIdx, dEntry := range delEntries {
+				if _, err := deliveryStmt.ExecContext(ctx, itemID, dEntry.Date, dEntry.Quantity, dIdx); err != nil {
+					return fmt.Errorf("failed to insert delivery (item %d, entry %d): %w", itemID, dIdx, err)
+				}
 			}
 		}
 	} else {
@@ -424,13 +525,24 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 					ecatNum = ord.EcatalogNumber
 				}
 				cleanArea := normalizer.NormalizeArea(ord.Area)
-				if _, err := itemStmt.ExecContext(ctx,
+				res, err := itemStmt.ExecContext(ctx,
 					oi.RowIndex, ord.ID, orderNum, ecatNum, ord.Tanggal, ord.Customer, cleanArea,
 					oi.NamaBarang, oi.Jumlah, oi.Satuan, oi.TanggalPengiriman,
 					oi.LeadTimePengiriman, oi.JumlahTerkirim, oi.BelumTerkirim,
 					oi.StatusOrder, oi.StatusBarang, oi.Keterangan, oi.Catatan,
-				); err != nil {
+				)
+				if err != nil {
 					return fmt.Errorf("failed to insert order item (order %s, row %d): %w", ord.ID, oi.RowIndex, err)
+				}
+				itemID, err := res.LastInsertId()
+				if err != nil {
+					return fmt.Errorf("failed to get order item insert id (order %s, row %d): %w", ord.ID, oi.RowIndex, err)
+				}
+				delEntries := normalizer.ParseDeliveryEntries(oi.TanggalPengiriman)
+				for dIdx, dEntry := range delEntries {
+					if _, err := deliveryStmt.ExecContext(ctx, itemID, dEntry.Date, dEntry.Quantity, dIdx); err != nil {
+						return fmt.Errorf("failed to insert delivery (item %d, entry %d): %w", itemID, dIdx, err)
+					}
 				}
 			}
 		}
@@ -947,6 +1059,123 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 	}
 
 	return items, total, nil
+}
+
+// GetDeliveries retrieves delivery shipment rows joined with their source item matching filters with pagination.
+func (s *Storage) GetDeliveries(ctx context.Context, filter DeliveryFilter) ([]DeliveryItem, int, error) {
+	var conditions []string
+	var args []any
+
+	if filter.Customer != "" {
+		patterns, err := s.customerMatchPatterns(ctx, filter.Customer)
+		if err != nil {
+			return nil, 0, err
+		}
+		custConds := make([]string, len(patterns))
+		for i, p := range patterns {
+			custConds[i] = "i.customer LIKE ?"
+			args = append(args, p)
+		}
+		conditions = append(conditions, "("+strings.Join(custConds, " OR ")+")")
+	}
+	if filter.NamaBarang != "" {
+		conditions = append(conditions, "i.nama_barang LIKE ?")
+		args = append(args, "%"+filter.NamaBarang+"%")
+	}
+	if filter.StatusOrder != "" {
+		conditions = append(conditions, "i.status_order LIKE ?")
+		args = append(args, "%"+filter.StatusOrder+"%")
+	}
+
+	date := filter.Date
+	if date == "" {
+		date = filter.Tanggal
+	}
+	if date != "" {
+		conditions = append(conditions, "(d.delivery_date LIKE ? OR i.tanggal LIKE ?)")
+		args = append(args, "%"+date+"%", "%"+date+"%")
+	}
+
+	orderNum := filter.OrderNumber
+	if orderNum == "" {
+		orderNum = filter.EcatalogNumber
+	}
+	if orderNum != "" {
+		conditions = append(conditions, "i.order_number = ?")
+		args = append(args, orderNum)
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	countQuery := "SELECT COUNT(*) FROM deliveries d JOIN items i ON d.item_id = i.id" + whereClause
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count deliveries: %w", err)
+	}
+	if total == 0 {
+		return []DeliveryItem{}, 0, nil
+	}
+
+	selectQuery := `
+		SELECT d.delivery_date, d.shipped_quantity, d.shipment_index,
+		       (SELECT COUNT(*) FROM deliveries d2 WHERE d2.item_id = i.id) as shipment_count,
+		       COALESCE(i.row_index, 0), COALESCE(i.order_id, ''), COALESCE(i.order_number, ''), COALESCE(i.ecatalog_number, ''),
+		       COALESCE(i.tanggal, ''), COALESCE(i.customer, ''), COALESCE(i.area, ''),
+		       COALESCE(i.nama_barang, ''), COALESCE(i.jumlah, ''), COALESCE(i.satuan, ''),
+		       COALESCE(i.tanggal_pengiriman, ''), COALESCE(i.lead_time_pengiriman, ''),
+		       COALESCE(i.jumlah_terkirim, ''), COALESCE(i.belum_terkirim, ''),
+		       COALESCE(i.status_order, ''), COALESCE(i.status_barang, ''),
+		       COALESCE(i.keterangan, ''), COALESCE(i.catatan, '')
+		FROM deliveries d
+		JOIN items i ON d.item_id = i.id
+	` + whereClause + ` ORDER BY CASE
+		WHEN length(d.delivery_date) = 10 AND substr(d.delivery_date, 3, 1) = '/' AND substr(d.delivery_date, 6, 1) = '/'
+		THEN substr(d.delivery_date, 7, 4) || '-' || substr(d.delivery_date, 4, 2) || '-' || substr(d.delivery_date, 1, 2)
+		ELSE d.delivery_date
+	END ASC, d.id ASC`
+
+	queryArgs := append([]any{}, args...)
+	if filter.Limit > 0 {
+		selectQuery += " LIMIT ?"
+		queryArgs = append(queryArgs, filter.Limit)
+		if filter.Offset > 0 {
+			selectQuery += " OFFSET ?"
+			queryArgs = append(queryArgs, filter.Offset)
+		}
+	} else if filter.Offset > 0 {
+		selectQuery += " LIMIT -1 OFFSET ?"
+		queryArgs = append(queryArgs, filter.Offset)
+	}
+
+	rows, err := s.db.QueryContext(ctx, selectQuery, queryArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	var deliveries []DeliveryItem
+	for rows.Next() {
+		var di DeliveryItem
+		var ordID string
+		if err := rows.Scan(
+			&di.DeliveryDate, &di.ShippedQuantity, &di.ShipmentIndex, &di.ShipmentCount,
+			&di.Item.RowIndex, &ordID, &di.Item.OrderNumber, &di.Item.EcatalogNumber, &di.Item.Tanggal, &di.Item.Customer, &di.Item.Area,
+			&di.Item.NamaBarang, &di.Item.Jumlah, &di.Item.Satuan, &di.Item.TanggalPengiriman,
+			&di.Item.LeadTimePengiriman, &di.Item.JumlahTerkirim, &di.Item.BelumTerkirim,
+			&di.Item.StatusOrder, &di.Item.StatusBarang, &di.Item.Keterangan, &di.Item.Catatan,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan delivery row: %w", err)
+		}
+		deliveries = append(deliveries, di)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error reading delivery rows: %w", err)
+	}
+
+	return deliveries, total, nil
 }
 
 // GetStats returns aggregated statistics including order count, item count,

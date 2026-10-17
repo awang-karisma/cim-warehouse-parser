@@ -179,3 +179,23 @@ export interface CustomerAliasGroup {
 export interface CustomerAliasesResponse {
   groups: CustomerAliasGroup[];
 }
+
+export interface DeliveryEntry {
+  date: string;
+  quantity: string;
+}
+
+export interface DeliveryItem {
+  delivery_date: string;
+  shipped_quantity: string;
+  shipment_index: number;
+  shipment_count: number;
+  item: NormalizedItem;
+}
+
+export interface PaginatedDeliveries {
+  total: number;
+  limit: number;
+  offset: number;
+  deliveries: DeliveryItem[];
+}

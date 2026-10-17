@@ -5,7 +5,7 @@ import {
   IconClockHour4,
   IconTimeline,
 } from '@tabler/icons-solidjs';
-import { getItems } from '../api';
+import { getDeliveries } from '../api';
 import { TopBar } from '../components/TopBar';
 import { Badge } from '../components/Badge';
 import { MiniProgress } from '../components/MiniProgress';
@@ -15,33 +15,30 @@ export const Timeline: Component = () => {
   const [statusFilter, setStatusFilter] = createSignal('');
   const [dateFilter, setDateFilter] = createSignal('');
 
-  // Fetch items with limit 100 for timeline analysis
-  const [itemsData] = createResource(
+  // Fetch individual deliveries with limit 100 for timeline analysis
+  const [deliveriesData] = createResource(
     () => ({ status_order: statusFilter(), date: dateFilter() }),
-    (params) => getItems({ limit: 100, ...params })
+    (params) => getDeliveries({ limit: 100, ...params })
   );
 
-  const itemsWithDelivery = createMemo(() => {
-    const list = itemsData()?.items || [];
-    return list.filter((it) => it.tanggal_pengiriman && it.tanggal_pengiriman.trim() !== '');
-  });
+  const deliveriesList = createMemo(() => deliveriesData()?.deliveries || []);
 
   const summary = createMemo(() => {
-    const items = itemsWithDelivery();
+    const list = deliveriesList();
     let completed = 0;
     let pending = 0;
     let totalLead = 0;
     let leadCount = 0;
 
-    for (const it of items) {
-      const belum = parseFloat(it.belum_terkirim) || 0;
-      if (belum === 0 && it.status_order?.toUpperCase() === 'SELESAI') {
+    for (const del of list) {
+      const belum = parseFloat(del.item.belum_terkirim) || 0;
+      if (belum === 0 && del.item.status_order?.toUpperCase() === 'SELESAI') {
         completed++;
       } else {
         pending++;
       }
 
-      const lt = parseFloat(it.lead_time_pengiriman);
+      const lt = parseFloat(del.item.lead_time_pengiriman);
       if (!isNaN(lt) && lt >= 0) {
         totalLead += lt;
         leadCount++;
@@ -50,7 +47,7 @@ export const Timeline: Component = () => {
 
     const avgLead = leadCount > 0 ? (totalLead / leadCount).toFixed(1) : '0';
     return {
-      total: items.length,
+      total: list.length,
       completed,
       pending,
       avgLead,
@@ -138,6 +135,7 @@ export const Timeline: Component = () => {
               <thead>
                 <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
                   <th class="py-2.5 px-3">Delivery Date</th>
+                  <th class="py-2.5 px-3">Shipment Qty</th>
                   <th class="py-2.5 px-3">Customer</th>
                   <th class="py-2.5 px-3">Area</th>
                   <th class="py-2.5 px-3">Item Name</th>
@@ -150,62 +148,70 @@ export const Timeline: Component = () => {
               </thead>
               <tbody>
                 <Show
-                  when={!itemsData.loading}
+                  when={!deliveriesData.loading}
                   fallback={
                     <tr>
-                      <td colspan="9" class="p-8 text-center text-muted text-sm">
+                      <td colspan="10" class="p-8 text-center text-muted text-sm">
                         Loading delivery schedule...
                       </td>
                     </tr>
                   }
                 >
                   <Show
-                    when={itemsWithDelivery().length > 0}
+                    when={deliveriesList().length > 0}
                     fallback={
                       <tr>
-                        <td colspan="9" class="p-8 text-center text-muted text-sm">
+                        <td colspan="10" class="p-8 text-center text-muted text-sm">
                           No shipments with delivery dates recorded
                         </td>
                       </tr>
                     }
                   >
-                    <For each={itemsWithDelivery()}>
-                      {(item) => (
+                    <For each={deliveriesList()}>
+                      {(del) => (
                         <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
                           <td class="py-2.5 px-3 font-semibold text-text">
-                            {item.tanggal_pengiriman}
+                            {del.delivery_date}
                           </td>
-                          <td class="py-2.5 px-3 font-medium text-text">{item.customer}</td>
-                          <td class="py-2.5 px-3 text-text">{item.area}</td>
-                          <td class="py-2.5 px-3 font-semibold text-text">{item.nama_barang}</td>
+                          <td class="py-2.5 px-3 font-medium text-text">
+                            {del.shipped_quantity ? `${del.shipped_quantity} ${del.item.satuan}` : '-'}
+                          </td>
+                          <td class="py-2.5 px-3 font-medium text-text">{del.item.customer}</td>
+                          <td class="py-2.5 px-3 text-text">{del.item.area}</td>
+                          <td class="py-2.5 px-3 font-semibold text-text">{del.item.nama_barang}</td>
                           <td class="py-2.5 px-3 text-text">
-                            {item.jumlah} {item.satuan}
+                            {del.item.jumlah} {del.item.satuan}
                           </td>
                           <td class="py-2.5 px-3">
-                            <Show when={item.lead_time_pengiriman} fallback={<span>-</span>}>
+                            <Show when={del.item.lead_time_pengiriman} fallback={<span>-</span>}>
                               <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium">
-                                {item.lead_time_pengiriman} Days
+                                {del.item.lead_time_pengiriman} Days
                               </span>
                             </Show>
                           </td>
                           <td class="py-2.5 px-3 min-w-[120px]">
                             <MiniProgress
-                              terkirim={item.jumlah_terkirim}
-                              total={item.jumlah}
+                              terkirim={del.item.jumlah_terkirim}
+                              total={del.item.jumlah}
                             />
                           </td>
                           <td class="py-2.5 px-3">
                             <Show
-                              when={parseFloat(item.belum_terkirim) > 0}
-                              fallback={<span class="text-status-selesai font-medium">Completed</span>}
+                              when={del.shipment_index === 0}
+                              fallback={<span class="text-muted">-</span>}
                             >
-                              <span class="text-status-pending font-semibold">
-                                {item.belum_terkirim} {item.satuan}
-                              </span>
+                              <Show
+                                when={parseFloat(del.item.belum_terkirim) > 0}
+                                fallback={<span class="text-status-selesai font-medium">Completed</span>}
+                              >
+                                <span class="text-status-pending font-semibold">
+                                  {del.item.belum_terkirim} {del.item.satuan}
+                                </span>
+                              </Show>
                             </Show>
                           </td>
                           <td class="py-2.5 px-3">
-                            <Badge status={item.status_order} />
+                            <Badge status={del.item.status_order} />
                           </td>
                         </tr>
                       )}
