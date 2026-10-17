@@ -197,10 +197,12 @@ func TestRunOnce_SkipsOutsideHoursWithoutForce(t *testing.T) {
 	// Configure work days to a single day that is definitely NOT today
 	now := time.Now()
 	oppositeDay := (now.Weekday() + 3) % 7
+	bypassFalse := false
 	cfg := worker.Config{
-		WorkHoursStart: "08:00",
-		WorkHoursEnd:   "17:00",
-		WorkDays:       []time.Weekday{oppositeDay},
+		WorkHoursStart:             "08:00",
+		WorkHoursEnd:               "17:00",
+		WorkDays:                   []time.Weekday{oppositeDay},
+		BypassWorkHoursOnFirstSync: &bypassFalse,
 	}
 
 	items, orders := sampleMockData()
@@ -236,6 +238,67 @@ func TestRunOnce_SkipsOutsideHoursWithoutForce(t *testing.T) {
 	}
 	if lastSync != nil {
 		t.Errorf("expected no sync history, got %+v", lastSync)
+	}
+}
+
+func TestRunOnce_FirstTimeSyncBypassesWorkHours(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	// Configure work days to a single day that is definitely NOT today (inHours = false)
+	now := time.Now()
+	oppositeDay := (now.Weekday() + 3) % 7
+	cfg := worker.Config{
+		WorkHoursStart: "08:00",
+		WorkHoursEnd:   "17:00",
+		WorkDays:       []time.Weekday{oppositeDay},
+	}
+
+	items, orders := sampleMockData()
+	fetcher := &mockFetcher{items: items, orders: orders}
+
+	w, err := worker.New(cfg, store, fetcher)
+	if err != nil {
+		t.Fatalf("failed to create worker: %v", err)
+	}
+
+	// First run: storage is empty, bypass should trigger even though outside hours and force=false
+	if err := w.RunOnce(ctx, false); err != nil {
+		t.Fatalf("RunOnce(ctx, false) returned unexpected error: %v", err)
+	}
+
+	// Verify it runs sync (fetchCount == 1, status is IDLE, data is stored)
+	if fetcher.fetchCount != 1 {
+		t.Errorf("expected fetchCount 1, got %d", fetcher.fetchCount)
+	}
+
+	status := w.Status()
+	if status.Status != "IDLE" {
+		t.Errorf("expected status 'IDLE', got %q", status.Status)
+	}
+
+	ordersStored, total, err := store.GetOrders(ctx, storage.OrderFilter{})
+	if err != nil || total != 1 || len(ordersStored) != 1 {
+		t.Fatalf("expected 1 stored order, got total=%d len=%d err=%v", total, len(ordersStored), err)
+	}
+
+	// Second run: now initial sync has succeeded, so outside hours check should apply
+	if err := w.RunOnce(ctx, false); err != nil {
+		t.Fatalf("second RunOnce(ctx, false) returned unexpected error: %v", err)
+	}
+
+	// Verify it now skips (fetchCount == 1, status is OUTSIDE_HOURS)
+	if fetcher.fetchCount != 1 {
+		t.Errorf("expected fetchCount still 1 after second run, got %d", fetcher.fetchCount)
+	}
+
+	status = w.Status()
+	if status.Status != "OUTSIDE_HOURS" {
+		t.Errorf("expected status 'OUTSIDE_HOURS' on second run, got %q", status.Status)
 	}
 }
 

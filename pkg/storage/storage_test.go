@@ -616,3 +616,44 @@ func TestRecordSync(t *testing.T) {
 		t.Errorf("expected error message %q, got %q", errMsg, rec.ErrorMessage)
 	}
 }
+
+func TestHasSynced(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	synced, err := store.HasSynced(ctx)
+	if err != nil {
+		t.Fatalf("HasSynced failed on empty db: %v", err)
+	}
+	if synced {
+		t.Error("expected HasSynced to be false on empty database")
+	}
+
+	// Record an ERROR sync - should still return false
+	if err := store.RecordSync(ctx, "ERROR", 0, 0, "failed"); err != nil {
+		t.Fatalf("RecordSync ERROR failed: %v", err)
+	}
+	synced, err = store.HasSynced(ctx)
+	if err != nil {
+		t.Fatalf("HasSynced failed after error sync: %v", err)
+	}
+	if synced {
+		t.Error("expected HasSynced to be false after error sync")
+	}
+
+	// Record a SUCCESS sync
+	if err := store.RecordSync(ctx, "SUCCESS", 10, 5, ""); err != nil {
+		t.Fatalf("RecordSync SUCCESS failed: %v", err)
+	}
+	synced, err = store.HasSynced(ctx)
+	if err != nil {
+		t.Fatalf("HasSynced failed after success sync: %v", err)
+	}
+	if !synced {
+		t.Error("expected HasSynced to be true after successful sync")
+	}
+}

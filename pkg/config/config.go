@@ -26,6 +26,7 @@ type Config struct {
 	GoogleApplicationCredentials string        `mapstructure:"google_application_credentials" json:"google_application_credentials"`
 	GoogleAPIKey                 string        `mapstructure:"google_api_key" json:"google_api_key"`
 	CSVFallbackPath              string        `mapstructure:"csv_fallback_path" json:"csv_fallback_path"`
+	SyncBypassWorkHoursOnFirstSync bool        `mapstructure:"sync_bypass_work_hours_on_first_sync" json:"sync_bypass_work_hours_on_first_sync"`
 }
 
 // DefaultConfig returns a Config struct with default configuration values.
@@ -42,6 +43,7 @@ func DefaultConfig() Config {
 		GoogleApplicationCredentials: "",
 		GoogleAPIKey:                 "",
 		CSVFallbackPath:              "testdata/orders_sample.csv",
+		SyncBypassWorkHoursOnFirstSync: true,
 	}
 }
 
@@ -71,6 +73,7 @@ func Load(envFiles ...string) (*Config, error) {
 	v.SetDefault("google_application_credentials", defaults.GoogleApplicationCredentials)
 	v.SetDefault("google_api_key", defaults.GoogleAPIKey)
 	v.SetDefault("csv_fallback_path", defaults.CSVFallbackPath)
+	v.SetDefault("sync_bypass_work_hours_on_first_sync", defaults.SyncBypassWorkHoursOnFirstSync)
 
 	// Bind environment keys
 	_ = v.BindEnv("server_port", "SERVER_PORT", "PORT")
@@ -84,6 +87,7 @@ func Load(envFiles ...string) (*Config, error) {
 	_ = v.BindEnv("google_application_credentials", "GOOGLE_APPLICATION_CREDENTIALS")
 	_ = v.BindEnv("google_api_key", "GOOGLE_API_KEY")
 	_ = v.BindEnv("csv_fallback_path", "CSV_FALLBACK_PATH")
+	_ = v.BindEnv("sync_bypass_work_hours_on_first_sync", "SYNC_BYPASS_WORK_HOURS_ON_FIRST_SYNC")
 
 	var cfg Config
 	decodeHook := viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
@@ -128,6 +132,7 @@ func (c *Config) WorkerConfig() worker.Config {
 		Timezone:        c.Timezone,
 		SpreadsheetID:   c.SpreadsheetID,
 		SheetName:       c.SheetName,
-		CSVFallbackPath: c.CSVFallbackPath,
+		CSVFallbackPath:            c.CSVFallbackPath,
+		BypassWorkHoursOnFirstSync: &c.SyncBypassWorkHoursOnFirstSync,
 	}
 }

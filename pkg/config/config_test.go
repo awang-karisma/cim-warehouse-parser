@@ -14,7 +14,7 @@ func TestDefaultConfig(t *testing.T) {
 		"SERVER_PORT", "PORT", "DB_PATH", "SYNC_INTERVAL",
 		"SYNC_WORK_HOURS_START", "SYNC_WORK_HOURS_END", "SYNC_TIMEZONE",
 		"SPREADSHEET_ID", "SHEET_NAME", "GOOGLE_APPLICATION_CREDENTIALS",
-		"GOOGLE_API_KEY", "CSV_FALLBACK_PATH",
+		"GOOGLE_API_KEY", "CSV_FALLBACK_PATH", "SYNC_BYPASS_WORK_HOURS_ON_FIRST_SYNC",
 	}
 	for _, k := range envKeys {
 		oldVal, exists := os.LookupEnv(k)
@@ -59,6 +59,13 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.GoogleAPIKey != "" {
 		t.Errorf("expected GoogleAPIKey default to be empty, got %s", cfg.GoogleAPIKey)
 	}
+	if !cfg.SyncBypassWorkHoursOnFirstSync {
+		t.Errorf("expected SyncBypassWorkHoursOnFirstSync=true by default, got %v", cfg.SyncBypassWorkHoursOnFirstSync)
+	}
+	wCfgDefault := cfg.WorkerConfig()
+	if wCfgDefault.BypassWorkHoursOnFirstSync == nil || !*wCfgDefault.BypassWorkHoursOnFirstSync {
+		t.Errorf("expected WorkerConfig BypassWorkHoursOnFirstSync to be true")
+	}
 }
 
 func TestEnvOverrides(t *testing.T) {
@@ -73,6 +80,7 @@ func TestEnvOverrides(t *testing.T) {
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/creds.json")
 	t.Setenv("GOOGLE_API_KEY", "AIzaSyFakeKey123")
 	t.Setenv("CSV_FALLBACK_PATH", "custom/sample.csv")
+	t.Setenv("SYNC_BYPASS_WORK_HOURS_ON_FIRST_SYNC", "false")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -112,10 +120,16 @@ func TestEnvOverrides(t *testing.T) {
 	if cfg.CSVFallbackPath != "custom/sample.csv" {
 		t.Errorf("expected CSVFallbackPath=custom/sample.csv, got %s", cfg.CSVFallbackPath)
 	}
+	if cfg.SyncBypassWorkHoursOnFirstSync != false {
+		t.Errorf("expected SyncBypassWorkHoursOnFirstSync=false, got %v", cfg.SyncBypassWorkHoursOnFirstSync)
+	}
 
 	wCfg := cfg.WorkerConfig()
 	if wCfg.Interval != 45*time.Minute || wCfg.WorkHoursStart != "07:30" || wCfg.SpreadsheetID != "custom-sheet-id" {
 		t.Errorf("expected WorkerConfig to inherit config fields, got %+v", wCfg)
+	}
+	if wCfg.BypassWorkHoursOnFirstSync == nil || *wCfg.BypassWorkHoursOnFirstSync != false {
+		t.Errorf("expected WorkerConfig BypassWorkHoursOnFirstSync to be false")
 	}
 }
 

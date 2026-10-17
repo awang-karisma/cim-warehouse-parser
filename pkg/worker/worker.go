@@ -27,7 +27,8 @@ type Config struct {
 	WorkDays        []time.Weekday `json:"work_days"`        // e.g. Mon-Sat
 	SpreadsheetID   string         `json:"spreadsheet_id"`
 	SheetName       string         `json:"sheet_name"`
-	CSVFallbackPath string         `json:"csv_fallback_path"`
+	CSVFallbackPath            string         `json:"csv_fallback_path"`
+	BypassWorkHoursOnFirstSync *bool          `json:"bypass_work_hours_on_first_sync"`
 }
 
 // Fetcher defines the interface for retrieving order items and orders from remote data.
@@ -75,6 +76,7 @@ type Worker struct {
 	loc      *time.Location
 	startMin int // minutes from midnight (0..1439)
 	endMin   int // minutes from midnight (0..1439)
+	bypassWorkHoursOnFirstSync bool
 
 	mu           sync.RWMutex
 	lastRunTime  time.Time
@@ -136,6 +138,11 @@ func New(cfg Config, store *storage.Storage, fetcher Fetcher) (*Worker, error) {
 		return nil, fmt.Errorf("invalid WorkHoursEnd: %w", err)
 	}
 
+	bypassOnFirst := true
+	if cfg.BypassWorkHoursOnFirstSync != nil {
+		bypassOnFirst = *cfg.BypassWorkHoursOnFirstSync
+	}
+
 	w := &Worker{
 		cfg:      cfg,
 		store:    store,
@@ -143,7 +150,8 @@ func New(cfg Config, store *storage.Storage, fetcher Fetcher) (*Worker, error) {
 		loc:      loc,
 		startMin: startMin,
 		endMin:   endMin,
-		status:   "IDLE",
+		bypassWorkHoursOnFirstSync: bypassOnFirst,
+		status:                     "IDLE",
 	}
 
 	return w, nil
@@ -224,13 +232,27 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 	now := time.Now().In(w.loc)
 	inHours := w.IsWithinWorkHours(now)
 
-	if !inHours && !force {
+	isFirstSync := false
+	if w.bypassWorkHoursOnFirstSync {
+		hasSynced, err := w.store.HasSynced(ctx)
+		if err != nil {
+			lastRec, _ := w.store.GetLastSync(ctx)
+			hasSynced = (lastRec != nil && lastRec.Status == "SUCCESS")
+		}
+		isFirstSync = !hasSynced
+	}
+
+	if !inHours && !force && !isFirstSync {
 		log.Println("Outside working hours, skipping scheduled sync")
 		w.mu.Lock()
 		w.lastRunTime = now
 		w.status = "OUTSIDE_HOURS"
 		w.mu.Unlock()
 		return nil
+	}
+
+	if !inHours && !force && isFirstSync {
+		log.Println("First-time sync detected (no prior successful sync in database): bypassing working hours check to populate initial data")
 	}
 
 	w.mu.Lock()

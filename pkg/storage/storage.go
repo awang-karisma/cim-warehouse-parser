@@ -707,3 +707,13 @@ func (s *Storage) GetLastSync(ctx context.Context) (*SyncRecord, error) {
 	rec.ErrorMessage = errMsg.String
 	return &rec, nil
 }
+
+// HasSynced returns true if the database has at least one successful sync history record.
+func (s *Storage) HasSynced(ctx context.Context) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sync_history WHERE status = 'SUCCESS'").Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
