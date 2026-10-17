@@ -44,26 +44,13 @@ func main() {
 	// 3. Initialize fetcher (Sheets or CSV fallback)
 	fetcher := initFetcher(cfg)
 
-	// 4. Initialize and start worker
+	// 4. Initialize worker
 	w, err := worker.New(cfg.WorkerConfig(), store, fetcher)
 	if err != nil {
 		log.Fatalf("failed to initialize worker: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go w.Start(ctx)
-
-	// 5. Run initial sync on startup
-	log.Println("Running initial sync on startup...")
-	if err := w.RunOnce(ctx, true); err != nil {
-		log.Printf("warning: initial sync encountered error: %v", err)
-	} else {
-		log.Println("Initial sync completed successfully.")
-	}
-
-	// 6. Start Fiber v3 HTTP server
+	// 5. Start Fiber v3 HTTP server
 	srv := api.New(api.Config{
 		Store:     store,
 		Worker:    w,
@@ -86,6 +73,13 @@ func main() {
 			serverErrors <- err
 		}
 	}()
+
+	// 6. Start sync worker in background (initial sync and periodic loop)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log.Println("Starting background sync worker...")
+	go w.Start(ctx)
 
 	// 7. Handle graceful shutdown on SIGINT / SIGTERM
 	quit := make(chan os.Signal, 1)

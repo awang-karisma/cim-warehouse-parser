@@ -86,6 +86,7 @@ type Worker struct {
 	startMin int // minutes from midnight (0..1439)
 	endMin   int // minutes from midnight (0..1439)
 	bypassWorkHoursOnFirstSync bool
+	syncMu       sync.Mutex
 
 	mu           sync.RWMutex
 	lastRunTime  time.Time
@@ -276,6 +277,12 @@ func (w *Worker) broadcast(evt SyncEvent) {
 // If outside work hours and force is false, it logs and skips.
 // If inside work hours or force is true, it calls fetcher and SyncMirror.
 func (w *Worker) RunOnce(ctx context.Context, force bool) error {
+	w.syncMu.Lock()
+	defer w.syncMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	now := time.Now().In(w.loc)
 	inHours := w.IsWithinWorkHours(now)
 
@@ -362,6 +369,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 
 	rec, _ := w.store.GetLastSync(ctx)
 	w.broadcast(SyncEvent{Status: "SUCCESS", Record: rec, DurationMs: duration.Milliseconds()})
+	log.Printf("Sync completed successfully (%d items, %d orders in %s)", len(items), len(orders), duration.Round(time.Millisecond))
 
 	return nil
 }
@@ -371,15 +379,19 @@ func (w *Worker) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.cfg.Interval)
 	defer ticker.Stop()
 
-	// Initial run
-	_ = w.RunOnce(ctx, false)
+	// Initial run in background
+	if err := w.RunOnce(ctx, false); err != nil {
+		log.Printf("warning: initial background sync error: %v", err)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = w.RunOnce(ctx, false)
+			if err := w.RunOnce(ctx, false); err != nil {
+				log.Printf("warning: scheduled sync error: %v", err)
+			}
 		}
 	}
 }

@@ -610,3 +610,52 @@ collect:
 		t.Errorf("expected last event SUCCESS, got %+v", events[len(events)-1])
 	}
 }
+func TestRunOnce_ConcurrentSafe(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items, orders := sampleMockData()
+	fetcher := &mockFetcher{items: items, orders: orders}
+
+	cfg := worker.Config{
+		Interval:       15 * time.Minute,
+		WorkHoursStart: "00:00",
+		WorkHoursEnd:   "23:59",
+		WorkDays: []time.Weekday{
+			time.Sunday, time.Monday, time.Tuesday, time.Wednesday,
+			time.Thursday, time.Friday, time.Saturday,
+		},
+	}
+
+	w, err := worker.New(cfg, store, fetcher)
+	if err != nil {
+		t.Fatalf("failed to create worker: %v", err)
+	}
+
+	// Launch 5 concurrent syncs
+	errCh := make(chan error, 5)
+	for range 5 {
+		go func() {
+			errCh <- w.RunOnce(ctx, true)
+		}()
+	}
+
+	for range 5 {
+		if err := <-errCh; err != nil {
+			t.Errorf("concurrent RunOnce failed: %v", err)
+		}
+	}
+
+	// Database should have valid data
+	storedOrders, total, err := store.GetOrders(ctx, storage.OrderFilter{})
+	if err != nil {
+		t.Fatalf("failed to query orders: %v", err)
+	}
+	if total != 1 || len(storedOrders) != 1 {
+		t.Errorf("expected 1 order, got total=%d len=%d", total, len(storedOrders))
+	}
+}
