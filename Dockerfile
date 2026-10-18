@@ -3,8 +3,8 @@
 # Stage 1: Build SolidJS Frontend with pnpm
 FROM node:22-alpine AS frontend-builder
 WORKDIR /web
-RUN npm install -g pnpm
 COPY web/package.json web/pnpm-lock.yaml* web/pnpm-workspace.yaml* ./
+RUN npm install -g $(node -p "require('./package.json').packageManager")
 RUN pnpm install
 COPY web/ ./
 RUN pnpm run build
