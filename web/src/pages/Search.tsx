@@ -5,9 +5,22 @@ import {
   IconPackage,
   IconListDetails,
   IconUsers,
+  IconArrowRight,
 } from '@tabler/icons-solidjs';
 import { search } from '../api';
-import { TopBar } from '../components/TopBar';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '~/components/ui/table';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '~/components/ui/tabs';
+import { TextField, TextFieldInput } from '~/components/ui/text-field';
+import { Button } from '~/components/ui/button';
+import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { createDebouncedSignal } from '../utils/debounce';
 
@@ -38,263 +51,318 @@ export const Search: Component = () => {
     const parts = text.split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
     return (
       <>
-        {parts.map((part) =>
-          part.toLowerCase() === q.toLowerCase() ? (
-            <mark class="bg-yellow-200 text-text px-0.5 rounded">{part}</mark>
-          ) : (
-            part
-          )
-        )}
+        <For each={parts}>
+          {(part) =>
+            part.toLowerCase() === q.toLowerCase() ? (
+              <mark class="bg-amber-200 text-amber-900 rounded px-0.5">{part}</mark>
+            ) : (
+              part
+            )
+          }
+        </For>
       </>
     );
   };
 
   return (
-    <div>
-      <TopBar title="Global Search" />
-
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
-        {/* Search Hero Input */}
-        <form onSubmit={handleSubmit} class="relative mb-5">
-          <div class="relative">
-            <span class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-muted">
-              <IconSearch size={20} stroke={1.8} aria-hidden="true" />
-            </span>
-            <input
-              type="text"
-              class="w-full pl-11 pr-28 py-3.5 text-base border-2 border-border rounded-lg outline-none bg-surface text-text focus:border-primary focus:ring-4 focus:ring-primary/15 transition-all shadow-sm"
-              placeholder="Search across orders, items, customers, catalog numbers..."
-              value={queryInput()}
-              onInput={(e) => setQueryInput(e.currentTarget.value)}
-            />
-            <button
-              type="submit"
-              class="absolute inset-y-1.5 right-1.5 px-4 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover cursor-pointer transition-colors"
-            >
+    <div class="flex flex-1 flex-col gap-6">
+      {/* Search Hero Card */}
+      <Card>
+        <CardContent class="p-4 md:p-6">
+          <form class="flex items-center gap-3" onSubmit={handleSubmit}>
+            <div class="relative flex-1">
+              <TextField value={queryInput()} onChange={setQueryInput}>
+                <div class="relative flex items-center">
+                  <IconSearch class="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
+                  <TextFieldInput
+                    placeholder="Search across orders, line items, customer names, or item descriptions..."
+                    class="pl-9 h-11 text-base"
+                  />
+                </div>
+              </TextField>
+            </div>
+            <Button type="submit" class="h-11 px-6">
               Search
-            </button>
-          </div>
-        </form>
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
-        {/* Filter Chips */}
-        <div class="flex items-center gap-2 mb-5 flex-wrap">
-          <button
-            type="button"
-            class={`px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors ${
-              filterType() === 'all'
-                ? 'bg-primary text-white'
-                : 'bg-surface text-text border border-border hover:bg-gray-50'
-            }`}
-            onClick={() => setFilterType('all')}
-          >
-            All Results
-          </button>
-          <button
-            type="button"
-            class={`px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors ${
-              filterType() === 'orders'
-                ? 'bg-primary text-white'
-                : 'bg-surface text-text border border-border hover:bg-gray-50'
-            }`}
-            onClick={() => setFilterType('orders')}
-          >
-            Orders Only
-          </button>
-          <button
-            type="button"
-            class={`px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors ${
-              filterType() === 'items'
-                ? 'bg-primary text-white'
-                : 'bg-surface text-text border border-border hover:bg-gray-50'
-            }`}
-            onClick={() => setFilterType('items')}
-          >
-            Line Items Only
-          </button>
-          <button
-            type="button"
-            class={`px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors ${
-              filterType() === 'customers'
-                ? 'bg-primary text-white'
-                : 'bg-surface text-text border border-border hover:bg-gray-50'
-            }`}
-            onClick={() => setFilterType('customers')}
-          >
-            Customers Only
-          </button>
+      {/* Tabs Filter Bar (Tasks faceted pattern) */}
+      <Tabs
+        value={filterType()}
+        onChange={(val) => setFilterType(val as 'all' | 'orders' | 'items' | 'customers')}
+        class="w-full"
+      >
+        <div class="flex items-center justify-between gap-4 mb-4">
+          <TabsList>
+            <TabsTrigger value="all">All Results ({totalMatches()})</TabsTrigger>
+            <TabsTrigger value="orders">
+              Orders ({data()?.orders?.total || 0})
+            </TabsTrigger>
+            <TabsTrigger value="items">
+              Line Items ({data()?.items?.total || 0})
+            </TabsTrigger>
+            <TabsTrigger value="customers">
+              Customers ({data()?.customers?.total || 0})
+            </TabsTrigger>
+          </TabsList>
         </div>
 
-        {/* Results Area */}
-        <Show when={debouncedQuery().trim()}>
-          <Show
-            when={!data.loading}
-            fallback={<div class="p-10 text-center text-muted text-sm">Searching across warehouse database...</div>}
-          >
-            <div class="mb-4 text-xs text-muted">
-              Found <strong class="text-text font-semibold">{totalMatches()}</strong> total matches for "
-              <strong class="text-text font-semibold">{debouncedQuery()}</strong>"
-            </div>
+        {/* Global Loading Indicator */}
+        <Show when={data.loading}>
+          <div class="space-y-4">
+            <Skeleton class="h-28 w-full" />
+            <Skeleton class="h-44 w-full" />
+          </div>
+        </Show>
 
-            {/* 1. Matched Orders */}
-            <Show when={filterType() === 'all' || filterType() === 'orders'}>
-              <Show when={data()?.orders?.results && data()!.orders.results.length > 0}>
-                <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-5">
-                  <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
-                    <IconPackage size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-                    <h3 class="text-base font-semibold text-text">Matched Orders ({data()!.orders.total})</h3>
-                  </div>
-                  <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-sm">
-                      <thead>
-                        <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                          <th class="py-2.5 px-3">Order ID</th>
-                          <th class="py-2.5 px-3">Customer</th>
-                          <th class="py-2.5 px-3">Date</th>
-                          <th class="py-2.5 px-3">Matched Line Items</th>
-                          <th class="py-2.5 px-3">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <For each={data()!.orders.results}>
-                          {(ord) => (
-                            <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                              <td class="py-2.5 px-3">
-                                <A href={`/orders/${ord.id}`} class="text-primary font-semibold hover:underline">
-                                  {ord.id}
-                                </A>
-                              </td>
-                              <td class="py-2.5 px-3 font-semibold text-text">
-                                {highlightMatch(ord.customer, submittedQuery())}
-                              </td>
-                              <td class="py-2.5 px-3 text-text">{ord.tanggal}</td>
-                              <td class="py-2.5 px-3">
-                                <Show
-                                  when={ord.matched_items && ord.matched_items.length > 0}
-                                  fallback={<span class="text-muted">-</span>}
-                                >
-                                  <div class="flex flex-wrap gap-1">
-                                    <For each={ord.matched_items}>
-                                      {(item) => (
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700">
-                                          {highlightMatch(item, submittedQuery())}
-                                        </span>
-                                      )}
-                                    </For>
-                                  </div>
-                                </Show>
-                              </td>
-                              <td class="py-2.5 px-3">
-                                <A
-                                  href={`/orders/${ord.id}`}
-                                  class="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
-                                >
-                                  Detail
-                                </A>
-                              </td>
-                            </tr>
-                          )}
-                        </For>
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              </Show>
-            </Show>
+        <Show when={!data.loading && !debouncedQuery().trim()}>
+          <Card>
+            <CardContent class="p-12 text-center text-muted-foreground">
+              <IconSearch class="size-8 mx-auto mb-3 opacity-40" />
+              <p class="font-medium text-foreground">Type a query to search across the database</p>
+              <p class="text-xs text-muted-foreground mt-1">
+                Searches orders, line items, customer names, and notes simultaneously
+              </p>
+            </CardContent>
+          </Card>
+        </Show>
 
-            {/* 2. Matched Line Items */}
-            <Show when={filterType() === 'all' || filterType() === 'items'}>
-              <Show when={data()?.items?.results && data()!.items.results.length > 0}>
-                <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-5">
-                  <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
-                    <IconListDetails size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-                    <h3 class="text-base font-semibold text-text">Matched Line Items ({data()!.items.total})</h3>
-                  </div>
-                  <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-sm">
-                      <thead>
-                        <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                          <th class="py-2.5 px-3">Row</th>
-                          <th class="py-2.5 px-3">Customer</th>
-                          <th class="py-2.5 px-3">Item Name</th>
-                          <th class="py-2.5 px-3">Qty</th>
-                          <th class="py-2.5 px-3">Status Order</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <For each={data()!.items.results}>
-                          {(item) => (
-                            <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                              <td class="py-2.5 px-3 text-muted">{item.row_index}</td>
-                              <td class="py-2.5 px-3 font-medium text-text">
-                                {highlightMatch(item.customer, submittedQuery())}
-                              </td>
-                              <td class="py-2.5 px-3 font-semibold text-text">
-                                {highlightMatch(item.nama_barang, submittedQuery())}
-                              </td>
-                              <td class="py-2.5 px-3 text-text">{item.jumlah}</td>
-                              <td class="py-2.5 px-3">
-                                <Badge status={item.status_order} />
-                              </td>
-                            </tr>
-                          )}
-                        </For>
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              </Show>
-            </Show>
+        <Show when={!data.loading && debouncedQuery().trim() && totalMatches() === 0}>
+          <Card>
+            <CardContent class="p-12 text-center text-muted-foreground">
+              <p>
+                No results found matching <span class="font-medium text-foreground">"{debouncedQuery()}"</span>
+              </p>
+            </CardContent>
+          </Card>
+        </Show>
 
-            {/* 3. Matched Customers */}
-            <Show when={filterType() === 'all' || filterType() === 'customers'}>
-              <Show when={data()?.customers?.results && data()!.customers.results.length > 0}>
-                <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
-                  <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
-                    <IconUsers size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-                    <h3 class="text-base font-semibold text-text">Matched Customers ({data()!.customers.total})</h3>
-                  </div>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <For each={data()!.customers.results}>
-                      {(cust) => (
-                        <div class="bg-surface rounded-lg border border-border p-4 flex flex-col justify-between">
-                          <div>
-                            <h4 class="text-base font-semibold text-text mb-1">
-                              {highlightMatch(cust.name, submittedQuery())}
-                            </h4>
-                            <span class="text-xs text-muted block mb-3">
-                              {cust.area || 'Unknown Area'}
-                            </span>
-                            <div class="mb-3">
-                              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700 font-medium">
-                                {cust.total_orders} Orders
-                              </span>
+        {/* Orders Results Section */}
+        <Show
+          when={
+            !data.loading &&
+            (filterType() === 'all' || filterType() === 'orders') &&
+            data()?.orders &&
+            data()!.orders.results.length > 0
+          }
+        >
+          <Card class="mb-6">
+            <CardHeader class="flex flex-row items-center justify-between space-y-0">
+              <div class="flex items-center gap-2">
+                <IconPackage class="size-4 text-primary" />
+                <CardTitle class="text-base font-semibold">
+                  Orders ({data()!.orders.total})
+                </CardTitle>
+              </div>
+              <Button
+                as={A}
+                href={`/orders?customer=${encodeURIComponent(debouncedQuery())}`}
+                variant="ghost"
+                size="sm"
+                class="gap-1 text-xs text-primary"
+              >
+                View in Orders <IconArrowRight class="size-3.5" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div class="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Order ID</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Matched Items</TableHead>
+                      <TableHead class="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <For each={data()!.orders.results}>
+                      {(ord) => (
+                        <TableRow>
+                          <TableCell>
+                            <A
+                              href={`/orders/${ord.id}`}
+                              class="font-mono text-xs font-semibold text-primary hover:underline"
+                            >
+                              {ord.id}
+                            </A>
+                          </TableCell>
+                          <TableCell class="font-medium">
+                            {highlightMatch(ord.customer, debouncedQuery())}
+                          </TableCell>
+                          <TableCell class="text-xs text-muted-foreground">{ord.tanggal}</TableCell>
+                          <TableCell>
+                            <div class="flex flex-wrap gap-1">
+                              <For each={ord.matched_items || []}>
+                                {(item) => (
+                                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] bg-secondary text-secondary-foreground font-medium">
+                                    {highlightMatch(item, debouncedQuery())}
+                                  </span>
+                                )}
+                              </For>
                             </div>
-                          </div>
-                          <A
-                            href={`/orders?customer=${encodeURIComponent(cust.name)}`}
-                            class="inline-flex items-center justify-center w-full px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
-                          >
-                            View Orders
-                          </A>
-                        </div>
+                          </TableCell>
+                          <TableCell class="text-right">
+                            <Button
+                              as={A}
+                              href={`/orders/${ord.id}`}
+                              variant="ghost"
+                              size="sm"
+                              class="text-xs"
+                            >
+                              Detail
+                            </Button>
+                          </TableCell>
+                        </TableRow>
                       )}
                     </For>
-                  </div>
-                </section>
-              </Show>
-            </Show>
-
-            <Show when={totalMatches() === 0}>
-              <div class="bg-surface rounded-lg border border-border shadow-sm p-10 text-center">
-                <h3 class="text-base font-bold text-text mb-2">No results found</h3>
-                <p class="text-sm text-muted">
-                  No orders, items, or customers matched "<strong class="text-text">{submittedQuery()}</strong>".
-                </p>
+                  </TableBody>
+                </Table>
               </div>
-            </Show>
-          </Show>
+            </CardContent>
+          </Card>
         </Show>
-      </main>
+
+        {/* Line Items Results Section */}
+        <Show
+          when={
+            !data.loading &&
+            (filterType() === 'all' || filterType() === 'items') &&
+            data()?.items &&
+            data()!.items.results.length > 0
+          }
+        >
+          <Card class="mb-6">
+            <CardHeader class="flex flex-row items-center justify-between space-y-0">
+              <div class="flex items-center gap-2">
+                <IconListDetails class="size-4 text-primary" />
+                <CardTitle class="text-base font-semibold">
+                  Line Items ({data()!.items.total})
+                </CardTitle>
+              </div>
+              <Button
+                as={A}
+                href={`/items`}
+                variant="ghost"
+                size="sm"
+                class="gap-1 text-xs text-primary"
+              >
+                View in Items <IconArrowRight class="size-3.5" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div class="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Item Name</TableHead>
+                      <TableHead class="text-right">Qty</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead class="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <For each={data()!.items.results}>
+                      {(item) => (
+                        <TableRow>
+                          <TableCell class="font-medium">
+                            {highlightMatch(item.customer, debouncedQuery())}
+                          </TableCell>
+                          <TableCell class="font-medium">
+                            {highlightMatch(item.nama_barang, debouncedQuery())}
+                          </TableCell>
+                          <TableCell class="text-right font-medium">
+                            {item.jumlah}
+                          </TableCell>
+                          <TableCell>
+                            <Badge status={item.status_order} />
+                          </TableCell>
+                          <TableCell class="text-right">
+                            <Button
+                              as={A}
+                              href={`/items`}
+                              variant="ghost"
+                              size="sm"
+                              class="text-xs"
+                            >
+                              Catalog
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </For>
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </Show>
+
+        {/* Customers Results Section */}
+        <Show
+          when={
+            !data.loading &&
+            (filterType() === 'all' || filterType() === 'customers') &&
+            data()?.customers &&
+            data()!.customers.results.length > 0
+          }
+        >
+          <Card>
+            <CardHeader class="flex flex-row items-center justify-between space-y-0">
+              <div class="flex items-center gap-2">
+                <IconUsers class="size-4 text-primary" />
+                <CardTitle class="text-base font-semibold">
+                  Customers ({data()!.customers.total})
+                </CardTitle>
+              </div>
+              <Button
+                as={A}
+                href={`/customers`}
+                variant="ghost"
+                size="sm"
+                class="gap-1 text-xs text-primary"
+              >
+                View in Customers <IconArrowRight class="size-3.5" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <For each={data()!.customers.results}>
+                  {(cust) => (
+                    <Card class="flex flex-col justify-between p-4 bg-muted/20">
+                      <div>
+                        <div class="font-semibold text-sm mb-1">
+                          {highlightMatch(cust.name, debouncedQuery())}
+                        </div>
+                        <p class="text-xs text-muted-foreground mb-3">{cust.area || 'Unknown Area'}</p>
+                        <div class="flex justify-between text-xs py-1 border-t">
+                          <span class="text-muted-foreground">Total Orders:</span>
+                          <span class="font-medium">{cust.total_orders}</span>
+                        </div>
+                      </div>
+                      <div class="pt-3 border-t mt-2">
+                        <Button
+                          as={A}
+                          href={`/orders?customer=${encodeURIComponent(cust.name)}`}
+                          variant="outline"
+                          size="sm"
+                          class="w-full text-xs h-8"
+                        >
+                          View Customer Orders
+                        </Button>
+                      </div>
+                    </Card>
+                  )}
+                </For>
+              </div>
+            </CardContent>
+          </Card>
+        </Show>
+      </Tabs>
     </div>
   );
 };

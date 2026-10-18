@@ -1,157 +1,221 @@
-import { type Component, createResource, Show, For } from 'solid-js';
+import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import { useParams, A } from '@solidjs/router';
+import { IconArrowLeft, IconPackage, IconCalendar, IconBuildingHospital, IconFileText } from '@tabler/icons-solidjs';
 import { getOrderById } from '../api';
-import { TopBar } from '../components/TopBar';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '~/components/ui/table';
+import { Button } from '~/components/ui/button';
+import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
-import { MiniProgress } from '../components/MiniProgress';
+
+const ItemProgress: Component<{ terkirim: string | number; total: string | number }> = (props) => {
+  const percent = createMemo(() => {
+    const t = parseFloat(String(props.total)) || 0;
+    const sent = parseFloat(String(props.terkirim)) || 0;
+    if (t <= 0) return 100;
+    return Math.min(100, Math.max(0, Math.round((sent / t) * 100)));
+  });
+
+  const barColor = createMemo(() => {
+    const p = percent();
+    if (p >= 100) return 'bg-status-selesai';
+    if (p > 0) return 'bg-status-proses';
+    return 'bg-status-pending';
+  });
+
+  return (
+    <div class="flex items-center gap-2">
+      <div class="flex-1 h-2 bg-secondary rounded-full overflow-hidden min-w-[60px]">
+        <div
+          class={`h-full rounded-full transition-all duration-300 ${barColor()}`}
+          style={{ width: `${percent()}%` }}
+        />
+      </div>
+      <span class="text-xs font-semibold w-8 text-right text-muted-foreground">{percent()}%</span>
+    </div>
+  );
+};
 
 export const OrderDetail: Component = () => {
   const params = useParams<{ id: string }>();
   const [order] = createResource(() => params.id, (id) => getOrderById(id));
 
   return (
-    <div>
-      <TopBar title={`Order Detail: ${params.id}`}>
-        <A
+    <div class="flex flex-1 flex-col gap-6">
+      <div class="flex items-center justify-between">
+        <Button
+          as={A}
           href="/orders"
-          class="inline-flex items-center justify-center px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
+          variant="outline"
+          size="sm"
+          class="gap-1.5 text-xs h-9"
         >
-          &larr; Back to Orders
-        </A>
-      </TopBar>
+          <IconArrowLeft class="size-4" />
+          <span>Back to Orders</span>
+        </Button>
+      </div>
 
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
+      <Show
+        when={!order.loading}
+        fallback={
+          <div class="space-y-4">
+            <Skeleton class="h-32 w-full" />
+            <Skeleton class="h-64 w-full" />
+          </div>
+        }
+      >
         <Show
-          when={!order.loading}
-          fallback={<div class="p-10 text-center text-muted text-sm">Loading order details...</div>}
-        >
-          <Show
-            when={order()}
-            fallback={
-              <div class="bg-surface rounded-lg border border-border shadow-sm p-10 text-center">
-                <h3 class="text-lg font-bold text-text mb-2">Order not found</h3>
-                <p class="text-sm text-muted mb-4">
-                  No order exists with ID <code class="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{params.id}</code>
+          when={order()}
+          fallback={
+            <Card>
+              <CardContent class="p-12 text-center text-muted-foreground">
+                <h3 class="text-lg font-bold text-foreground mb-2">Order not found</h3>
+                <p class="text-sm text-muted-foreground mb-4">
+                  No order exists with ID <code class="font-mono bg-muted px-1.5 py-0.5 rounded">{params.id}</code>
                 </p>
-                <A
-                  href="/orders"
-                  class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover transition-colors"
-                >
-                  Back to Orders List
-                </A>
-              </div>
-            }
-          >
-            {/* Header / Metadata Card */}
-            <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
-              <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
-                <div>
-                  <h2 class="text-lg font-bold text-text">
-                    {order()!.customer}
-                  </h2>
-                  <span class="text-xs text-muted">
-                    {order()!.area || 'No area specified'}
-                  </span>
+                <Button as={A} href="/orders" variant="outline" size="sm">
+                  Return to Orders Explorer
+                </Button>
+              </CardContent>
+            </Card>
+          }
+        >
+          {/* Metadata Card & 4-metric Grid */}
+          <Card>
+            <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
+              <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                  <CardTitle class="text-xl font-bold">{order()!.customer}</CardTitle>
+                  <Badge status={order()!.items?.[0]?.status_order || 'PENDING'} pill />
                 </div>
-                <Badge status={order()!.items?.[0]?.status_order || 'PENDING'} pill />
+                <CardDescription>
+                  {order()!.area || 'No regional area specified'}
+                </CardDescription>
               </div>
+            </CardHeader>
+            <CardContent>
+              <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                  <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <IconFileText class="size-4 text-primary" />
+                    <span>Order ID</span>
+                  </div>
+                  <div class="text-sm font-semibold">{order()!.id}</div>
+                </div>
 
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="p-3 bg-gray-50 rounded-md border border-border">
-                  <div class="text-xs text-muted font-medium mb-1">Order ID</div>
-                  <div class="text-sm font-semibold text-text">{order()!.id}</div>
-                </div>
-                <div class="p-3 bg-gray-50 rounded-md border border-border">
-                  <div class="text-xs text-muted font-medium mb-1">E-Katalog / Order Number</div>
-                  <div class="text-sm font-semibold font-mono text-text">
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                  <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <IconPackage class="size-4 text-primary" />
+                    <span>E-Katalog / Order No.</span>
+                  </div>
+                  <div class="text-sm font-semibold font-mono">
                     {order()!.order_number || order()!.ecatalog_number || 'N/A'}
                   </div>
                 </div>
-                <div class="p-3 bg-gray-50 rounded-md border border-border">
-                  <div class="text-xs text-muted font-medium mb-1">Order Date</div>
-                  <div class="text-sm font-semibold text-text">{order()!.tanggal}</div>
+
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                  <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <IconCalendar class="size-4 text-primary" />
+                    <span>Order Date</span>
+                  </div>
+                  <div class="text-sm font-semibold">{order()!.tanggal}</div>
                 </div>
-                <div class="p-3 bg-gray-50 rounded-md border border-border">
-                  <div class="text-xs text-muted font-medium mb-1">Total Line Items</div>
-                  <div class="text-sm font-semibold text-text">
+
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                  <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <IconBuildingHospital class="size-4 text-primary" />
+                    <span>Total Line Items</span>
+                  </div>
+                  <div class="text-sm font-semibold">
                     {order()!.total_items || order()!.items?.length || 0} items
                   </div>
                 </div>
               </div>
-            </section>
+            </CardContent>
+          </Card>
 
-            {/* Line Items Table Card */}
-            <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
-              <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
-                <h2 class="text-base font-semibold text-text">Order Line Items ({order()!.items?.length || 0})</h2>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                      <th class="py-2.5 px-3">#</th>
-                      <th class="py-2.5 px-3">Item Name</th>
-                      <th class="py-2.5 px-3">Quantity</th>
-                      <th class="py-2.5 px-3">Delivery Date</th>
-                      <th class="py-2.5 px-3">Progress</th>
-                      <th class="py-2.5 px-3">Sent / Remaining</th>
-                      <th class="py-2.5 px-3">Status Order</th>
-                      <th class="py-2.5 px-3">Status Barang</th>
-                      <th class="py-2.5 px-3">Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+          {/* Line Items Table Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle class="text-base font-semibold">
+                Order Line Items ({order()!.items?.length || 0})
+              </CardTitle>
+              <CardDescription>Dispatched and pending inventory units</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div class="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead class="w-12">#</TableHead>
+                      <TableHead>Item Name</TableHead>
+                      <TableHead class="text-right">Quantity</TableHead>
+                      <TableHead>Delivery Date</TableHead>
+                      <TableHead class="min-w-[120px]">Progress</TableHead>
+                      <TableHead class="text-right">Sent / Remaining</TableHead>
+                      <TableHead>Status Order</TableHead>
+                      <TableHead>Status Barang</TableHead>
+                      <TableHead>Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     <For each={order()!.items}>
                       {(item, idx) => (
-                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                          <td class="py-2.5 px-3 text-muted">{item.row_index || idx() + 1}</td>
-                          <td class="py-2.5 px-3 font-semibold text-text">{item.nama_barang}</td>
-                          <td class="py-2.5 px-3 text-text">
+                        <TableRow>
+                          <TableCell class="font-mono text-xs text-muted-foreground">
+                            {item.row_index || idx() + 1}
+                          </TableCell>
+                          <TableCell class="font-medium">{item.nama_barang}</TableCell>
+                          <TableCell class="text-right font-medium">
                             {item.jumlah} {item.satuan}
-                          </td>
-                          <td class="py-2.5 px-3 text-text">
+                          </TableCell>
+                          <TableCell class="text-xs text-muted-foreground">
                             {item.tanggal_pengiriman ? (
                               <span>
                                 {item.tanggal_pengiriman}
                                 {item.lead_time_pengiriman ? (
-                                  <span class="text-muted text-xs">
-                                    {' '}
-                                    ({item.lead_time_pengiriman}d lead)
-                                  </span>
+                                  <span class="text-muted-foreground"> ({item.lead_time_pengiriman}d lead)</span>
                                 ) : null}
                               </span>
                             ) : (
-                              <span class="text-muted">-</span>
+                              '-'
                             )}
-                          </td>
-                          <td class="py-2.5 px-3 min-w-[120px]">
-                            <MiniProgress
+                          </TableCell>
+                          <TableCell>
+                            <ItemProgress
                               terkirim={item.jumlah_terkirim}
                               total={item.jumlah}
                             />
-                          </td>
-                          <td class="py-2.5 px-3 text-xs text-text">
+                          </TableCell>
+                          <TableCell class="text-right font-mono text-xs">
                             {item.jumlah_terkirim || '0'} / {item.belum_terkirim || '0'}
-                          </td>
-                          <td class="py-2.5 px-3">
+                          </TableCell>
+                          <TableCell>
                             <Badge status={item.status_order} />
-                          </td>
-                          <td class="py-2.5 px-3">
+                          </TableCell>
+                          <TableCell>
                             <Badge status={item.status_barang} />
-                          </td>
-                          <td class="py-2.5 px-3 text-xs text-muted max-w-[200px] truncate">
+                          </TableCell>
+                          <TableCell class="text-xs text-muted-foreground max-w-[200px] truncate">
                             {item.keterangan || item.catatan || '-'}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       )}
                     </For>
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
-            </section>
-          </Show>
+            </CardContent>
+          </Card>
         </Show>
-      </main>
+      </Show>
     </div>
   );
 };

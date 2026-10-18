@@ -1,14 +1,74 @@
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
 import { A } from '@solidjs/router';
+import { IconMapPin, IconArrowRight } from '@tabler/icons-solidjs';
 import { getAreas, getCustomers } from '../api';
-import { TopBar } from '../components/TopBar';
-import { StatusBar } from '../components/StatusBar';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '~/components/ui/table';
+import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
+import { Button } from '~/components/ui/button';
+import { Skeleton } from '~/components/ui/skeleton';
+import { Badge } from '../components/Badge';
+
+const MiniStatusBreakdown: Component<{ counts?: Record<string, number> }> = (props) => {
+  const segments = createMemo(() => {
+    const counts = props.counts || {};
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    if (total === 0) return { total: 0, items: [] };
+
+    const selesai = (counts.SELESAI || 0) + (counts.COMPLETED || 0);
+    const proses = (counts.PROSES || 0) + (counts.PARTIAL || 0);
+    const batal = (counts.BATAL || 0) + (counts.CANCEL || 0);
+    const pending = total - selesai - proses - batal;
+
+    const items = [
+      { label: 'Selesai', count: selesai, pct: Math.round((selesai / total) * 100), color: 'var(--color-status-selesai, #2ec4b6)' },
+      { label: 'Proses', count: proses, pct: Math.round((proses / total) * 100), color: 'var(--color-status-proses, #ff9f1c)' },
+      { label: 'Pending', count: pending, pct: Math.round((pending / total) * 100), color: 'var(--color-status-pending, #e63946)' },
+      { label: 'Batal', count: batal, pct: Math.round((batal / total) * 100), color: 'var(--color-status-batal, #6c757d)' },
+    ].filter((s) => s.count > 0);
+
+    return { total, items };
+  });
+
+  return (
+    <Tooltip>
+      <TooltipTrigger as="div" class="w-full min-w-[120px] cursor-pointer">
+        <div class="flex h-2.5 w-full overflow-hidden rounded-full bg-secondary">
+          <For each={segments().items}>
+            {(item) => (
+              <div
+                class="h-full transition-all duration-200"
+                style={{ width: `${item.pct}%`, 'background-color': item.color }}
+              />
+            )}
+          </For>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent class="p-2 text-xs space-y-1">
+        <For each={segments().items}>
+          {(item) => (
+            <div class="flex items-center gap-1.5">
+              <span class="size-2 rounded-full shrink-0" style={{ background: item.color }} />
+              <span>{item.label}: {item.count} ({item.pct}%)</span>
+            </div>
+          )}
+        </For>
+      </TooltipContent>
+    </Tooltip>
+  );
+};
 
 export const Areas: Component = () => {
   const [areasData] = createResource(getAreas);
   const [selectedArea, setSelectedArea] = createSignal<string>('');
 
-  // Default selected area to first area once loaded
   const currentArea = createMemo(() => {
     if (selectedArea()) return selectedArea();
     if (areasData()?.areas && areasData()!.areas.length > 0) {
@@ -19,190 +79,210 @@ export const Areas: Component = () => {
 
   const [areaCustomers] = createResource(
     currentArea,
-    (area) => (area ? getCustomers({ area, limit: 5 }) : Promise.resolve({ total: 0, limit: 5, offset: 0, customers: [] }))
+    (area) =>
+      area
+        ? getCustomers({ area, limit: 5 })
+        : Promise.resolve({ total: 0, limit: 5, offset: 0, customers: [] })
   );
 
   const topAreas = createMemo(() => (areasData()?.areas || []).slice(0, 4));
 
   return (
-    <div>
-      <TopBar title="Regional Area Breakdown">
-        <Show when={areasData()?.total !== undefined}>
-          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
-            {areasData()?.total} Active Regions
-          </span>
-        </Show>
-      </TopBar>
-
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
-        {/* Top 4 Area Cards */}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6 items-stretch">
-          <For each={topAreas()}>
-            {(area) => {
-              const isSelected = () => currentArea() === area.name;
-              return (
-                <div
-                  class={`bg-surface rounded-lg p-5 flex flex-col justify-between h-full cursor-pointer transition-all shadow-sm ${
-                    isSelected()
-                      ? 'border-2 border-primary ring-2 ring-primary/10'
-                      : 'border border-border hover:border-gray-400'
-                  }`}
-                  onClick={() => setSelectedArea(area.name)}
-                >
-                  <div class="mb-2 pb-2 border-b border-border">
-                    <h3 class="text-base font-semibold text-text">
-                      {area.name}
-                    </h3>
+    <div class="flex flex-1 flex-col gap-6">
+      {/* Top 4 Area Cards */}
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <For each={topAreas()}>
+          {(area) => {
+            const isSelected = () => currentArea() === area.name;
+            return (
+              <Card
+                class={`cursor-pointer transition-all ${
+                  isSelected()
+                    ? 'border-primary ring-2 ring-primary/20 shadow-sm'
+                    : 'hover:border-primary/50'
+                }`}
+                onClick={() => setSelectedArea(area.name)}
+              >
+                <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle class="text-sm font-semibold truncate flex items-center gap-1.5">
+                    <IconMapPin class="size-4 text-primary shrink-0" />
+                    <span class="truncate">{area.name}</span>
+                  </CardTitle>
+                  <Badge status={`${area.total_orders} Orders`} pill />
+                </CardHeader>
+                <CardContent class="space-y-2">
+                  <div class="text-xs text-muted-foreground flex justify-between">
+                    <span>Customers:</span>
+                    <span class="font-medium text-foreground">{area.unique_customers}</span>
                   </div>
-                  <div class="space-y-1.5 flex-1">
-                    <div class="flex justify-between items-center py-1 text-sm border-b border-border/50">
-                      <span class="text-xs text-muted">Orders</span>
-                      <span class="font-semibold text-text">{area.total_orders}</span>
-                    </div>
-                    <div class="flex justify-between items-center py-1 text-sm border-b border-border/50">
-                      <span class="text-xs text-muted">Items</span>
-                      <span class="font-semibold text-text">{area.total_items}</span>
-                    </div>
-                    <div class="flex justify-between items-center py-1 text-sm">
-                      <span class="text-xs text-muted">Customers</span>
-                      <span class="font-semibold text-text">{area.unique_customers}</span>
-                    </div>
+                  <div class="text-xs text-muted-foreground flex justify-between">
+                    <span>Line Items:</span>
+                    <span class="font-medium text-foreground">{area.total_items.toLocaleString()}</span>
                   </div>
-                </div>
-              );
-            }}
-          </For>
-        </div>
+                  <div class="pt-1">
+                    <MiniStatusBreakdown counts={area.status_counts} />
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          }}
+        </For>
+      </div>
 
-        {/* Full Area Breakdown Table */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
-          <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
-            <h2 class="text-base font-semibold text-text">All Regional Areas ({areasData()?.areas?.length || 0})</h2>
+      {/* Regional Breakdown Table Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle class="text-base font-semibold">Regional Coverage Breakdown</CardTitle>
+            <CardDescription>
+              {areasData()?.areas?.length || 0} active administrative delivery areas
+            </CardDescription>
           </div>
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                  <th class="py-2.5 px-3">Area Name</th>
-                  <th class="py-2.5 px-3">Customers</th>
-                  <th class="py-2.5 px-3">Total Orders</th>
-                  <th class="py-2.5 px-3">Total Items</th>
-                  <th class="py-2.5 px-3 min-w-[160px]">Status Breakdown</th>
-                  <th class="py-2.5 px-3">Action</th>
-                </tr>
-              </thead>
-              <tbody>
+        </CardHeader>
+        <CardContent>
+          <div class="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Area Name</TableHead>
+                  <TableHead class="text-right">Customers</TableHead>
+                  <TableHead class="text-right">Total Orders</TableHead>
+                  <TableHead class="text-right">Total Items</TableHead>
+                  <TableHead class="min-w-[160px]">Status Breakdown</TableHead>
+                  <TableHead class="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <Show
                   when={!areasData.loading}
                   fallback={
-                    <tr>
-                      <td colspan="6" class="p-8 text-center text-muted text-sm">
-                        Loading regional areas...
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colspan={6} class="h-24 text-center text-muted-foreground">
+                        <Skeleton class="h-6 w-3/4 mx-auto" />
+                      </TableCell>
+                    </TableRow>
                   }
                 >
                   <For each={areasData()?.areas}>
                     {(area) => {
                       const isSelected = () => currentArea() === area.name;
                       return (
-                        <tr class={`border-b border-border last:border-b-0 transition-colors ${isSelected() ? 'bg-primary/5' : 'hover:bg-gray-50'}`}>
-                          <td class="py-2.5 px-3 font-semibold">
+                        <TableRow
+                          class={isSelected() ? 'bg-muted/50 font-medium' : 'hover:bg-muted/20'}
+                        >
+                          <TableCell>
                             <button
                               type="button"
-                              class="bg-transparent border-none p-0 font-semibold text-primary cursor-pointer hover:underline text-sm"
+                              class="text-left font-semibold text-primary hover:underline cursor-pointer"
                               onClick={() => setSelectedArea(area.name)}
                             >
                               {area.name}
                             </button>
-                          </td>
-                          <td class="py-2.5 px-3 text-text">{area.unique_customers}</td>
-                          <td class="py-2.5 px-3 text-text">{area.total_orders}</td>
-                          <td class="py-2.5 px-3 text-text">{area.total_items}</td>
-                          <td class="py-2.5 px-3">
-                            <StatusBar statusCounts={area.status_counts} height={16} />
-                          </td>
-                          <td class="py-2.5 px-3">
-                            <A
+                          </TableCell>
+                          <TableCell class="text-right">{area.unique_customers}</TableCell>
+                          <TableCell class="text-right">{area.total_orders}</TableCell>
+                          <TableCell class="text-right">{area.total_items.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <MiniStatusBreakdown counts={area.status_counts} />
+                          </TableCell>
+                          <TableCell class="text-right">
+                            <Button
+                              as={A}
                               href={`/orders?area=${encodeURIComponent(area.name)}`}
-                              class="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
+                              variant="ghost"
+                              size="sm"
+                              class="text-xs"
                             >
-                              View Orders
-                            </A>
-                          </td>
-                        </tr>
+                              Orders
+                            </Button>
+                          </TableCell>
+                        </TableRow>
                       );
                     }}
                   </For>
                 </Show>
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Selected Area Customers Sub-table */}
-        <Show when={currentArea()}>
-          <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
-            <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
-              <h2 class="text-base font-semibold text-text">
-                Top Customers in <strong class="text-primary">{currentArea()}</strong>
-              </h2>
-              <A
-                href={`/orders?area=${encodeURIComponent(currentArea())}`}
-                class="text-primary font-semibold text-xs hover:underline"
-              >
-                View All Area Orders &rarr;
-              </A>
+      {/* Selected Area Customers Sub-table */}
+      <Show when={currentArea()}>
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle class="text-base font-semibold">
+                Top Customers in <span class="text-primary">{currentArea()}</span>
+              </CardTitle>
+              <CardDescription>Major recipient accounts in this zone</CardDescription>
             </div>
-            <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse text-sm">
-                <thead>
-                  <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                    <th class="py-2.5 px-3">Customer Name</th>
-                    <th class="py-2.5 px-3">Orders</th>
-                    <th class="py-2.5 px-3">Items</th>
-                    <th class="py-2.5 px-3 min-w-[140px]">Status Breakdown</th>
-                    <th class="py-2.5 px-3">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <Button
+              as={A}
+              href={`/orders?area=${encodeURIComponent(currentArea())}`}
+              variant="outline"
+              size="sm"
+              class="gap-1 text-xs"
+            >
+              <span>View All Area Orders</span>
+              <IconArrowRight class="size-3.5" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div class="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer Name</TableHead>
+                    <TableHead class="text-right">Orders</TableHead>
+                    <TableHead class="text-right">Items</TableHead>
+                    <TableHead class="min-w-[140px]">Status Breakdown</TableHead>
+                    <TableHead class="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   <Show
                     when={areaCustomers()?.customers && areaCustomers()!.customers.length > 0}
                     fallback={
-                      <tr>
-                        <td colspan="5" class="p-8 text-center text-muted text-sm">
-                          No customers found for {currentArea()}
-                        </td>
-                      </tr>
+                      <TableRow>
+                        <TableCell colspan={5} class="h-20 text-center text-muted-foreground">
+                          <Show when={areaCustomers.loading} fallback={`No customers found for ${currentArea()}`}>
+                            <Skeleton class="h-5 w-1/2 mx-auto" />
+                          </Show>
+                        </TableCell>
+                      </TableRow>
                     }
                   >
                     <For each={areaCustomers()?.customers}>
                       {(cust) => (
-                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                          <td class="py-2.5 px-3 font-medium text-text">{cust.name}</td>
-                          <td class="py-2.5 px-3 text-text">{cust.total_orders}</td>
-                          <td class="py-2.5 px-3 text-text">{cust.total_items}</td>
-                          <td class="py-2.5 px-3">
-                            <StatusBar statusCounts={cust.status_counts} height={14} />
-                          </td>
-                          <td class="py-2.5 px-3">
-                            <A
+                        <TableRow>
+                          <TableCell class="font-medium">{cust.name}</TableCell>
+                          <TableCell class="text-right">{cust.total_orders}</TableCell>
+                          <TableCell class="text-right">{cust.total_items}</TableCell>
+                          <TableCell>
+                            <MiniStatusBreakdown counts={cust.status_counts} />
+                          </TableCell>
+                          <TableCell class="text-right">
+                            <Button
+                              as={A}
                               href={`/orders?customer=${encodeURIComponent(cust.name)}`}
-                              class="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
+                              variant="ghost"
+                              size="sm"
+                              class="text-xs"
                             >
                               Orders
-                            </A>
-                          </td>
-                        </tr>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
                       )}
                     </For>
                   </Show>
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
-          </section>
-        </Show>
-      </main>
+          </CardContent>
+        </Card>
+      </Show>
     </div>
   );
 };

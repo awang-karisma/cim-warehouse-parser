@@ -1,5 +1,6 @@
 import { render } from 'solid-js/web';
 import { Router, Route } from '@solidjs/router';
+import { ColorModeProvider, ColorModeScript, createLocalStorageManager } from '@kobalte/core';
 import './app.css';
 
 import { App } from './App';
@@ -14,23 +15,30 @@ import { SyncManager } from './pages/SyncManager';
 import { Search } from './pages/Search';
 import { Settings } from './pages/Settings';
 
+const storageManager = createLocalStorageManager('warehouse-ui-theme');
+
 const root = document.getElementById('root');
 if (root) {
   render(
     () => (
-      <Router root={App}>
-        <Route path="/" component={Dashboard} />
-        <Route path="/dashboard" component={Dashboard} />
-        <Route path="/orders" component={Orders} />
-        <Route path="/orders/:id" component={OrderDetail} />
-        <Route path="/items" component={Items} />
-        <Route path="/customers" component={Customers} />
-        <Route path="/areas" component={Areas} />
-        <Route path="/timeline" component={Timeline} />
-        <Route path="/sync" component={SyncManager} />
-        <Route path="/search" component={Search} />
-        <Route path="/settings" component={Settings} />
-      </Router>
+      <>
+        <ColorModeScript storageType={storageManager.type} storageKey="warehouse-ui-theme" />
+        <ColorModeProvider storageManager={storageManager}>
+          <Router root={App}>
+            <Route path="/" component={Dashboard} />
+            <Route path="/dashboard" component={Dashboard} />
+            <Route path="/orders" component={Orders} />
+            <Route path="/orders/:id" component={OrderDetail} />
+            <Route path="/items" component={Items} />
+            <Route path="/customers" component={Customers} />
+            <Route path="/areas" component={Areas} />
+            <Route path="/timeline" component={Timeline} />
+            <Route path="/sync" component={SyncManager} />
+            <Route path="/search" component={Search} />
+            <Route path="/settings" component={Settings} />
+          </Router>
+        </ColorModeProvider>
+      </>
     ),
     root
   );

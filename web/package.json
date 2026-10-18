@@ -8,13 +8,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@kobalte/core": "^0.13.14",
     "@solidjs/router": "^0.15.3",
     "@tabler/icons-solidjs": "^3.49.0",
-    "solid-js": "^1.9.4"
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "solid-js": "^1.9.4",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "solidui-cli": "^0.7.2",
     "tailwindcss": "^4.3.3",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
     "vite-plugin-solid": "^2.11.6"

@@ -12,7 +12,18 @@ import {
 } from '@tabler/icons-solidjs';
 import { getStatus, getSyncHistory, getConfig, triggerSync, subscribeSyncEvents } from '../api';
 import type { SyncEvent } from '../types';
-import { TopBar } from '../components/TopBar';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '~/components/ui/table';
+import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert';
+import { Button } from '~/components/ui/button';
+import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 
 export const SyncManager: Component = () => {
@@ -74,236 +85,246 @@ export const SyncManager: Component = () => {
   };
 
   return (
-    <div>
-      <TopBar
-        title="Sync Manager & Worker Diagnostics"
-        statusText={
-          isSyncing()
-            ? 'Sync in progress...'
-            : status()?.status === 'SYNCING'
-            ? 'Worker Syncing'
-            : 'Worker Idle'
-        }
-        statusType={
-          isSyncing() || status()?.status === 'SYNCING'
-            ? 'syncing'
-            : status()?.status === 'ERROR'
-            ? 'error'
-            : 'success'
-        }
-      />
-
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
-        {/* Live Sync Status Hero Card */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
-          <div class="flex flex-wrap justify-between items-center gap-4 mb-4 pb-3 border-b border-border">
-            <div>
-              <h2 class="text-base font-semibold text-text">Live Worker State</h2>
-              <span class="text-xs text-muted">
-                Real-time synchronization engine with Google Sheets mirror
-              </span>
-            </div>
-            <div class="flex items-center gap-3">
+    <div class="flex flex-1 flex-col gap-6">
+      {/* Live Worker State Hero Card */}
+      <Card>
+        <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
+          <div>
+            <div class="flex items-center gap-2">
+              <CardTitle class="text-base font-semibold">Live Worker State</CardTitle>
               <Badge
                 status={isSyncing() ? 'SYNCING' : status()?.status || 'IDLE'}
                 pill
               />
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                disabled={isSyncing()}
-                onClick={handleManualSync}
-              >
-                <Show
-                  when={isSyncing()}
-                  fallback={
-                    <>
-                      <IconBolt size={18} stroke={1.8} aria-hidden="true" />
-                      <span>Trigger Sync Now</span>
-                    </>
-                  }
-                >
-                  <IconLoader2 size={18} stroke={1.8} class="animate-spin" aria-hidden="true" />
-                  <span>Syncing...</span>
-                </Show>
-              </button>
             </div>
+            <CardDescription class="mt-1">
+              Real-time synchronization engine connected to remote Google Sheets mirror
+            </CardDescription>
           </div>
-
-          <Show when={isSyncing() || syncProgressMsg() || syncError()}>
-            <div
-              class={`px-4 py-3 rounded-md mb-4 text-sm font-medium flex items-center gap-2.5 ${
-                syncError()
-                  ? 'bg-status-pending/10 border border-status-pending text-status-pending'
-                  : 'bg-primary/10 border border-primary text-primary'
-              }`}
+          <Button
+            size="sm"
+            disabled={isSyncing()}
+            onClick={handleManualSync}
+            class="gap-2"
+          >
+            <Show
+              when={isSyncing()}
+              fallback={
+                <>
+                  <IconBolt class="size-4" />
+                  <span>Trigger Sync Now</span>
+                </>
+              }
             >
+              <IconLoader2 class="size-4 animate-spin" />
+              <span>Syncing...</span>
+            </Show>
+          </Button>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <Show when={isSyncing() || syncProgressMsg() || syncError()}>
+            <Alert variant={syncError() ? 'destructive' : 'default'} class="border">
               <Show
                 when={isSyncing()}
                 fallback={
                   syncError() ? (
-                    <IconCircleX size={18} stroke={1.8} aria-hidden="true" />
+                    <IconCircleX class="size-4 text-destructive" />
                   ) : (
-                    <IconCircleCheck size={18} stroke={1.8} aria-hidden="true" />
+                    <IconCircleCheck class="size-4 text-status-selesai" />
                   )
                 }
               >
-                <IconLoader2 size={18} stroke={1.8} class="animate-spin" aria-hidden="true" />
+                <IconLoader2 class="size-4 animate-spin text-primary" />
               </Show>
-              <span>{syncError() || syncProgressMsg()}</span>
-            </div>
+              <AlertTitle>
+                {isSyncing() ? 'Sync Operation Active' : syncError() ? 'Sync Failed' : 'Sync Complete'}
+              </AlertTitle>
+              <AlertDescription>{syncError() || syncProgressMsg()}</AlertDescription>
+            </Alert>
           </Show>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1">Last Sync Completed</div>
-              <div class="text-sm font-semibold text-text">{formatDateTime(status()?.last_sync)}</div>
-            </div>
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1">Next Scheduled Sync</div>
-              <div class="text-sm font-semibold text-text">{formatDateTime(status()?.next_sync)}</div>
-            </div>
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1">Last Sync Duration</div>
-              <div class="text-sm font-semibold text-text">
-                {status()?.last_duration_ms ? `${status()!.last_duration_ms} ms` : '< 1s'}
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
+              <div class="text-xs font-medium text-muted-foreground">Last Sync Completed</div>
+              <div class="text-sm font-semibold text-foreground">
+                {status.loading ? <Skeleton class="h-5 w-24" /> : formatDateTime(status()?.last_sync)}
               </div>
             </div>
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1">Working Hours Window</div>
-              <div class="text-sm font-semibold text-text flex items-center gap-1.5">
+            <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
+              <div class="text-xs font-medium text-muted-foreground">Next Scheduled Sync</div>
+              <div class="text-sm font-semibold text-foreground">
+                {status.loading ? <Skeleton class="h-5 w-24" /> : formatDateTime(status()?.next_sync)}
+              </div>
+            </div>
+            <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
+              <div class="text-xs font-medium text-muted-foreground">Last Sync Duration</div>
+              <div class="text-sm font-semibold font-mono text-foreground">
+                {status.loading ? (
+                  <Skeleton class="h-5 w-16" />
+                ) : status()?.last_duration_ms ? (
+                  `${status()!.last_duration_ms} ms`
+                ) : (
+                  '< 1s'
+                )}
+              </div>
+            </div>
+            <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
+              <div class="text-xs font-medium text-muted-foreground">Working Hours Window</div>
+              <div class="text-sm font-semibold text-foreground flex items-center gap-2">
                 <span
-                  class={`w-2.5 h-2.5 rounded-full inline-block ${
+                  class={`size-2 rounded-full inline-block ${
                     status()?.is_inside_work_hours ? 'bg-status-selesai' : 'bg-status-proses'
                   }`}
                 />
                 <span>
-                  {status()?.is_inside_work_hours ? 'Inside Working Hours' : 'Outside Working Hours'}
+                  {status()?.is_inside_work_hours ? 'Inside Window' : 'Outside Window'}
                 </span>
               </div>
             </div>
           </div>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Worker Schedule Configuration Card */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
-          <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
-            <h2 class="text-base font-semibold text-text">Worker Configuration & Schedule</h2>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1 flex items-center gap-1.5">
-                <IconClock size={15} stroke={1.8} aria-hidden="true" />
+      {/* Worker Configuration Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-base font-semibold">Worker Configuration & Schedule</CardTitle>
+          <CardDescription>Automated polling frequency and environment settings</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+              <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                <IconClock class="size-4 text-primary" />
                 <span>Sync Interval</span>
               </div>
-              <div class="text-sm font-semibold text-text">{config()?.sync_interval || '15m'}</div>
+              <div class="text-sm font-semibold">{config()?.sync_interval || '15m'}</div>
             </div>
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1 flex items-center gap-1.5">
-                <IconSun size={15} stroke={1.8} aria-hidden="true" />
+
+            <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+              <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                <IconSun class="size-4 text-primary" />
                 <span>Daily Work Hours</span>
               </div>
-              <div class="text-sm font-semibold text-text">
+              <div class="text-sm font-semibold">
                 {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
               </div>
             </div>
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1 flex items-center gap-1.5">
-                <IconWorld size={15} stroke={1.8} aria-hidden="true" />
+
+            <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+              <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                <IconWorld class="size-4 text-primary" />
                 <span>Timezone</span>
               </div>
-              <div class="text-sm font-semibold text-text">{config()?.timezone || 'Asia/Makassar'}</div>
+              <div class="text-sm font-semibold">{config()?.timezone || 'Asia/Makassar'}</div>
             </div>
-            <div class="p-3 bg-gray-50 rounded-md border border-border">
-              <div class="text-xs text-muted font-medium mb-1 flex items-center gap-1.5">
-                <IconCalendar size={15} stroke={1.8} aria-hidden="true" />
+
+            <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+              <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                <IconCalendar class="size-4 text-primary" />
                 <span>Active Work Days</span>
               </div>
-              <div class="text-sm font-semibold text-text">
+              <div class="text-sm font-semibold">
                 {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
               </div>
             </div>
-            <div class="p-3 bg-gray-50 rounded-md border border-border sm:col-span-2">
-              <div class="text-xs text-muted font-medium mb-1">Remote Google Spreadsheet ID</div>
-              <div class="text-xs font-mono font-semibold text-text break-all">
+
+            <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 sm:col-span-2">
+              <div class="text-xs text-muted-foreground font-medium">Remote Google Spreadsheet ID</div>
+              <div class="text-xs font-mono font-semibold text-foreground break-all">
                 {config()?.spreadsheet_id || '-'}
               </div>
             </div>
           </div>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Sync History Table & Duration Visualization */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
-          <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
-            <h2 class="text-base font-semibold text-text">Sync History Records</h2>
-            <button
-              type="button"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 cursor-pointer transition-colors"
-              onClick={() => refetchHistory()}
-            >
-              <IconRefresh size={14} stroke={1.8} aria-hidden="true" />
-              <span>Refresh History</span>
-            </button>
+      {/* Sync History Table Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle class="text-base font-semibold">Sync History Records</CardTitle>
+            <CardDescription>Audit log of past synchronization runs</CardDescription>
           </div>
-
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                  <th class="py-2.5 px-3"># ID</th>
-                  <th class="py-2.5 px-3">Sync Timestamp</th>
-                  <th class="py-2.5 px-3">Status</th>
-                  <th class="py-2.5 px-3">Items Count</th>
-                  <th class="py-2.5 px-3">Orders Count</th>
-                  <th class="py-2.5 px-3">Duration</th>
-                  <th class="py-2.5 px-3">Error Message</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetchHistory()}
+            class="gap-1.5 text-xs h-8"
+          >
+            <IconRefresh class="size-3.5" />
+            <span>Refresh</span>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div class="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead class="w-16">ID</TableHead>
+                  <TableHead>Sync Timestamp</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead class="text-right">Items</TableHead>
+                  <TableHead class="text-right">Orders</TableHead>
+                  <TableHead class="text-right">Duration</TableHead>
+                  <TableHead>Error Message</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <Show
                   when={!history.loading}
                   fallback={
-                    <tr>
-                      <td colspan="7" class="p-8 text-center text-muted text-sm">
-                        Loading sync history...
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colspan={7} class="h-24 text-center text-muted-foreground">
+                        <Skeleton class="h-6 w-3/4 mx-auto" />
+                      </TableCell>
+                    </TableRow>
                   }
                 >
                   <Show
                     when={history()?.records && history()!.records.length > 0}
                     fallback={
-                      <tr>
-                        <td colspan="7" class="p-8 text-center text-muted text-sm">
+                      <TableRow>
+                        <TableCell colspan={7} class="h-20 text-center text-muted-foreground">
                           No sync records in database
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     }
                   >
                     <For each={history()?.records}>
                       {(rec) => (
-                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                          <td class="py-2.5 px-3 font-mono text-xs text-text">#{rec.id}</td>
-                          <td class="py-2.5 px-3 text-text">{formatDateTime(rec.synced_at)}</td>
-                          <td class="py-2.5 px-3">
+                        <TableRow>
+                          <TableCell class="font-mono text-xs text-muted-foreground">
+                            #{rec.id}
+                          </TableCell>
+                          <TableCell class="text-xs text-foreground">
+                            {formatDateTime(rec.synced_at)}
+                          </TableCell>
+                          <TableCell>
                             <Badge status={rec.status} />
-                          </td>
-                          <td class="py-2.5 px-3 font-semibold text-text">{rec.items_count} items</td>
-                          <td class="py-2.5 px-3 text-text">{rec.orders_count} orders</td>
-                          <td class="py-2.5 px-3 text-text">{rec.duration_ms > 0 ? `${rec.duration_ms} ms` : '<1s'}</td>
-                          <td class="py-2.5 px-3 text-xs text-status-pending max-w-[220px] truncate">
+                          </TableCell>
+                          <TableCell class="text-right font-medium text-xs">
+                            {rec.items_count} items
+                          </TableCell>
+                          <TableCell class="text-right text-xs">
+                            {rec.orders_count} orders
+                          </TableCell>
+                          <TableCell class="text-right font-mono text-xs text-muted-foreground">
+                            {rec.duration_ms > 0 ? `${rec.duration_ms} ms` : '<1s'}
+                          </TableCell>
+                          <TableCell class="text-xs text-destructive max-w-[220px] truncate">
                             {rec.error_message || '-'}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       )}
                     </For>
                   </Show>
                 </Show>
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </section>
-      </main>
+        </CardContent>
+      </Card>
     </div>
   );
 };

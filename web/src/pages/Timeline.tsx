@@ -6,11 +6,57 @@ import {
   IconTimeline,
 } from '@tabler/icons-solidjs';
 import { getDeliveries } from '../api';
-import { TopBar } from '../components/TopBar';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '~/components/ui/table';
+import {
+  Select,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+} from '~/components/ui/select';
+import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
+import { Button } from '~/components/ui/button';
+import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
-import { MiniProgress } from '../components/MiniProgress';
-import { KpiCard } from '../components/KpiCard';
+import { Badge as UiBadge } from '~/components/ui/badge';
 import { createDebouncedSignal } from '../utils/debounce';
+
+const DeliveryProgress: Component<{ terkirim: string | number; total: string | number }> = (props) => {
+  const percent = createMemo(() => {
+    const t = parseFloat(String(props.total)) || 0;
+    const sent = parseFloat(String(props.terkirim)) || 0;
+    if (t <= 0) return 100;
+    return Math.min(100, Math.max(0, Math.round((sent / t) * 100)));
+  });
+
+  const barColor = createMemo(() => {
+    const p = percent();
+    if (p >= 100) return 'bg-status-selesai';
+    if (p > 0) return 'bg-status-proses';
+    return 'bg-status-pending';
+  });
+
+  return (
+    <div class="flex items-center gap-2">
+      <div class="flex-1 h-2 bg-secondary rounded-full overflow-hidden min-w-[60px]">
+        <div
+          class={`h-full rounded-full transition-all duration-300 ${barColor()}`}
+          style={{ width: `${percent()}%` }}
+        />
+      </div>
+      <span class="text-xs font-semibold w-8 text-right text-muted-foreground">{percent()}%</span>
+    </div>
+  );
+};
+
 export const Timeline: Component = () => {
   const [statusFilter, setStatusFilter] = createSignal('');
   const [dateFilter, debouncedDateFilter, setDateFilter, flushDateFilter] = createDebouncedSignal('', 300);
@@ -55,150 +101,196 @@ export const Timeline: Component = () => {
   });
 
   return (
-    <div>
-      <TopBar title="Delivery Timeline & Lead Time Tracker" />
+    <div class="flex flex-1 flex-col gap-6">
+      {/* KPI Summary Cards */}
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Deliveries Scheduled
+            </CardTitle>
+            <IconTruckDelivery class="size-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold">{summary().total}</div>
+              <p class="text-xs text-muted-foreground mt-1">Logged delivery dispatches</p>
+            </Show>
+          </CardContent>
+        </Card>
 
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
-        {/* KPI Summary */}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6 items-stretch">
-          <KpiCard
-            title="DELIVERIES SCHEDULED"
-            value={summary().total}
-            icon={IconTruckDelivery}
-          />
-          <KpiCard
-            title="COMPLETED DELIVERIES"
-            value={summary().completed}
-            icon={IconCircleCheck}
-          />
-          <KpiCard
-            title="IN-TRANSIT / PENDING"
-            value={summary().pending}
-            icon={IconClockHour4}
-          />
-          <KpiCard
-            title="AVG LEAD TIME"
-            value={`${summary().avgLead} Days`}
-            icon={IconTimeline}
-          />
-        </div>
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Completed Deliveries
+            </CardTitle>
+            <IconCircleCheck class="size-4 text-status-selesai" />
+          </CardHeader>
+          <CardContent>
+            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold text-status-selesai">{summary().completed}</div>
+              <p class="text-xs text-muted-foreground mt-1">100% fulfilled shipments</p>
+            </Show>
+          </CardContent>
+        </Card>
 
-        {/* Filter Bar */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-5">
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              In-Transit / Pending
+            </CardTitle>
+            <IconClockHour4 class="size-4 text-status-proses" />
+          </CardHeader>
+          <CardContent>
+            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold text-status-proses">{summary().pending}</div>
+              <p class="text-xs text-muted-foreground mt-1">Partial or pending orders</p>
+            </Show>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Avg Lead Time
+            </CardTitle>
+            <IconTimeline class="size-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold">{summary().avgLead} Days</div>
+              <p class="text-xs text-muted-foreground mt-1">Order to dispatch duration</p>
+            </Show>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filter Toolbar Card */}
+      <Card>
+        <CardContent class="p-4 md:p-6">
           <div class="flex flex-wrap items-end gap-4">
-            <div class="flex flex-col gap-1.5 min-w-[140px]">
-              <label class="text-xs font-semibold text-muted">Delivery Status</label>
-              <select
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={statusFilter()}
-                onChange={(e) => setStatusFilter(e.currentTarget.value)}
+            <div class="min-w-[160px] flex flex-col gap-1">
+              <label class="text-xs font-semibold text-muted-foreground">Delivery Status</label>
+              <Select<string>
+                options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                value={statusFilter() || 'All Statuses'}
+                onChange={(val) => setStatusFilter(!val || val === 'All Statuses' ? '' : val)}
+                itemComponent={(props) => (
+                  <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
+                )}
               >
-                <option value="">All Statuses</option>
-                <option value="SELESAI">SELESAI</option>
-                <option value="PROSES">PROSES</option>
-                <option value="PENDING">PENDING</option>
-                <option value="BATAL">BATAL</option>
-              </select>
+                <SelectTrigger class="h-9">
+                  <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
+                </SelectTrigger>
+                <SelectContent />
+              </Select>
             </div>
 
-            <div class="flex flex-col gap-1.5 min-w-[140px]">
-              <label class="text-xs font-semibold text-muted">Delivery Date</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="DD/MM/YYYY"
-                value={dateFilter()}
-                onInput={(e) => setDateFilter(e.currentTarget.value)}
-              />
+            <div class="min-w-[160px]">
+              <TextField value={dateFilter()} onChange={setDateFilter}>
+                <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
+                  Delivery Date
+                </TextFieldLabel>
+                <TextFieldInput placeholder="DD/MM/YYYY" class="h-9" />
+              </TextField>
             </div>
 
-            <button
+            <Button
               type="button"
-              class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-text hover:bg-gray-200 cursor-pointer transition-colors"
+              variant="outline"
+              size="sm"
+              class="h-9"
               onClick={() => {
                 setStatusFilter('');
                 flushDateFilter('');
               }}
             >
               Reset Filters
-            </button>
+            </Button>
           </div>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Deliveries Schedule Table */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
-          <div class="flex justify-between items-center mb-4 pb-3 border-b border-border">
-            <h2 class="text-base font-semibold text-text">Delivery Shipments & Schedule</h2>
+      {/* Deliveries Schedule Table Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle class="text-base font-semibold">Delivery Shipments & Schedule</CardTitle>
+            <CardDescription>
+              {deliveriesList().length} tracked shipments across logistics operations
+            </CardDescription>
           </div>
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                  <th class="py-2.5 px-3">Delivery Date</th>
-                  <th class="py-2.5 px-3">Shipment Qty</th>
-                  <th class="py-2.5 px-3">Customer</th>
-                  <th class="py-2.5 px-3">Area</th>
-                  <th class="py-2.5 px-3">Item Name</th>
-                  <th class="py-2.5 px-3">Order Qty</th>
-                  <th class="py-2.5 px-3">Lead Time</th>
-                  <th class="py-2.5 px-3 min-w-[120px]">Delivery Progress</th>
-                  <th class="py-2.5 px-3">Remaining</th>
-                  <th class="py-2.5 px-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
+        </CardHeader>
+        <CardContent>
+          <div class="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Delivery Date</TableHead>
+                  <TableHead>Shipment Qty</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Area</TableHead>
+                  <TableHead>Item Name</TableHead>
+                  <TableHead class="text-right">Order Qty</TableHead>
+                  <TableHead>Lead Time</TableHead>
+                  <TableHead class="min-w-[120px]">Delivery Progress</TableHead>
+                  <TableHead>Remaining</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <Show
                   when={!deliveriesData.loading}
                   fallback={
-                    <tr>
-                      <td colspan="10" class="p-8 text-center text-muted text-sm">
-                        Loading delivery schedule...
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colspan={10} class="h-28 text-center text-muted-foreground">
+                        <Skeleton class="h-6 w-1/2 mx-auto" />
+                      </TableCell>
+                    </TableRow>
                   }
                 >
                   <Show
                     when={deliveriesList().length > 0}
                     fallback={
-                      <tr>
-                        <td colspan="10" class="p-8 text-center text-muted text-sm">
+                      <TableRow>
+                        <TableCell colspan={10} class="h-24 text-center text-muted-foreground">
                           No shipments with delivery dates recorded
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     }
                   >
                     <For each={deliveriesList()}>
                       {(del) => (
-                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                          <td class="py-2.5 px-3 font-semibold text-text">
+                        <TableRow>
+                          <TableCell class="font-medium text-xs font-mono">
                             {del.delivery_date}
-                          </td>
-                          <td class="py-2.5 px-3 font-medium text-text">
+                          </TableCell>
+                          <TableCell class="text-xs">
                             {del.shipped_quantity ? `${del.shipped_quantity} ${del.item.satuan}` : '-'}
-                          </td>
-                          <td class="py-2.5 px-3 font-medium text-text">{del.item.customer}</td>
-                          <td class="py-2.5 px-3 text-text">{del.item.area}</td>
-                          <td class="py-2.5 px-3 font-semibold text-text">{del.item.nama_barang}</td>
-                          <td class="py-2.5 px-3 text-text">
+                          </TableCell>
+                          <TableCell class="font-medium text-xs">{del.item.customer}</TableCell>
+                          <TableCell class="text-xs text-muted-foreground">{del.item.area}</TableCell>
+                          <TableCell class="text-xs font-medium">{del.item.nama_barang}</TableCell>
+                          <TableCell class="text-right text-xs">
                             {del.item.jumlah} {del.item.satuan}
-                          </td>
-                          <td class="py-2.5 px-3">
-                            <Show when={del.item.lead_time_pengiriman} fallback={<span>-</span>}>
-                              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-medium">
+                          </TableCell>
+                          <TableCell>
+                            <Show when={del.item.lead_time_pengiriman} fallback={<span class="text-muted-foreground">-</span>}>
+                              <UiBadge variant="secondary" class="font-mono text-xs">
                                 {del.item.lead_time_pengiriman} Days
-                              </span>
+                              </UiBadge>
                             </Show>
-                          </td>
-                          <td class="py-2.5 px-3 min-w-[120px]">
-                            <MiniProgress
+                          </TableCell>
+                          <TableCell class="min-w-[120px]">
+                            <DeliveryProgress
                               terkirim={del.item.jumlah_terkirim}
                               total={del.item.jumlah}
                             />
-                          </td>
-                          <td class="py-2.5 px-3">
+                          </TableCell>
+                          <TableCell class="text-xs">
                             <Show
                               when={del.shipment_index === 0}
-                              fallback={<span class="text-muted">-</span>}
+                              fallback={<span class="text-muted-foreground">-</span>}
                             >
                               <Show
                                 when={parseFloat(del.item.belum_terkirim) > 0}
@@ -209,20 +301,20 @@ export const Timeline: Component = () => {
                                 </span>
                               </Show>
                             </Show>
-                          </td>
-                          <td class="py-2.5 px-3">
+                          </TableCell>
+                          <TableCell>
                             <Badge status={del.item.status_order} />
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       )}
                     </For>
                   </Show>
                 </Show>
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </section>
-      </main>
+        </CardContent>
+      </Card>
     </div>
   );
 };

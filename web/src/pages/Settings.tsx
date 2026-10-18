@@ -8,7 +8,11 @@ import {
   IconUsers,
   IconTrash,
   IconPlus,
+  IconAlertCircle,
+  IconSun,
+  IconMoon,
 } from '@tabler/icons-solidjs';
+import { useColorMode } from '@kobalte/core';
 import {
   getSystemInfo,
   getConfig,
@@ -18,10 +22,30 @@ import {
   setCustomerAlias,
   deleteCustomerAlias,
 } from '../api';
-import { TopBar } from '../components/TopBar';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '~/components/ui/table';
+import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
+import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+  AlertDialogDescription,
+} from '~/components/ui/alert-dialog';
+import { Button } from '~/components/ui/button';
+import { Separator } from '~/components/ui/separator';
+import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 
 export const Settings: Component = () => {
+  const { colorMode, setColorMode } = useColorMode();
   const [system] = createResource(getSystemInfo);
   const [config] = createResource(getConfig);
   const [status, { refetch: refetchStatus }] = createResource(getStatus);
@@ -32,6 +56,7 @@ export const Settings: Component = () => {
   const [areaInput, setAreaInput] = createSignal('');
   const [aliasError, setAliasError] = createSignal('');
   const [isAdding, setIsAdding] = createSignal(false);
+  const [aliasToDelete, setAliasToDelete] = createSignal<string>('');
 
   const handleAddAlias = async (e: Event) => {
     e.preventDefault();
@@ -60,15 +85,19 @@ export const Settings: Component = () => {
     }
   };
 
-  const handleDeleteAlias = async (alias: string) => {
+  const confirmDeleteAlias = async () => {
+    const alias = aliasToDelete();
+    if (!alias) return;
     setAliasError('');
     try {
       await deleteCustomerAlias(alias);
+      setAliasToDelete('');
       refetchAliases();
     } catch (err: unknown) {
       setAliasError(err instanceof Error ? err.message : 'Failed to delete alias');
     }
   };
+
   const [resyncing, setResyncing] = createSignal(false);
   const [resyncMsg, setResyncMsg] = createSignal('');
 
@@ -96,189 +125,230 @@ export const Settings: Component = () => {
   };
 
   return (
-    <div>
-      <TopBar title="Settings & System Diagnostics">
-        <Badge status="HEALTHY" pill />
-      </TopBar>
-
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 items-stretch">
-          {/* Server Runtime Info */}
-          <section class="bg-surface rounded-lg border border-border shadow-sm p-5 flex flex-col justify-between h-full">
-            <div>
-              <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
-                <IconDeviceDesktop size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-                <h2 class="text-base font-semibold text-text">Server Runtime Information</h2>
-              </div>
-              <div class="space-y-2">
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">Application Version</span>
-                  <span class="font-semibold text-text">{system()?.version || 'v1.0.0'}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">Go Runtime Version</span>
-                  <span class="font-semibold text-text">{system()?.go_version || '-'}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">HTTP Server Port</span>
-                  <span class="font-semibold text-text">:{system()?.port || '8080'}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">SQLite Database Path</span>
-                  <span class="font-mono text-xs font-semibold text-text">
-                    {system()?.db_path || 'data/warehouse.db'}
-                  </span>
-                </div>
-                <div class="flex justify-between items-center py-2 text-sm">
-                  <span class="text-xs text-muted">Server Uptime</span>
-                  <span class="font-semibold text-text">{formatUptime(system()?.uptime_seconds)}</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Sync Configuration */}
-          <section class="bg-surface rounded-lg border border-border shadow-sm p-5 flex flex-col justify-between h-full">
-            <div>
-              <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
-                <IconSettingsIcon size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-                <h2 class="text-base font-semibold text-text">Data Source & Scheduling</h2>
-              </div>
-              <div class="space-y-2">
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">Sync Interval</span>
-                  <span class="font-semibold text-text">{config()?.sync_interval || '15m'}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">Working Hours Window</span>
-                  <span class="font-semibold text-text">
-                    {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
-                  </span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">Timezone</span>
-                  <span class="font-semibold text-text">{config()?.timezone || 'Asia/Makassar'}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-border text-sm">
-                  <span class="text-xs text-muted">Active Work Days</span>
-                  <span class="font-semibold text-text">
-                    {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
-                  </span>
-                </div>
-                <div class="flex justify-between items-center py-2 text-sm">
-                  <span class="text-xs text-muted">Worker Status</span>
-                  <span>
-                    <Badge status={status()?.status || 'IDLE'} />
-                  </span>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        {/* Database Table Diagnostics Table */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
-          <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
-            <IconDatabase size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-            <h2 class="text-base font-semibold text-text">SQLite Database Tables Diagnostics</h2>
+    <div class="flex flex-1 flex-col gap-6">
+      {/* Appearance Theme Card */}
+      <Card>
+        <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0 pb-4">
+          <div>
+            <CardTitle class="text-base font-semibold">Theme & Appearance</CardTitle>
+            <CardDescription>Select light, dark, or system mode</CardDescription>
           </div>
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                  <th class="py-2.5 px-3">Table Name</th>
-                  <th class="py-2.5 px-3">Row Count</th>
-                  <th class="py-2.5 px-3">Storage Engine</th>
-                  <th class="py-2.5 px-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div class="flex items-center gap-2">
+            <Button
+              variant={colorMode() === 'light' ? 'default' : 'outline'}
+              size="sm"
+              class="gap-1.5 text-xs h-8"
+              onClick={() => setColorMode('light')}
+            >
+              <IconSun class="size-3.5" />
+              <span>Light</span>
+            </Button>
+            <Button
+              variant={colorMode() === 'dark' ? 'default' : 'outline'}
+              size="sm"
+              class="gap-1.5 text-xs h-8"
+              onClick={() => setColorMode('dark')}
+            >
+              <IconMoon class="size-3.5" />
+              <span>Dark</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="gap-1.5 text-xs h-8"
+              onClick={() => setColorMode('system')}
+            >
+              <IconDeviceDesktop class="size-3.5" />
+              <span>System</span>
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* 2-Column: Server Runtime + Sync Config */}
+      <div class="grid gap-6 lg:grid-cols-2 items-stretch">
+        {/* Server Runtime Info Card */}
+        <Card class="flex flex-col justify-between">
+          <div>
+            <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
+              <IconDeviceDesktop class="size-5 text-primary" />
+              <div>
+                <CardTitle class="text-base font-semibold">Server Runtime Information</CardTitle>
+                <CardDescription>Internal backend environment</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent class="space-y-3">
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Application Version</span>
+                <span class="font-semibold">{system()?.version || 'v1.0.0'}</span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Go Runtime Version</span>
+                <span class="font-semibold">{system()?.go_version || '-'}</span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">HTTP Server Port</span>
+                <span class="font-semibold">:{system()?.port || '8080'}</span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">SQLite Database Path</span>
+                <span class="font-mono text-xs font-semibold">
+                  {system()?.db_path || 'data/warehouse.db'}
+                </span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Server Uptime</span>
+                <span class="font-semibold">{formatUptime(system()?.uptime_seconds)}</span>
+              </div>
+            </CardContent>
+          </div>
+        </Card>
+
+        {/* Sync Configuration Card */}
+        <Card class="flex flex-col justify-between">
+          <div>
+            <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
+              <IconSettingsIcon class="size-5 text-primary" />
+              <div>
+                <CardTitle class="text-base font-semibold">Data Source & Scheduling</CardTitle>
+                <CardDescription>Synchronization parameters and rules</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent class="space-y-3">
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Sync Interval</span>
+                <span class="font-semibold">{config()?.sync_interval || '15m'}</span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Working Hours Window</span>
+                <span class="font-semibold">
+                  {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
+                </span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Timezone</span>
+                <span class="font-semibold">{config()?.timezone || 'Asia/Makassar'}</span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Active Work Days</span>
+                <span class="font-semibold">
+                  {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
+                </span>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">Worker Status</span>
+                <span>
+                  <Badge status={status()?.status || 'IDLE'} />
+                </span>
+              </div>
+            </CardContent>
+          </div>
+        </Card>
+      </div>
+
+      {/* Database Diagnostics Table Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
+          <IconDatabase class="size-5 text-primary" />
+          <div>
+            <CardTitle class="text-base font-semibold">SQLite Database Tables Diagnostics</CardTitle>
+            <CardDescription>Internal tables and record volume</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div class="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Table Name</TableHead>
+                  <TableHead class="text-right">Row Count</TableHead>
+                  <TableHead>Storage Engine</TableHead>
+                  <TableHead class="text-right">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <Show
                   when={system()?.tables}
                   fallback={
-                    <tr>
-                      <td colspan="4" class="p-8 text-center text-muted text-sm">
-                        Loading database table stats...
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colspan={4} class="h-24 text-center text-muted-foreground">
+                        <Skeleton class="h-6 w-1/2 mx-auto" />
+                      </TableCell>
+                    </TableRow>
                   }
                 >
                   <For each={Object.entries(system()!.tables)}>
                     {([tableName, stat]) => (
-                      <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                        <td class="py-2.5 px-3 font-semibold font-mono text-xs text-text">
-                          {tableName}
-                        </td>
-                        <td class="py-2.5 px-3 font-semibold text-text">{stat.row_count} rows</td>
-                        <td class="py-2.5 px-3 text-muted">SQLite 3 (WAL mode)</td>
-                        <td class="py-2.5 px-3">
+                      <TableRow>
+                        <TableCell class="font-mono text-xs font-semibold">{tableName}</TableCell>
+                        <TableCell class="text-right font-medium">{stat.row_count.toLocaleString()} rows</TableCell>
+                        <TableCell class="text-xs text-muted-foreground">SQLite 3 (WAL mode)</TableCell>
+                        <TableCell class="text-right">
                           <Badge status="READY" />
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     )}
                   </For>
                 </Show>
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Customer Name Aliases Card */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-6">
-          <div class="flex items-center gap-2 mb-2 pb-3 border-b border-border">
-            <IconUsers size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-            <h2 class="text-base font-semibold text-text">Customer Name Aliases</h2>
+      {/* Customer Name Aliases Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-2">
+          <IconUsers class="size-5 text-primary" />
+          <div>
+            <CardTitle class="text-base font-semibold">Customer Name Aliases</CardTitle>
+            <CardDescription>
+              Aliases are applied during sync. Trigger a re-sync after changing aliases to update stored records.
+            </CardDescription>
           </div>
-          <p class="text-xs text-muted mb-4">
-            Aliases are applied during sync. Trigger a re-sync after changing aliases to update stored orders and items.
-          </p>
-
+        </CardHeader>
+        <CardContent class="space-y-4">
           {/* Add Alias Form */}
-          <form class="flex flex-wrap items-end gap-3 mb-5 p-4 bg-gray-50 rounded-lg border border-border" onSubmit={handleAddAlias}>
-            <div class="flex flex-col gap-1 flex-1 min-w-[200px]">
-              <label class="text-xs font-semibold text-muted">Variant Name (alias)</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="e.g. PKU Muhammadiyah Hospital"
-                value={aliasInput()}
-                onInput={(e) => setAliasInput(e.currentTarget.value)}
-              />
+          <form class="rounded-lg border bg-muted/20 p-4 space-y-4" onSubmit={handleAddAlias}>
+            <div class="grid gap-4 sm:grid-cols-3">
+              <TextField value={aliasInput()} onChange={setAliasInput}>
+                <TextFieldLabel class="text-xs font-semibold">Variant Name (Alias)</TextFieldLabel>
+                <TextFieldInput placeholder="e.g. PKU Muhammadiyah..." class="h-9" />
+              </TextField>
+
+              <TextField value={canonicalInput()} onChange={setCanonicalInput}>
+                <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
+                <TextFieldInput placeholder="e.g. RS PKU Muhammadiyah..." class="h-9" />
+              </TextField>
+
+              <TextField value={areaInput()} onChange={setAreaInput}>
+                <TextFieldLabel class="text-xs font-semibold">Linked Area (Optional)</TextFieldLabel>
+                <TextFieldInput placeholder="e.g. Lombok Barat..." class="h-9" />
+              </TextField>
             </div>
-            <div class="flex flex-col gap-1 flex-1 min-w-[180px]">
-              <label class="text-xs font-semibold text-muted">Canonical Name</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="e.g. RS PKU Muhammadiyah"
-                value={canonicalInput()}
-                onInput={(e) => setCanonicalInput(e.currentTarget.value)}
-              />
+
+            <div class="flex justify-end">
+              <Button type="submit" size="sm" class="gap-1.5 h-9" disabled={isAdding()}>
+                <IconPlus class="size-4" />
+                <span>{isAdding() ? 'Adding...' : 'Add Mapping'}</span>
+              </Button>
             </div>
-            <div class="flex flex-col gap-1 flex-1 min-w-[150px]">
-              <label class="text-xs font-semibold text-muted">Linked Area (optional)</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="e.g. Lombok Barat"
-                value={areaInput()}
-                onInput={(e) => setAreaInput(e.currentTarget.value)}
-              />
-            </div>
-            <button
-              type="submit"
-              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 cursor-pointer transition-colors"
-              disabled={isAdding()}
-            >
-              <IconPlus size={16} stroke={1.8} aria-hidden="true" />
-              <span>{isAdding() ? 'Adding...' : 'Add Mapping'}</span>
-            </button>
           </form>
 
           <Show when={aliasError()}>
-            <div class="px-3 py-2 rounded-md bg-status-pending/10 text-status-pending text-xs font-medium mb-4 border border-status-pending/20">
-              {aliasError()}
-            </div>
+            <Alert variant="destructive">
+              <IconAlertCircle class="size-4" />
+              <AlertTitle>Alias Error</AlertTitle>
+              <AlertDescription>{aliasError()}</AlertDescription>
+            </Alert>
           </Show>
 
           {/* Grouped Aliases Display */}
@@ -286,103 +356,128 @@ export const Settings: Component = () => {
             <Show
               when={aliasesData()?.groups && aliasesData()!.groups.length > 0}
               fallback={
-                <div class="p-6 text-center text-muted text-sm border border-dashed border-border rounded-lg">
+                <div class="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">
                   No customer aliases configured yet. Add your first variant mapping above.
                 </div>
               }
             >
               <For each={aliasesData()?.groups}>
                 {(grp) => (
-                  <div class="p-3.5 bg-surface border border-border rounded-lg">
-                    <div class="text-sm font-semibold text-text mb-2 flex items-center justify-between">
+                  <Card class="bg-card">
+                    <CardHeader class="pb-2 pt-3 px-4 flex flex-row items-center justify-between space-y-0">
                       <div class="flex items-center gap-2">
-                        <span>Canonical: <strong class="text-primary font-bold">{grp.canonical}</strong></span>
+                        <span class="text-sm font-semibold">
+                          Canonical: <strong class="text-primary">{grp.canonical}</strong>
+                        </span>
                         <Show when={grp.area}>
-                          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700 font-medium">
+                          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground font-medium">
                             {grp.area}
                           </span>
                         </Show>
                       </div>
-                      <span class="text-xs text-muted font-normal">{grp.aliases.length} alias{grp.aliases.length === 1 ? '' : 'es'}</span>
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                      <For each={grp.aliases}>
-                        {(al) => (
-                          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-gray-100 text-text border border-border">
-                            <span>{al}</span>
-                            <button
-                              type="button"
-                              class="text-muted hover:text-status-pending p-0.5 rounded cursor-pointer transition-colors"
-                              title={`Delete alias ${al}`}
-                              onClick={() => handleDeleteAlias(al)}
-                            >
-                              <IconTrash size={13} stroke={1.8} aria-hidden="true" />
-                            </button>
-                          </span>
-                        )}
-                      </For>
-                    </div>
-                  </div>
+                      <span class="text-xs text-muted-foreground">
+                        {grp.aliases.length} alias{grp.aliases.length === 1 ? '' : 'es'}
+                      </span>
+                    </CardHeader>
+                    <CardContent class="px-4 pb-3">
+                      <div class="flex flex-wrap gap-2">
+                        <For each={grp.aliases}>
+                          {(al) => (
+                            <span class="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-xs bg-muted text-foreground border border-border">
+                              <span>{al}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                class="h-5 w-5 p-0 hover:text-destructive"
+                                title={`Delete alias ${al}`}
+                                onClick={() => setAliasToDelete(al)}
+                              >
+                                <IconTrash class="size-3" />
+                              </Button>
+                            </span>
+                          )}
+                        </For>
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
               </For>
             </Show>
           </div>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Maintenance Operations */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
-          <div class="flex items-center gap-2 mb-4 pb-3 border-b border-border">
-            <IconTool size={18} stroke={1.8} class="text-primary" aria-hidden="true" />
-            <h2 class="text-base font-semibold text-text">Maintenance Operations</h2>
+      {/* Maintenance Operations Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
+          <IconTool class="size-5 text-primary" />
+          <div>
+            <CardTitle class="text-base font-semibold">Maintenance Operations</CardTitle>
+            <CardDescription>Manual controls and database utilities</CardDescription>
           </div>
-          <div class="flex flex-col gap-4">
-            <div class="flex flex-wrap justify-between items-center gap-4 p-4 bg-gray-50 rounded-lg border border-border">
-              <div>
-                <h4 class="text-sm font-semibold text-text">
-                  Force Full Data Resynchronization
-                </h4>
-                <p class="text-xs text-muted mt-1">
-                  Bypasses working hours checks and executes an atomic mirror sync from the configured remote source.
-                </p>
-              </div>
-              <button
-                type="button"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover disabled:opacity-50 cursor-pointer transition-colors"
-                disabled={resyncing()}
-                onClick={handleForceResync}
-              >
-                <IconRefresh size={16} stroke={1.8} class={resyncing() ? 'animate-spin' : ''} aria-hidden="true" />
-                <span>{resyncing() ? 'Syncing...' : 'Force Resync'}</span>
-              </button>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border bg-muted/20">
+            <div>
+              <h4 class="text-sm font-semibold">Force Full Data Resynchronization</h4>
+              <p class="text-xs text-muted-foreground mt-1">
+                Bypasses working hours checks and executes an atomic mirror sync from the configured remote source.
+              </p>
             </div>
-
-            <Show when={resyncMsg()}>
-              <div class="px-3 py-2 rounded-md bg-primary/10 text-primary text-xs font-medium">
-                {resyncMsg()}
-              </div>
-            </Show>
-
-            <div class="flex flex-wrap justify-between items-center gap-4 p-4 bg-red-50/50 rounded-lg border border-red-200">
-              <div>
-                <h4 class="text-sm font-semibold text-status-pending">
-                  Clear Local Storage Database
-                </h4>
-                <p class="text-xs text-muted mt-1">
-                  Destructive operation: removes all orders, items, and sync history. Disabled in production.
-                </p>
-              </div>
-              <button
-                type="button"
-                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-status-pending text-white opacity-50 cursor-not-allowed"
-                disabled
-                title="Disabled for safety"
-              >
-                Clear Database
-              </button>
-            </div>
+            <Button
+              size="sm"
+              class="gap-1.5"
+              disabled={resyncing()}
+              onClick={handleForceResync}
+            >
+              <IconRefresh class={`size-4 ${resyncing() ? 'animate-spin' : ''}`} />
+              <span>{resyncing() ? 'Syncing...' : 'Force Resync'}</span>
+            </Button>
           </div>
-        </section>
-      </main>
+
+          <Show when={resyncMsg()}>
+            <div class="p-3 rounded-md bg-muted text-xs font-medium">
+              {resyncMsg()}
+            </div>
+          </Show>
+
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border border-destructive/20 bg-destructive/5">
+            <div>
+              <h4 class="text-sm font-semibold text-destructive">Clear Local Storage Database</h4>
+              <p class="text-xs text-muted-foreground mt-1">
+                Destructive operation: removes all orders, items, and sync history. Disabled in production.
+              </p>
+            </div>
+            <Button variant="destructive" size="sm" disabled class="opacity-50 cursor-not-allowed">
+              Clear Database
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Delete Alias Alert Dialog */}
+      <AlertDialog
+        open={!!aliasToDelete()}
+        onOpenChange={(open) => {
+          if (!open) setAliasToDelete('');
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Delete Customer Alias</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to remove the alias mapping for "{aliasToDelete()}"?
+            Future synchronizations will no longer map this spelling to the canonical customer name.
+          </AlertDialogDescription>
+          <div class="flex justify-end gap-2 mt-4">
+            <Button variant="outline" size="sm" onClick={() => setAliasToDelete('')}>
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" onClick={confirmDeleteAlias}>
+              Delete Alias
+            </Button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

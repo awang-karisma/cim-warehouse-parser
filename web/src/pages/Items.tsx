@@ -2,9 +2,27 @@ import { type Component, createSignal, createResource, Show, For, createMemo, cr
 import { A } from '@solidjs/router';
 import { IconDownload } from '@tabler/icons-solidjs';
 import { getItems } from '../api';
-import { TopBar } from '../components/TopBar';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '~/components/ui/table';
+import {
+  Select,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+} from '~/components/ui/select';
+import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
+import { Button } from '~/components/ui/button';
+import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
-import { Pagination } from '../components/Pagination';
+import { DataTablePagination } from '../components/data-table-pagination';
 import { createDebouncedSignal } from '../utils/debounce';
 
 export const Items: Component = () => {
@@ -13,7 +31,7 @@ export const Items: Component = () => {
   const [statusOrder, setStatusOrder] = createSignal('');
   const [tanggal, setTanggal] = createSignal('');
   const [offset, setOffset] = createSignal(0);
-  const limit = 25;
+  const [limit, setLimit] = createSignal(10);
 
   // When any filter changes, reset pagination offset to 0
   createEffect(
@@ -27,12 +45,12 @@ export const Items: Component = () => {
   );
 
   const queryParams = createMemo(() => ({
-    customer: debouncedCustomer(),
-    nama_barang: debouncedNamaBarang(),
-    status_order: statusOrder(),
-    tanggal: tanggal(),
-    limit,
+    limit: limit(),
     offset: offset(),
+    customer: debouncedCustomer() || undefined,
+    nama_barang: debouncedNamaBarang() || undefined,
+    status_order: statusOrder() || undefined,
+    tanggal: tanggal() || undefined,
   }));
 
   const [data] = createResource(queryParams, (params) => getItems(params));
@@ -41,12 +59,11 @@ export const Items: Component = () => {
     if (e) e.preventDefault();
     flushCustomer();
     flushNamaBarang();
-    setOffset(0);
   };
 
   const resetFilters = () => {
-    flushCustomer('');
-    flushNamaBarang('');
+    setCustomer('');
+    setNamaBarang('');
     setStatusOrder('');
     setTanggal('');
     setOffset(0);
@@ -54,6 +71,11 @@ export const Items: Component = () => {
 
   const handlePageChange = (newOffset: number) => {
     setOffset(newOffset);
+  };
+
+  const handleLimitChange = (newLimit: number) => {
+    setLimit(newLimit);
+    setOffset(0);
   };
 
   const getExportUrl = () => {
@@ -66,189 +88,187 @@ export const Items: Component = () => {
   };
 
   return (
-    <div>
-      <TopBar title="All Line Items">
-        <div class="flex items-center gap-2.5">
-          <Show when={data()?.total !== undefined}>
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
-              {data()?.total} Items Total
-            </span>
-          </Show>
-          <a
-            href={getExportUrl()}
-            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
-            download="items.csv"
-          >
-            <IconDownload size={16} stroke={1.8} aria-hidden="true" />
-            <span>Export CSV</span>
-          </a>
-        </div>
-      </TopBar>
-
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
-        {/* Filters */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5 mb-5">
+    <div class="flex flex-1 flex-col gap-6">
+      {/* Filter Toolbar (Tasks Example Pattern) */}
+      <Card>
+        <CardContent class="p-4 md:p-6">
           <form class="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
-            <div class="flex flex-col gap-1.5 min-w-[160px] flex-1">
-              <label class="text-xs font-semibold text-muted">Customer Name</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="e.g. RS Harapan"
-                value={customer()}
-                onInput={(e) => setCustomer(e.currentTarget.value)}
-              />
+            <div class="flex-1 min-w-[180px]">
+              <TextField value={customer()} onChange={setCustomer}>
+                <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
+                  Customer Name
+                </TextFieldLabel>
+                <TextFieldInput placeholder="Filter by customer (e.g. RSUD)..." class="h-9" />
+              </TextField>
             </div>
 
-            <div class="flex flex-col gap-1.5 min-w-[160px] flex-1">
-              <label class="text-xs font-semibold text-muted">Item Name (Nama Barang)</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                placeholder="e.g. Needle, Spuit, Tip"
-                value={namaBarang()}
-                onInput={(e) => setNamaBarang(e.currentTarget.value)}
-              />
+            <div class="flex-1 min-w-[180px]">
+              <TextField value={namaBarang()} onChange={setNamaBarang}>
+                <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
+                  Item Name (Nama Barang)
+                </TextFieldLabel>
+                <TextFieldInput placeholder="e.g. Needle, Spuit..." class="h-9" />
+              </TextField>
             </div>
 
-            <div class="flex flex-col gap-1.5 min-w-[140px]">
-              <label class="text-xs font-semibold text-muted">Status Order</label>
-              <select
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={statusOrder()}
-                onChange={(e) => setStatusOrder(e.currentTarget.value)}
+            <div class="min-w-[150px] flex flex-col gap-1">
+              <label class="text-xs font-semibold text-muted-foreground">Status Order</label>
+              <Select<string>
+                options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                value={statusOrder() || 'All Statuses'}
+                onChange={(val) => setStatusOrder(!val || val === 'All Statuses' ? '' : val)}
+                itemComponent={(props) => (
+                  <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
+                )}
               >
-                <option value="">All Statuses</option>
-                <option value="SELESAI">SELESAI</option>
-                <option value="PROSES">PROSES</option>
-                <option value="PENDING">PENDING</option>
-                <option value="BATAL">BATAL</option>
-              </select>
+                <SelectTrigger class="h-9">
+                  <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
+                </SelectTrigger>
+                <SelectContent />
+              </Select>
             </div>
 
-            <div class="flex flex-col gap-1.5 min-w-[140px]">
-              <label class="text-xs font-semibold text-muted">Date</label>
-              <input
-                type="date"
-                class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={tanggal()}
-                onInput={(e) => setTanggal(e.currentTarget.value)}
-                onChange={(e) => setTanggal(e.currentTarget.value)}
-              />
+            <div class="min-w-[140px]">
+              <TextField value={tanggal()} onChange={setTanggal}>
+                <TextFieldLabel class="text-xs font-semibold text-muted-foreground">Date</TextFieldLabel>
+                <TextFieldInput type="date" class="h-9" />
+              </TextField>
             </div>
 
             <div class="flex items-center gap-2">
-              <button
-                type="submit"
-                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover cursor-pointer transition-colors"
-              >
-                Filter
-              </button>
-              <button
-                type="button"
-                class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-text hover:bg-gray-200 cursor-pointer transition-colors"
-                onClick={resetFilters}
-              >
+              <Button type="submit" size="sm" class="h-9">
+                Apply
+              </Button>
+              <Button type="button" variant="outline" size="sm" class="h-9" onClick={resetFilters}>
                 Reset
-              </button>
+              </Button>
             </div>
           </form>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Items Table */}
-        <section class="bg-surface rounded-lg border border-border shadow-sm p-5">
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr class="border-b border-border bg-gray-50 text-xs uppercase tracking-wider text-muted font-semibold">
-                  <th class="py-2.5 px-3">Row</th>
-                  <th class="py-2.5 px-3">Order No.</th>
-                  <th class="py-2.5 px-3">Customer</th>
-                  <th class="py-2.5 px-3">Area</th>
-                  <th class="py-2.5 px-3">Date</th>
-                  <th class="py-2.5 px-3">Item Name</th>
-                  <th class="py-2.5 px-3">Qty</th>
-                  <th class="py-2.5 px-3">Status Order</th>
-                  <th class="py-2.5 px-3">Status Barang</th>
-                  <th class="py-2.5 px-3">Delivery Date</th>
-                  <th class="py-2.5 px-3">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
+      {/* Items Table Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-4">
+          <div>
+            <CardTitle class="text-base font-semibold">Warehouse Line Items</CardTitle>
+            <CardDescription>
+              {data()?.total !== undefined ? `${data()!.total.toLocaleString()} total items recorded` : 'Catalog lines'}
+            </CardDescription>
+          </div>
+          <Button
+            as="a"
+            href={getExportUrl()}
+            download="items.csv"
+            variant="outline"
+            size="sm"
+            class="gap-1.5"
+          >
+            <IconDownload class="size-4" />
+            <span>Export CSV</span>
+          </Button>
+        </CardHeader>
+        <CardContent class="p-4 md:p-6 pt-0 space-y-4">
+          <div class="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead class="w-12">Row</TableHead>
+                  <TableHead>Order No.</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Area</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Item Name</TableHead>
+                  <TableHead class="text-right">Qty</TableHead>
+                  <TableHead>Status Order</TableHead>
+                  <TableHead>Status Barang</TableHead>
+                  <TableHead>Delivery Date</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <Show
                   when={!data.loading}
                   fallback={
-                    <tr>
-                      <td colspan="11" class="p-8 text-center text-muted text-sm">
-                        Loading line items...
-                      </td>
-                    </tr>
+                    <TableRow>
+                      <TableCell colspan={11} class="h-32 text-center text-muted-foreground">
+                        <Skeleton class="h-8 w-1/2 mx-auto" />
+                      </TableCell>
+                    </TableRow>
                   }
                 >
                   <Show
                     when={data()?.items && data()!.items.length > 0}
                     fallback={
-                      <tr>
-                        <td colspan="11" class="p-8 text-center text-muted text-sm">
+                      <TableRow>
+                        <TableCell colspan={11} class="h-24 text-center text-muted-foreground">
                           No items match the current filters
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     }
                   >
                     <For each={data()?.items}>
                       {(item) => (
-                        <tr class="hover:bg-gray-50 border-b border-border last:border-b-0">
-                          <td class="py-2.5 px-3 text-muted">{item.row_index}</td>
-                          <td class="py-2.5 px-3">
+                        <TableRow>
+                          <TableCell class="font-mono text-xs text-muted-foreground">
+                            {item.row_index}
+                          </TableCell>
+                          <TableCell>
                             <Show
                               when={item.order_id}
                               fallback={
-                                <span class="font-mono text-xs text-text">
+                                <span class="font-mono text-xs text-muted-foreground">
                                   {item.order_number || item.ecatalog_number || '-'}
                                 </span>
                               }
                             >
-                              <A href={`/orders/${item.order_id}`} class="text-primary font-semibold hover:underline">
+                              <A
+                                href={`/orders/${item.order_id}`}
+                                class="font-medium text-primary hover:underline font-mono text-xs"
+                              >
                                 {item.order_number || item.order_id}
                               </A>
                             </Show>
-                          </td>
-                          <td class="py-2.5 px-3 font-medium text-text">{item.customer}</td>
-                          <td class="py-2.5 px-3 text-text">{item.area}</td>
-                          <td class="py-2.5 px-3 text-text">{item.tanggal}</td>
-                          <td class="py-2.5 px-3 font-semibold text-text">{item.nama_barang}</td>
-                          <td class="py-2.5 px-3 text-text">
+                          </TableCell>
+                          <TableCell class="font-medium">{item.customer}</TableCell>
+                          <TableCell class="text-xs text-muted-foreground">{item.area}</TableCell>
+                          <TableCell class="text-xs text-muted-foreground">{item.tanggal}</TableCell>
+                          <TableCell class="font-medium">{item.nama_barang}</TableCell>
+                          <TableCell class="text-right font-medium">
                             {item.jumlah} {item.satuan}
-                          </td>
-                          <td class="py-2.5 px-3">
+                          </TableCell>
+                          <TableCell>
                             <Badge status={item.status_order} />
-                          </td>
-                          <td class="py-2.5 px-3">
+                          </TableCell>
+                          <TableCell>
                             <Badge status={item.status_barang} />
-                          </td>
-                          <td class="py-2.5 px-3 text-text">{item.tanggal_pengiriman || '-'}</td>
-                          <td class="py-2.5 px-3 text-xs text-muted max-w-[180px] truncate">
+                          </TableCell>
+                          <TableCell class="text-xs text-muted-foreground">
+                            {item.tanggal_pengiriman || '-'}
+                          </TableCell>
+                          <TableCell class="text-xs text-muted-foreground max-w-[200px] truncate">
                             {item.keterangan || item.catatan || '-'}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       )}
                     </For>
                   </Show>
                 </Show>
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
           <Show when={data() && data()!.total > 0}>
-            <Pagination
+            <DataTablePagination
               total={data()!.total}
-              limit={limit}
+              limit={limit()}
               offset={offset()}
               onPageChange={handlePageChange}
+              onLimitChange={handleLimitChange}
             />
           </Show>
-        </section>
-      </main>
+        </CardContent>
+      </Card>
     </div>
   );
 };

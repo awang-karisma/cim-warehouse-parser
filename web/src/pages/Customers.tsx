@@ -1,18 +1,242 @@
-import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import {
+  type Component,
+  createSignal,
+  createResource,
+  createEffect,
+  onCleanup,
+  untrack,
+  Show,
+  For,
+  createMemo,
+} from 'solid-js';
 import { A } from '@solidjs/router';
+import {
+  IconSearch,
+  IconBuildingHospital,
+  IconArrowRight,
+  IconEdit,
+  IconLoader2,
+  IconAlertCircle,
+} from '@tabler/icons-solidjs';
 import { getCustomers, getCustomerAliases, setCustomerAlias } from '../api';
 import type { CustomerSummary } from '../types';
-import { TopBar } from '../components/TopBar';
-import { StatusBar } from '../components/StatusBar';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '~/components/ui/card';
+import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
+import { Button } from '~/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '~/components/ui/dialog';
+import {
+  Select,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+} from '~/components/ui/select';
+import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert';
+import { Separator } from '~/components/ui/separator';
+import { Skeleton } from '~/components/ui/skeleton';
+import { Badge } from '../components/Badge';
 import { createDebouncedSignal } from '../utils/debounce';
+
 export const Customers: Component = () => {
   const [search, debouncedSearch, setSearch, flushSearch] = createDebouncedSignal('', 300);
-  const [limit, setLimit] = createSignal(24);
+  const PAGE_SIZE = 24;
 
-  const [data, { refetch: refetchCustomers }] = createResource(
-    () => ({ search: debouncedSearch(), limit: limit() }),
-    (params) => getCustomers({ search: params.search, limit: params.limit, offset: 0 })
-  );
+  const [customers, setCustomers] = createSignal<CustomerSummary[]>([]);
+  const [total, setTotal] = createSignal<number | null>(null);
+  const [isLoadingInitial, setIsLoadingInitial] = createSignal(true);
+  const [isLoadingMore, setIsLoadingMore] = createSignal(false);
+  const [loadError, setLoadError] = createSignal<string | null>(null);
+  const [initialError, setInitialError] = createSignal<string | null>(null);
+
+  let searchGeneration = 0;
+  let inFlightOffset: number | null = null;
+  let sentinelEl: HTMLDivElement | null = null;
+  let observer: IntersectionObserver | null = null;
+
+  const fetchInitial = async (searchTerm: string) => {
+    const gen = ++searchGeneration;
+    inFlightOffset = 0;
+    setIsLoadingInitial(true);
+    setIsLoadingMore(false);
+    setLoadError(null);
+    setInitialError(null);
+    setCustomers([]);
+    setTotal(null);
+
+    if (observer) {
+      observer.disconnect();
+    }
+    sentinelEl = null;
+
+    try {
+      const res = await getCustomers({ search: searchTerm, limit: PAGE_SIZE, offset: 0 });
+      if (gen !== searchGeneration) return;
+
+      setCustomers(res.customers);
+      setTotal(res.total);
+    } catch (err: unknown) {
+      if (gen !== searchGeneration) return;
+      const msg = err instanceof Error ? err.message : 'Failed to load customers';
+      setInitialError(msg);
+      setCustomers([]);
+      setTotal(0);
+    } finally {
+      if (gen === searchGeneration) {
+        setIsLoadingInitial(false);
+        setIsLoadingMore(false);
+        inFlightOffset = null;
+      }
+    }
+  };
+
+  createEffect(() => {
+    const term = debouncedSearch();
+    untrack(() => {
+      fetchInitial(term);
+    });
+  });
+
+  const loadMore = async () => {
+    const currentTotal = total();
+    const currentList = customers();
+    const currentGen = searchGeneration;
+    const currentSearch = debouncedSearch();
+    if (
+      isLoadingInitial() ||
+      isLoadingMore() ||
+      currentTotal === null ||
+      currentList.length >= currentTotal ||
+      inFlightOffset !== null
+    ) {
+      return;
+    }
+
+    const offsetToFetch = currentList.length;
+    inFlightOffset = offsetToFetch;
+    setIsLoadingMore(true);
+    setLoadError(null);
+
+    try {
+      const res = await getCustomers({
+        search: currentSearch,
+        limit: PAGE_SIZE,
+        offset: offsetToFetch,
+      });
+
+      if (currentGen !== searchGeneration) return;
+
+      let freshCount = 0;
+      setCustomers((prev) => {
+        const existingNames = new Set(prev.map((c) => c.name));
+        const fresh = res.customers.filter((c) => !existingNames.has(c.name));
+        freshCount = fresh.length;
+        if (freshCount === 0) {
+          return prev;
+        }
+        return [...prev, ...fresh];
+      });
+      setTotal(res.total);
+
+      if (
+        observer &&
+        sentinelEl &&
+        freshCount > 0 &&
+        res.total > offsetToFetch + freshCount
+      ) {
+        observer.unobserve(sentinelEl);
+        observer.observe(sentinelEl);
+      }
+    } catch (err: unknown) {
+      if (currentGen !== searchGeneration) return;
+      const msg = err instanceof Error ? err.message : 'Failed to load more customers';
+      setLoadError(msg);
+    } finally {
+      if (currentGen === searchGeneration) {
+        setIsLoadingMore(false);
+        inFlightOffset = null;
+      }
+    }
+  };
+
+  const setSentinelRef = (el: HTMLDivElement) => {
+    sentinelEl = el;
+    if (typeof IntersectionObserver !== 'undefined') {
+      if (!observer) {
+        observer = new IntersectionObserver(
+          (entries) => {
+            const entry = entries[0];
+            if (entry && entry.isIntersecting) {
+              loadMore();
+            }
+          },
+          { rootMargin: '300px' }
+        );
+      }
+      observer.disconnect();
+      observer.observe(el);
+    }
+  };
+
+  onCleanup(() => {
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+  });
+
+  const refetchCustomers = async () => {
+    const gen = ++searchGeneration;
+    const currentList = customers();
+    const countToFetch = Math.max(PAGE_SIZE, currentList.length);
+    const currentSearch = debouncedSearch();
+
+    inFlightOffset = 0;
+    setIsLoadingMore(true);
+
+    try {
+      const res = await getCustomers({
+        search: currentSearch,
+        limit: countToFetch,
+        offset: 0,
+      });
+
+      if (gen !== searchGeneration) return;
+
+      const refreshed = res.customers;
+      const newTotal = res.total;
+
+      const seen = new Set<string>();
+      const finalCustomers: CustomerSummary[] = [];
+      for (const cust of refreshed) {
+        if (!seen.has(cust.name)) {
+          seen.add(cust.name);
+          finalCustomers.push(cust);
+        }
+      }
+
+      setCustomers(finalCustomers);
+      setTotal(newTotal);
+
+      if (observer && sentinelEl && newTotal > finalCustomers.length) {
+        observer.unobserve(sentinelEl);
+        observer.observe(sentinelEl);
+      }
+    } catch (err) {
+      console.error('Failed to refetch customers', err);
+    } finally {
+      if (gen === searchGeneration) {
+        inFlightOffset = null;
+        setIsLoadingMore(false);
+      }
+    }
+  };
 
   const [aliasesData, { refetch: refetchAliases }] = createResource(getCustomerAliases);
 
@@ -88,252 +312,302 @@ export const Customers: Component = () => {
       setIsSubmitting(false);
     }
   };
+
+  const canonicalOptions = createMemo(() => {
+    const list = (aliasesData()?.groups || []).map((g) => g.canonical);
+    return [...list, '+ New Canonical Name'];
+  });
+
   return (
-    <div>
-      <TopBar title="Customer View">
-        <Show when={data()?.total !== undefined}>
-          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
-            {data()?.total} Registered Customers
-          </span>
-        </Show>
-      </TopBar>
-
-      <main class="p-6 md:p-8 max-w-7xl w-full mx-auto">
-        {/* Search */}
-        <div class="relative mb-5">
-          <input
-            type="text"
-            class="w-full px-4 py-3 text-base border-2 border-border rounded-lg outline-none bg-surface text-text focus:border-primary focus:ring-4 focus:ring-primary/15 transition-all"
-            placeholder="Search customers by name (e.g. RSUD, Puskesmas, Klinik)..."
-            value={search()}
-            onInput={(e) => setSearch(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                flushSearch();
-              }
-            }}
-          />
-        </div>
-
-        {/* 3-Column Card Grid */}
-        <Show
-          when={!data.loading}
-          fallback={<div class="p-10 text-center text-muted text-sm">Loading customers...</div>}
-        >
-          <Show
-            when={data()?.customers && data()!.customers.length > 0}
-            fallback={
-              <div class="bg-surface rounded-lg border border-border shadow-sm p-10 text-center text-muted text-sm">
-                No customers found matching <strong class="text-text">{search()}</strong>
-              </div>
-            }
-          >
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
-              <For each={data()?.customers}>
-                {(cust) => (
-                  <div class="bg-surface rounded-lg border border-border shadow-sm p-5 flex flex-col justify-between h-full">
-                    <div>
-                      <div class="mb-3 pb-2 border-b border-border">
-                        <h3 class="text-base font-semibold text-text">
-                          {cust.name}
-                        </h3>
-                        <span class="text-xs text-muted">
-                          {cust.area || 'Unknown Area'}
-                        </span>
-                      </div>
-
-                      <div class="space-y-2 mb-4">
-                        <div class="flex justify-between items-center py-1.5 border-b border-border text-sm">
-                          <span class="text-muted text-xs">Total Orders</span>
-                          <span class="font-semibold text-text">{cust.total_orders}</span>
-                        </div>
-                        <div class="flex justify-between items-center py-1.5 border-b border-border text-sm">
-                          <span class="text-muted text-xs">Total Line Items</span>
-                          <span class="font-semibold text-text">{cust.total_items}</span>
-                        </div>
-                        <div class="flex justify-between items-center py-1.5 border-b border-border text-sm">
-                          <span class="text-muted text-xs">Latest Order Date</span>
-                          <span class="font-semibold text-text text-xs">
-                            {cust.last_order_date || '-'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div class="mb-4">
-                        <div class="text-[11px] text-muted mb-1.5 font-semibold uppercase tracking-wider">
-                          ORDER STATUS BREAKDOWN
-                        </div>
-                        <StatusBar statusCounts={cust.status_counts} height={18} />
-                      </div>
-                    </div>
-
-                    <div class="flex gap-2 mt-2">
-                      <button
-                        type="button"
-                        class="flex-1 inline-flex items-center justify-center px-3 py-2 rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
-                        onClick={() => openEditModal(cust)}
-                      >
-                        Edit Alias
-                      </button>
-                      <A
-                        href={`/orders?customer=${encodeURIComponent(cust.name)}`}
-                        class="flex-1 inline-flex items-center justify-center px-3 py-2 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors"
-                      >
-                        Orders &rarr;
-                      </A>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-
-            {/* Load More Button */}
-            <Show when={data() && data()!.total > limit()}>
-              <div class="text-center mt-6">
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-primary text-white hover:bg-primary-hover cursor-pointer transition-colors"
-                  onClick={() => setLimit((prev) => prev + 24)}
-                >
-                  Load More Customers ({data()!.total - limit()} remaining)
-                </button>
-              </div>
-            </Show>
-          </Show>
-        </Show>
-      </main>
-
-      {/* Accessible Edit Customer Alias Modal */}
-      <Show when={modalOpen()}>
-        <div
-          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="alias-modal-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setModalOpen(false);
-          }}
-        >
-          <div class="bg-surface rounded-lg border border-border shadow-xl max-w-md w-full p-6 text-text relative">
-            <div class="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <h2 id="alias-modal-title" class="text-base font-semibold text-text">
-                Assign Customer Alias
-              </h2>
-              <button
-                type="button"
-                class="text-muted hover:text-text text-lg font-bold leading-none cursor-pointer p-1"
-                aria-label="Close dialog"
-                onClick={() => setModalOpen(false)}
-              >
-                &times;
-              </button>
-            </div>
-
-            <Show when={errorMessage()}>
-              <div class="mb-4 p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">
-                {errorMessage()}
-              </div>
-            </Show>
-
-            <form onSubmit={handleSaveAlias} class="space-y-4">
-              <div>
-                <label class="block text-xs font-semibold text-muted mb-1">
-                  Alias Spelling (Source Name)
-                </label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  value={aliasSpelling()}
-                  onInput={(e) => setAliasSpelling(e.currentTarget.value)}
-                  required
+    <div class="flex flex-1 flex-col gap-6">
+      {/* Search Bar (Cards Example Pattern) */}
+      <Card>
+        <CardContent class="p-4 md:p-6">
+          <div class="relative">
+            <TextField value={search()} onChange={setSearch}>
+              <div class="relative flex items-center">
+                <IconSearch class="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
+                <TextFieldInput
+                  placeholder="Search customers by name (e.g. RSUD, Puskesmas, Klinik)..."
+                  class="pl-9 h-11 text-base"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      flushSearch();
+                    }
+                  }}
                 />
               </div>
+            </TextField>
+          </div>
+        </CardContent>
+      </Card>
 
-              <div>
-                <label class="block text-xs font-semibold text-muted mb-1">
-                  Canonical Customer Group
-                </label>
-                <select
-                  class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  value={selectedCanonical()}
-                  onChange={(e) => {
-                    const val = e.currentTarget.value;
-                    setSelectedCanonical(val);
-                    if (val === '__NEW__' && !newCanonicalName()) {
-                      setNewCanonicalName(aliasSpelling());
+      {/* Initial load error */}
+      <Show when={initialError()}>
+        <Alert variant="destructive">
+          <IconAlertCircle class="size-4" />
+          <AlertTitle>Failed to load customers</AlertTitle>
+          <AlertDescription class="flex items-center justify-between">
+            <span>{initialError()}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8"
+              onClick={() => fetchInitial(debouncedSearch())}
+            >
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </Show>
+
+      {/* Customer Cards Grid */}
+      <Show
+        when={!isLoadingInitial()}
+        fallback={
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <For each={[1, 2, 3, 4, 5, 6]}>
+              {() => (
+                <Card>
+                  <CardHeader class="space-y-2">
+                    <Skeleton class="h-6 w-3/4" />
+                    <Skeleton class="h-4 w-1/2" />
+                  </CardHeader>
+                  <CardContent class="space-y-2">
+                    <Skeleton class="h-4 w-full" />
+                    <Skeleton class="h-4 w-full" />
+                  </CardContent>
+                </Card>
+              )}
+            </For>
+          </div>
+        }
+      >
+        <Show
+          when={customers().length > 0}
+          fallback={
+            <Card>
+              <CardContent class="p-12 text-center text-muted-foreground">
+                {search() ? (
+                  <p>
+                    No customers found matching <span class="font-medium text-foreground">{search()}</span>
+                  </p>
+                ) : (
+                  <p>No customers recorded in database yet</p>
+                )}
+              </CardContent>
+            </Card>
+          }
+        >
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <For each={customers()}>
+              {(cust) => {
+                const selesaiCount =
+                  (cust.status_counts?.SELESAI || 0) + (cust.status_counts?.COMPLETED || 0);
+                const totalItems = cust.total_items || 1;
+                const fulfillmentPct = Math.min(100, Math.round((selesaiCount / totalItems) * 100));
+
+                return (
+                  <Card class="flex flex-col justify-between transition-shadow hover:shadow-md">
+                    <div>
+                      <CardHeader class="pb-3">
+                        <div class="flex items-start justify-between gap-2">
+                          <div class="space-y-1">
+                            <CardTitle class="text-base font-semibold leading-tight flex items-center gap-1.5">
+                              <IconBuildingHospital class="size-4 text-primary shrink-0" />
+                              <span class="truncate">{cust.name}</span>
+                            </CardTitle>
+                            <p class="text-xs text-muted-foreground">{cust.area || 'Unknown Area'}</p>
+                          </div>
+                          <Badge status={`${cust.total_orders} Orders`} pill class="shrink-0" />
+                        </div>
+                      </CardHeader>
+
+                      <CardContent class="space-y-3 pb-3">
+                        <div class="rounded-md bg-muted/40 p-2.5 space-y-1.5 text-xs">
+                          <div class="flex justify-between">
+                            <span class="text-muted-foreground">Total Line Items:</span>
+                            <span class="font-medium text-foreground">{cust.total_items.toLocaleString()}</span>
+                          </div>
+                          <div class="flex justify-between">
+                            <span class="text-muted-foreground">Latest Order:</span>
+                            <span class="font-medium text-foreground">{cust.last_order_date || '-'}</span>
+                          </div>
+                        </div>
+
+                        <div class="space-y-1">
+                          <div class="flex justify-between text-xs">
+                            <span class="text-muted-foreground">Fulfillment Rate</span>
+                            <span class="font-semibold">{fulfillmentPct}%</span>
+                          </div>
+                          <div class="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                            <div
+                              class="h-full bg-primary transition-all duration-300"
+                              style={{ width: `${fulfillmentPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </div>
+
+                    <div>
+                      <Separator class="my-2" />
+                      <CardFooter class="pt-2 flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          class="flex-1 gap-1.5 text-xs h-8"
+                          onClick={() => openEditModal(cust)}
+                        >
+                          <IconEdit class="size-3.5" />
+                          <span>Edit Alias</span>
+                        </Button>
+                        <Button
+                          as={A}
+                          href={`/orders?customer=${encodeURIComponent(cust.name)}`}
+                          variant="ghost"
+                          size="sm"
+                          class="flex-1 gap-1 text-xs h-8 text-primary"
+                        >
+                          <span>Orders</span>
+                          <IconArrowRight class="size-3.5" />
+                        </Button>
+                      </CardFooter>
+                    </div>
+                  </Card>
+                );
+              }}
+            </For>
+          </div>
+
+          {/* Sentinel for infinite scroll */}
+          <div ref={(el) => setSentinelRef(el)} class="py-6 text-center text-sm text-muted-foreground">
+            <Show when={isLoadingMore()}>
+              <div class="inline-flex items-center justify-center gap-2">
+                <IconLoader2 class="size-4 animate-spin text-primary" />
+                <span>
+                  Loading more customers... ({customers().length} of {total()} loaded)
+                </span>
+              </div>
+            </Show>
+
+            <Show when={!isLoadingMore() && (total() ?? 0) > customers().length}>
+              <div class="text-xs text-muted-foreground">
+                Showing {customers().length} of {total()} customers ({Math.max(0, (total() ?? 0) - customers().length)} remaining)
+              </div>
+            </Show>
+
+            <Show when={!isLoadingMore() && (total() ?? 0) <= customers().length}>
+              <div class="text-xs text-muted-foreground font-medium">
+                All {total()} customers loaded
+              </div>
+            </Show>
+
+            <Show when={loadError()}>
+              <div class="mt-2 text-sm text-destructive flex items-center justify-center gap-2">
+                <span>{loadError()}</span>
+                <Button variant="outline" size="sm" class="h-7 text-xs" onClick={() => loadMore()}>
+                  Retry
+                </Button>
+              </div>
+            </Show>
+          </div>
+        </Show>
+      </Show>
+
+      {/* Solid-UI Dialog for Edit Customer Alias */}
+      <Dialog open={modalOpen()} onOpenChange={setModalOpen}>
+        <DialogContent class="sm:max-w-md">
+          <form onSubmit={handleSaveAlias} class="space-y-4">
+            <DialogHeader>
+              <DialogTitle>Edit Customer Alias</DialogTitle>
+              <DialogDescription>
+                Map variation spellings to a single canonical customer record.
+              </DialogDescription>
+            </DialogHeader>
+
+            <Show when={errorMessage()}>
+              <Alert variant="destructive">
+                <IconAlertCircle class="size-4" />
+                <AlertTitle>Validation Error</AlertTitle>
+                <AlertDescription>{errorMessage()}</AlertDescription>
+              </Alert>
+            </Show>
+
+            <div class="space-y-3">
+              <TextField value={aliasSpelling()} onChange={setAliasSpelling}>
+                <TextFieldLabel class="text-xs font-semibold">Alias Spelling (Source Name)</TextFieldLabel>
+                <TextFieldInput placeholder="Source spelling in spreadsheet..." class="h-9" />
+              </TextField>
+
+              <div class="space-y-1 flex flex-col">
+                <label class="text-xs font-semibold">Canonical Group</label>
+                <Select<string>
+                  options={canonicalOptions()}
+                  value={
+                    selectedCanonical() === '__NEW__'
+                      ? '+ New Canonical Name'
+                      : selectedCanonical() || canonicalOptions()[0]
+                  }
+                  onChange={(val) => {
+                    if (val === '+ New Canonical Name') {
+                      setSelectedCanonical('__NEW__');
+                      if (!newCanonicalName()) setNewCanonicalName(aliasSpelling());
+                    } else {
+                      setSelectedCanonical(val || '');
                     }
                   }}
-                  onInput={(e) => {
-                    const val = e.currentTarget.value;
-                    setSelectedCanonical(val);
-                    if (val === '__NEW__' && !newCanonicalName()) {
-                      setNewCanonicalName(aliasSpelling());
-                    }
-                  }}
+                  itemComponent={(props) => (
+                    <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
+                  )}
                 >
-                  <For each={aliasesData()?.groups}>
-                    {(group) => (
-                      <option value={group.canonical}>
-                        {group.canonical} ({group.aliases.length} {group.aliases.length === 1 ? 'alias' : 'aliases'}
-                        {group.area ? ` • ${group.area}` : ''})
-                      </option>
-                    )}
-                  </For>
-                  <option value="__NEW__">+ Create new canonical group...</option>
-                </select>
+                  <SelectTrigger class="h-9">
+                    <SelectValue<string>>
+                      {(state) => state.selectedOption() || 'Select canonical...'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent />
+                </Select>
               </div>
 
               <Show when={selectedCanonical() === '__NEW__'}>
-                <div>
-                  <label class="block text-xs font-semibold text-muted mb-1">
-                    New Canonical Name
-                  </label>
-                  <input
-                    type="text"
-                    class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    placeholder="e.g. RSUD Provinsi NTB"
-                    value={newCanonicalName()}
-                    onInput={(e) => setNewCanonicalName(e.currentTarget.value)}
-                    required
-                  />
-                </div>
+                <TextField
+                  value={newCanonicalName()}
+                  onChange={setNewCanonicalName}
+                >
+                  <TextFieldLabel class="text-xs font-semibold">New Canonical Customer Name</TextFieldLabel>
+                  <TextFieldInput placeholder="Official customer name..." class="h-9" />
+                </TextField>
               </Show>
 
-              <div>
-                <label class="block text-xs font-semibold text-muted mb-1">
-                  Linked Area / Region (Optional)
-                </label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface text-text focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  placeholder="e.g. Mataram, Lombok Barat"
-                  value={aliasArea()}
-                  onInput={(e) => setAliasArea(e.currentTarget.value)}
-                />
-              </div>
+              <TextField value={aliasArea()} onChange={setAliasArea}>
+                <TextFieldLabel class="text-xs font-semibold">Assigned Area (Optional)</TextFieldLabel>
+                <TextFieldInput placeholder="e.g. Denpasar, Badung..." class="h-9" />
+              </TextField>
+            </div>
 
-              <div class="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                <button
-                  type="button"
-                  class="px-4 py-2 rounded-md text-xs font-medium bg-gray-100 text-text hover:bg-gray-200 transition-colors cursor-pointer"
-                  onClick={() => setModalOpen(false)}
-                  disabled={isSubmitting()}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  class="px-4 py-2 rounded-md text-xs font-medium bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer disabled:opacity-50"
-                  disabled={isSubmitting()}
-                >
-                  {isSubmitting() ? 'Saving...' : 'Save Alias'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </Show>
+            <DialogFooter class="flex gap-2 justify-end pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setModalOpen(false)}
+                disabled={isSubmitting()}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={isSubmitting()}>
+                <Show when={isSubmitting()} fallback="Save Alias">
+                  <span class="flex items-center gap-1.5">
+                    <IconLoader2 class="size-3.5 animate-spin" /> Saving...
+                  </span>
+                </Show>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
