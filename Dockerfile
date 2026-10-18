@@ -1,11 +1,23 @@
+# syntax=docker/dockerfile:1
+
 # Multi-stage Dockerfile for Warehouse Parser & Server
 
 # Stage 1: Build SolidJS Frontend with pnpm
 FROM node:22-alpine AS frontend-builder
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+
 WORKDIR /web
-COPY web/package.json web/pnpm-lock.yaml* web/pnpm-workspace.yaml* ./
-RUN npm install -g $(node -p "require('./package.json').packageManager")
-RUN pnpm install
+
+# Copy package manifests and workspace configuration first for layer caching
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+
+# Leverage BuildKit cache mount to cache pnpm store across builds
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Copy source code and build frontend production bundle
 COPY web/ ./
 RUN pnpm run build
 
