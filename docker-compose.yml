@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  warehouse-server:
+    build: .
+    container_name: warehouse-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DB_PATH=/data/warehouse.db
+      - SYNC_TIMEZONE=Asia/Makassar
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - SPREADSHEET_ID=${SPREADSHEET_ID:-1X3FqpqpP7utvkyFK98YE863ItVsvmmUrBTBsGfuzK3s}
+      - SHEET_NAME=${SHEET_NAME:-PESANAN}
+    volumes:
+      - warehouse-data:/data
+
+volumes:
+  warehouse-data:

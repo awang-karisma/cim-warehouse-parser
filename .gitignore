@@ -31,3 +31,6 @@ mockup/
 # Frontend
 web/node_modules/
 web/dist/
+
+# Embedded frontend build staging
+cmd/warehouse-server/dist/

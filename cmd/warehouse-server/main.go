@@ -57,10 +57,15 @@ func main() {
 		AppConfig: cfg,
 	})
 
-	distPath := "web/dist"
-	if info, err := os.Stat(distPath); err == nil && info.IsDir() {
-		log.Printf("Serving SolidJS frontend from %s", distPath)
-		srv.SetupStaticFiles(distPath)
+	if embeddedFS != nil {
+		log.Println("Serving embedded SolidJS frontend")
+		srv.SetupStaticFS(embeddedFS)
+	} else {
+		distPath := "web/dist"
+		if info, err := os.Stat(distPath); err == nil && info.IsDir() {
+			log.Printf("Serving SolidJS frontend from %s", distPath)
+			srv.SetupStaticFiles(distPath)
+		}
 	}
 
 	app := srv.App()

@@ -17,6 +17,7 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"github.com/awang-karisma/warehouse-parser/pkg/version"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/gofiber/fiber/v3"
@@ -630,7 +631,7 @@ func (s *Server) handleSystem(ctx context.Context, input *struct{}) (*SystemOutp
 	}
 
 	resp := SystemResponse{
-		Version:       "v1.0.0",
+		Version:       version.Version,
 		GoVersion:     runtime.Version(),
 		UptimeSeconds: uptime,
 		Port:          port,

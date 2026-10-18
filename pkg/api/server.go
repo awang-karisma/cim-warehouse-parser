@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"github.com/awang-karisma/warehouse-parser/pkg/version"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
@@ -47,7 +49,7 @@ func New(cfg Config) *Server {
 	app.Use(logger.New())
 	app.Use(cors.New())
 
-	humaCfg := huma.DefaultConfig("Warehouse Order Tracking API", "1.0.0")
+	humaCfg := huma.DefaultConfig("Warehouse Order Tracking API", version.Version)
 	humaCfg.DocsRenderer = huma.DocsRendererScalar
 	humaCfg.DocsPath = "/docs"
 	humaCfg.OpenAPIPath = "/openapi"
@@ -93,6 +95,26 @@ func (s *Server) SetupStaticFiles(distPath string) {
 			return c.SendFile(targetFile)
 		}
 		return c.SendFile(filepath.Join(distPath, "index.html"))
+	})
+}
+
+// SetupStaticFS configures static asset serving and SPA fallback using an in-memory or embedded fs.FS.
+func (s *Server) SetupStaticFS(distFS fs.FS) {
+	s.app.Use("/", static.New("", static.Config{
+		FS:         distFS,
+		IndexNames: []string{"index.html"},
+	}))
+	s.app.Get("/*", func(c fiber.Ctx) error {
+		p := c.Path()
+		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") {
+			return c.Next()
+		}
+		indexData, err := fs.ReadFile(distFS, "index.html")
+		if err != nil {
+			return c.Status(fiber.StatusNotFound).SendString("Frontend build not found")
+		}
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.Status(fiber.StatusOK).Send(indexData)
 	})
 }
 
