@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -710,6 +711,97 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 
 	writer.Flush()
 	return writer.Error()
+}
+func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).SendString("storage service not available")
+	}
+
+	sqlDump, err := s.store.DumpCustomerAliasesSQL(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	}
+
+	c.Set("Content-Type", "application/sql; charset=utf-8")
+	c.Set("Content-Disposition", `attachment; filename="customer-aliases.sql"`)
+	c.Set("Cache-Control", "no-store")
+
+	return c.SendString(sqlDump)
+}
+
+func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
+	}
+
+	mode := c.Query("mode", "merge")
+	if mode == "" {
+		mode = "merge"
+	}
+	normMode := strings.ToLower(strings.TrimSpace(mode))
+	if normMode != "merge" && normMode != "replace" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("invalid import mode %q: must be merge or replace", mode)})
+	}
+
+	const maxImportSize = 5 << 20 // 5MB
+
+	var rawSQL string
+	ct := c.Get("Content-Type")
+
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		file, err := c.FormFile("file")
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "missing file in multipart request"})
+		}
+		if file.Size > maxImportSize {
+			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "import file too large (max 5MB)"})
+		}
+		f, err := file.Open()
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to open uploaded file"})
+		}
+		defer f.Close()
+
+		data, err := io.ReadAll(io.LimitReader(f, maxImportSize+1))
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read uploaded file"})
+		}
+		if int64(len(data)) > maxImportSize {
+			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "import file too large (max 5MB)"})
+		}
+		rawSQL = string(data)
+	} else if strings.HasPrefix(ct, "application/json") {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "expected SQL file or application/sql body, got JSON"})
+	} else {
+		body := c.Body()
+		if int64(len(body)) > maxImportSize {
+			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "import file too large (max 5MB)"})
+		}
+		rawSQL = string(body)
+	}
+
+	if strings.TrimSpace(rawSQL) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no aliases found in import payload"})
+	}
+
+	res, err := s.store.ImportCustomerAliasesSQL(c.Context(), rawSQL, normMode)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if res.Imported == 0 && res.Skipped == 0 {
+		if len(res.Errors) > 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": res.Errors[0]})
+		}
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no aliases found in import payload"})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"status":   "ok",
+		"imported": res.Imported,
+		"skipped":  res.Skipped,
+		"errors":   res.Errors,
+	})
 }
 
 func (s *Server) handleSyncSSE(c fiber.Ctx) error {

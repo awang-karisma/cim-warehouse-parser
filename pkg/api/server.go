@@ -41,7 +41,8 @@ type Server struct {
 // New creates and initializes a new Fiber v3 API Server with middlewares and routes.
 func New(cfg Config) *Server {
 	app := fiber.New(fiber.Config{
-		AppName: "Warehouse Order Tracking API",
+		AppName:   "Warehouse Order Tracking API",
+		BodyLimit: 10 * 1024 * 1024,
 	})
 
 	// Middlewares
@@ -69,6 +70,8 @@ func New(cfg Config) *Server {
 	// Raw Fiber routes
 	app.Get("/api/v1/items/export", s.handleExportItems)
 	app.Get("/api/v1/sync/events", s.handleSyncSSE)
+	app.Get("/api/v1/customer-aliases/export", s.handleExportCustomerAliases)
+	app.Post("/api/v1/customer-aliases/import", s.handleImportCustomerAliases)
 	return s
 }
 

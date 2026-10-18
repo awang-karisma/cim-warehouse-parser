@@ -31,7 +31,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, options);
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(errorText || `HTTP ${res.status}: ${res.statusText}`);
+    let message = errorText;
+    try {
+      const parsed = JSON.parse(errorText);
+      if (parsed?.error) message = parsed.error;
+    } catch {}
+    throw new Error(message || `HTTP ${res.status}: ${res.statusText}`);
   }
   return res.json() as Promise<T>;
 }
@@ -123,6 +128,30 @@ export const setCustomerAlias = (alias: string, canonical: string, area?: string
 export const deleteCustomerAlias = (alias: string) =>
   apiFetch<{ status: string }>(`/api/v1/customer-aliases/${encodeURIComponent(alias)}`, {
     method: 'DELETE',
+  });
+export interface AliasImportResult {
+  status: string;
+  imported: number;
+  skipped: number;
+  errors?: string[];
+}
+
+export const getCustomerAliasesExportUrl = () => `/api/v1/customer-aliases/export`;
+
+export const importCustomerAliasesFile = (file: File, mode: 'merge' | 'replace' = 'merge') => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return apiFetch<AliasImportResult>(`/api/v1/customer-aliases/import?mode=${mode}`, {
+    method: 'POST',
+    body: fd,
+  });
+};
+
+export const importCustomerAliasesSqlText = (sql: string, mode: 'merge' | 'replace' = 'merge') =>
+  apiFetch<AliasImportResult>(`/api/v1/customer-aliases/import?mode=${mode}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/sql' },
+    body: sql,
   });
 
 export const getDeliveries = (params?: {

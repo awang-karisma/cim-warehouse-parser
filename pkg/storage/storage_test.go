@@ -1552,3 +1552,266 @@ func TestDateFilter_ISOAndLegacyAndInvalid(t *testing.T) {
 		t.Errorf("GetItems: expected 0 matches for invalid date, got %d", iTotalInvalid)
 	}
 }
+
+func TestDumpCustomerAliasesSQL(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+
+	// 1. Empty dump has header + table/index DDL + BEGIN/COMMIT, no INSERT
+	dumpEmpty, err := store.DumpCustomerAliasesSQL(ctx)
+	if err != nil {
+		t.Fatalf("DumpCustomerAliasesSQL on empty store failed: %v", err)
+	}
+	if !strings.Contains(dumpEmpty, "BEGIN TRANSACTION;") || !strings.Contains(dumpEmpty, "COMMIT;") {
+		t.Errorf("expected dump to contain transaction statements, got: %s", dumpEmpty)
+	}
+	if !strings.Contains(dumpEmpty, "CREATE TABLE IF NOT EXISTS customer_aliases") {
+		t.Errorf("expected dump to contain CREATE TABLE, got: %s", dumpEmpty)
+	}
+	if strings.Contains(dumpEmpty, "INSERT INTO") {
+		t.Errorf("expected no INSERT statements in empty dump, got: %s", dumpEmpty)
+	}
+
+	// 2. Dump with data including single quote escaping
+	if err := store.SetCustomerAlias(ctx, "O'Brien Clinic", "Dr. O'Brien's Office", "West Area"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+	if err := store.SetCustomerAlias(ctx, "RS PKU", "RS PKU Muhammadiyah", "Lombok Barat"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+
+	dump, err := store.DumpCustomerAliasesSQL(ctx)
+	if err != nil {
+		t.Fatalf("DumpCustomerAliasesSQL failed: %v", err)
+	}
+	if !strings.Contains(dump, "O''Brien Clinic") || !strings.Contains(dump, "Dr. O''Brien''s Office") {
+		t.Errorf("expected single quotes to be escaped with '', got: %s", dump)
+	}
+	if !strings.Contains(dump, "ON CONFLICT(alias) DO UPDATE") {
+		t.Errorf("expected ON CONFLICT clause in INSERT, got: %s", dump)
+	}
+
+	flat, err := store.GetCustomerAliasesFlat(ctx)
+	if err != nil {
+		t.Fatalf("GetCustomerAliasesFlat failed: %v", err)
+	}
+	if len(flat) != 2 {
+		t.Fatalf("expected 2 flat aliases, got %d", len(flat))
+	}
+}
+
+func TestImportCustomerAliasesSQL_Merge(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.SetCustomerAlias(ctx, "Alias A", "Canonical A", "Area A"); err != nil {
+		t.Fatalf("seed SetCustomerAlias failed: %v", err)
+	}
+
+	sqlDump := `
+BEGIN TRANSACTION;
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Alias B', 'Canonical B', 'Area B') ON CONFLICT(alias) DO UPDATE SET canonical=excluded.canonical, area=excluded.area;
+COMMIT;
+`
+	res, err := store.ImportCustomerAliasesSQL(ctx, sqlDump, "merge")
+	if err != nil {
+		t.Fatalf("ImportCustomerAliasesSQL merge failed: %v", err)
+	}
+	if res.Imported != 1 || res.Skipped != 0 {
+		t.Errorf("expected 1 imported, 0 skipped, got %+v", res)
+	}
+
+	flat, err := store.GetCustomerAliasesFlat(ctx)
+	if err != nil {
+		t.Fatalf("GetCustomerAliasesFlat failed: %v", err)
+	}
+	if len(flat) != 2 {
+		t.Fatalf("expected merge to retain existing alias (total 2), got %d: %+v", len(flat), flat)
+	}
+}
+
+func TestImportCustomerAliasesSQL_Replace(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.SetCustomerAlias(ctx, "Alias Old", "Canonical Old", "Area Old"); err != nil {
+		t.Fatalf("seed SetCustomerAlias failed: %v", err)
+	}
+
+	sqlDump := `
+BEGIN TRANSACTION;
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Alias New', 'Canonical New', 'Area New');
+COMMIT;
+`
+	res, err := store.ImportCustomerAliasesSQL(ctx, sqlDump, "replace")
+	if err != nil {
+		t.Fatalf("ImportCustomerAliasesSQL replace failed: %v", err)
+	}
+	if res.Imported != 1 || res.Skipped != 0 {
+		t.Errorf("expected 1 imported, 0 skipped, got %+v", res)
+	}
+
+	flat, err := store.GetCustomerAliasesFlat(ctx)
+	if err != nil {
+		t.Fatalf("GetCustomerAliasesFlat failed: %v", err)
+	}
+	if len(flat) != 1 || flat[0].Alias != "Alias New" {
+		t.Fatalf("expected replace to clear old aliases and retain only 'Alias New', got: %+v", flat)
+	}
+}
+
+func TestImportCustomerAliasesSQL_EscapingAndSkipped(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+
+	sqlDump := `
++-- Test dump with escaped quotes, invalid equal-to-canonical row, and dedup last-wins
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('O''Brien Clinic', 'Dr. O''Brien', 'West Area');
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Self Equal', 'Self Equal', 'Area X');
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Dedup Alias', 'First Canonical', 'Area 1');
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('DEDUP ALIAS', 'Final Canonical', 'Area 2');
+`
+	res, err := store.ImportCustomerAliasesSQL(ctx, sqlDump, "merge")
+	if err != nil {
+		t.Fatalf("ImportCustomerAliasesSQL failed: %v", err)
+	}
+	// O'Brien Clinic (1) + Dedup Alias (1, last-wins) = 2 imported.
+	// Self Equal (1) skipped.
+	if res.Imported != 2 || res.Skipped != 1 {
+		t.Fatalf("expected 2 imported, 1 skipped, got %+v", res)
+	}
+	if len(res.Errors) != 1 {
+		t.Errorf("expected 1 error explanation for skipped row, got: %+v", res.Errors)
+	}
+
+	flat, err := store.GetCustomerAliasesFlat(ctx)
+	if err != nil {
+		t.Fatalf("GetCustomerAliasesFlat failed: %v", err)
+	}
+	if len(flat) != 2 {
+		t.Fatalf("expected 2 flat aliases, got %d", len(flat))
+	}
+	foundOBrien := false
+	foundDedup := false
+	for _, a := range flat {
+		if a.Alias == "O'Brien Clinic" && a.Canonical == "Dr. O'Brien" {
+			foundOBrien = true
+		}
+		if strings.EqualFold(a.Alias, "Dedup Alias") && a.Canonical == "Final Canonical" {
+			foundDedup = true
+		}
+	}
+	if !foundOBrien {
+		t.Errorf("expected unescaped single quote O'Brien Clinic in database, got: %+v", flat)
+	}
+	if !foundDedup {
+		t.Errorf("expected dedup last-wins 'Final Canonical' in database, got: %+v", flat)
+	}
+}
+
+func TestImportCustomerAliasesSQL_CascadeToOrdersAndItems(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+
+	items := []model.NormalizedItem{
+		{RowIndex: 1, Customer: "RS VARIANT", NamaBarang: "Item 1", StatusOrder: "SELESAI"},
+		{RowIndex: 2, Customer: "RS Canonical", Area: "Lombok Barat", NamaBarang: "Item 2", StatusOrder: "PENDING"},
+	}
+	orders := []model.Order{
+		{ID: "ord-1", Customer: "RS VARIANT", Items: []model.OrderItem{{RowIndex: 1}}},
+		{ID: "ord-2", Customer: "RS Canonical", Area: "Lombok Barat", Items: []model.OrderItem{{RowIndex: 2}}},
+	}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	sqlDump := `
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('RS VARIANT', 'RS Canonical', '');
+`
+	res, err := store.ImportCustomerAliasesSQL(ctx, sqlDump, "merge")
+	if err != nil {
+		t.Fatalf("ImportCustomerAliasesSQL failed: %v", err)
+	}
+	if res.Imported != 1 {
+		t.Fatalf("expected 1 imported, got %+v", res)
+	}
+
+	gotOrders, totalOrders, err := store.GetOrders(ctx, storage.OrderFilter{Customer: "RS Canonical"})
+	if err != nil {
+		t.Fatalf("GetOrders failed: %v", err)
+	}
+	if totalOrders != 2 || len(gotOrders) != 2 {
+		t.Fatalf("expected both orders under canonical customer, total=%d, orders=%+v", totalOrders, gotOrders)
+	}
+	for _, o := range gotOrders {
+		if o.Customer != "RS Canonical" || o.Area != "Lombok Barat" {
+			t.Errorf("expected canonical customer and linked area 'Lombok Barat', got %+v", o)
+		}
+	}
+}
+
+func TestImportCustomerAliasesSQL_SecurityAndInvalidMode(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+
+	// 1. Invalid mode returns error
+	if _, err := store.ImportCustomerAliasesSQL(ctx, "BEGIN; COMMIT;", "bad_mode"); err == nil {
+		t.Errorf("expected error on invalid mode")
+	}
+
+	// 2. Dangerous SQL statements (DROP TABLE, CREATE TABLE evil) must be ignored, only customer_aliases imported
+	maliciousSQL := `
+DROP TABLE orders;
+CREATE TABLE evil (id int);
+INSERT INTO evil VALUES (1);
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Safe Alias', 'Safe Canonical', 'Safe Area');
+`
+	res, err := store.ImportCustomerAliasesSQL(ctx, maliciousSQL, "merge")
+	if err != nil {
+		t.Fatalf("ImportCustomerAliasesSQL failed: %v", err)
+	}
+	if res.Imported != 1 {
+		t.Fatalf("expected safe alias to be imported, got %+v", res)
+	}
+
+	// Verify orders table still exists and evil table does not
+	if _, _, err := store.GetOrders(ctx, storage.OrderFilter{}); err != nil {
+		t.Errorf("orders table should still exist, got: %v", err)
+	}
+
+	// 3. SQL with no customer_aliases statements but containing INSERT returns 0 imported with specific error
+	noAliasesSQL := `
+INSERT INTO some_other_table VALUES ('foo', 'bar');
+`
+	resNoAliases, err := store.ImportCustomerAliasesSQL(ctx, noAliasesSQL, "merge")
+	if err != nil {
+		t.Fatalf("expected nil error from storage on no valid aliases, got: %v", err)
+	}
+	if resNoAliases.Imported != 0 || len(resNoAliases.Errors) == 0 {
+		t.Errorf("expected 0 imported and descriptive error message, got %+v", resNoAliases)
+	}
+}

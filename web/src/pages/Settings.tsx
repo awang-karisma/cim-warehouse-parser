@@ -11,6 +11,9 @@ import {
   IconAlertCircle,
   IconSun,
   IconMoon,
+  IconDownload,
+  IconUpload,
+  IconCheck,
 } from '@tabler/icons-solidjs';
 import { useColorMode } from '@kobalte/core';
 import {
@@ -21,6 +24,9 @@ import {
   getCustomerAliases,
   setCustomerAlias,
   deleteCustomerAlias,
+  getCustomerAliasesExportUrl,
+  importCustomerAliasesFile,
+  type AliasImportResult,
 } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
@@ -57,6 +63,42 @@ export const Settings: Component = () => {
   const [aliasError, setAliasError] = createSignal('');
   const [isAdding, setIsAdding] = createSignal(false);
   const [aliasToDelete, setAliasToDelete] = createSignal<string>('');
+  const [importMode, setImportMode] = createSignal<'merge' | 'replace'>('merge');
+  const [isImporting, setIsImporting] = createSignal(false);
+  const [importResult, setImportResult] = createSignal<AliasImportResult | null>(null);
+  const [showImportModeDialog, setShowImportModeDialog] = createSignal(false);
+  const [pendingFile, setPendingFile] = createSignal<File | null>(null);
+  let fileInputRef: HTMLInputElement | undefined;
+
+  const handleExportSQL = () => {
+    const a = document.createElement('a');
+    a.href = getCustomerAliasesExportUrl();
+    a.download = 'customer-aliases.sql';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const handleConfirmImport = async () => {
+    const file = pendingFile();
+    if (!file) return;
+    setIsImporting(true);
+    setAliasError('');
+    setImportResult(null);
+    try {
+      const res = await importCustomerAliasesFile(file, importMode());
+      setImportResult(res);
+      setShowImportModeDialog(false);
+      setPendingFile(null);
+      refetchAliases();
+    } catch (err: unknown) {
+      setAliasError(err instanceof Error ? err.message : 'Failed to import customer aliases');
+      setShowImportModeDialog(false);
+      setPendingFile(null);
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   const handleAddAlias = async (e: Event) => {
     e.preventDefault();
@@ -316,6 +358,77 @@ export const Settings: Component = () => {
           </div>
         </CardHeader>
         <CardContent class="space-y-4">
+          {/* Export / Import SQL Actions */}
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <span class="text-xs text-muted-foreground">
+              Backup or restore customer aliases as raw SQL dump.
+            </span>
+            <div class="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                class="gap-1.5 h-8 text-xs"
+                disabled={aliasesData.loading}
+                onClick={handleExportSQL}
+              >
+                <IconDownload class="size-3.5" />
+                <span>Export SQL</span>
+              </Button>
+              <input
+                type="file"
+                accept=".sql,.txt,application/sql"
+                ref={fileInputRef}
+                class="hidden"
+                onChange={(e) => {
+                  const file = e.currentTarget.files?.[0];
+                  if (file) {
+                    setPendingFile(file);
+                    setImportMode('merge');
+                    setShowImportModeDialog(true);
+                  }
+                  e.currentTarget.value = '';
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                class="gap-1.5 h-8 text-xs"
+                disabled={isImporting()}
+                onClick={() => fileInputRef?.click()}
+              >
+                <IconUpload class="size-3.5" />
+                <span>{isImporting() ? 'Importing...' : 'Import SQL'}</span>
+              </Button>
+            </div>
+          </div>
+
+          <Show when={importResult()}>
+            {(res) => (
+              <Alert class="bg-primary/5 border-primary/20">
+                <IconCheck class="size-4 text-primary" />
+                <AlertTitle class="text-primary font-semibold">Import Complete</AlertTitle>
+                <AlertDescription class="space-y-1">
+                  <div>
+                    Successfully imported <strong>{res().imported}</strong> alias{res().imported === 1 ? '' : 'es'}
+                    <Show when={res().skipped > 0}>
+                      <span>, skipped <strong>{res().skipped}</strong> invalid row{res().skipped === 1 ? '' : 's'}</span>
+                    </Show>.
+                  </div>
+                  <Show when={res().errors && res().errors!.length > 0}>
+                    <details class="text-xs text-muted-foreground cursor-pointer pt-1">
+                      <summary class="font-medium hover:underline">View details ({res().errors!.length})</summary>
+                      <ul class="list-disc pl-4 mt-1 space-y-0.5">
+                        <For each={res().errors}>{(err) => <li>{err}</li>}</For>
+                      </ul>
+                    </details>
+                  </Show>
+                </AlertDescription>
+              </Alert>
+            )}
+          </Show>
+
           {/* Add Alias Form */}
           <form class="rounded-lg border bg-muted/20 p-4 space-y-4" onSubmit={handleAddAlias}>
             <div class="grid gap-4 sm:grid-cols-3">
@@ -474,6 +587,88 @@ export const Settings: Component = () => {
             </Button>
             <Button variant="destructive" size="sm" onClick={confirmDeleteAlias}>
               Delete Alias
+            </Button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Import Customer Aliases Mode Dialog */}
+      <AlertDialog
+        open={showImportModeDialog()}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowImportModeDialog(false);
+            setPendingFile(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Import Customer Aliases</AlertDialogTitle>
+          <AlertDialogDescription class="space-y-3">
+            <p>
+              Select import mode for <strong class="text-foreground">{pendingFile()?.name}</strong>:
+            </p>
+            <div class="space-y-2 pt-1">
+              <label
+                class={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors hover:bg-muted/50 ${
+                  importMode() === 'merge' ? 'border-primary bg-primary/5' : 'border-border'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="merge"
+                  checked={importMode() === 'merge'}
+                  onChange={() => setImportMode('merge')}
+                  class="mt-1"
+                />
+                <div>
+                  <div class="text-sm font-medium text-foreground">Merge</div>
+                  <div class="text-xs text-muted-foreground">
+                    Inserts new aliases and updates matching existing aliases. Other existing aliases remain untouched.
+                  </div>
+                </div>
+              </label>
+              <label
+                class={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors hover:bg-muted/50 ${
+                  importMode() === 'replace' ? 'border-destructive bg-destructive/5' : 'border-border'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="replace"
+                  checked={importMode() === 'replace'}
+                  onChange={() => setImportMode('replace')}
+                  class="mt-1 text-destructive"
+                />
+                <div>
+                  <div class="text-sm font-medium text-destructive">Replace</div>
+                  <div class="text-xs text-muted-foreground">
+                    Removes all existing aliases before importing. (Does not revert past order canonicalizations).
+                  </div>
+                </div>
+              </label>
+            </div>
+          </AlertDialogDescription>
+          <div class="flex justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isImporting()}
+              onClick={() => {
+                setShowImportModeDialog(false);
+                setPendingFile(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={importMode() === 'replace' ? 'destructive' : 'default'}
+              size="sm"
+              disabled={isImporting() || !pendingFile()}
+              onClick={handleConfirmImport}
+            >
+              {isImporting() ? 'Importing...' : `Confirm ${importMode() === 'replace' ? 'Replace' : 'Merge'}`}
             </Button>
           </div>
         </AlertDialogContent>

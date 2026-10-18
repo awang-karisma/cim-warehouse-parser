@@ -1,9 +1,11 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1227,6 +1229,274 @@ func TestDeliveriesAPI(t *testing.T) {
 		}
 		if res.Items[0].TanggalPengiriman != "07/01/2026 (3), 03/02/2026 (1)" {
 			t.Errorf("items endpoint changed raw tanggal_pengiriman: %s", res.Items[0].TanggalPengiriman)
+		}
+	})
+}
+func TestCustomerAliasExportImport(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+
+	// Seed some aliases
+	if err := store.SetCustomerAlias(ctx, "Alias One", "Canonical One", "Area One"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+	if err := store.SetCustomerAlias(ctx, "O'Brien Clinic", "Dr. O'Brien", "West Area"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+
+	t.Run("GET export returns valid SQL with headers", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/customer-aliases/export", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		ct := resp.Header.Get("Content-Type")
+		if !strings.Contains(ct, "application/sql") {
+			t.Errorf("expected application/sql Content-Type, got %s", ct)
+		}
+		cd := resp.Header.Get("Content-Disposition")
+		if !strings.Contains(cd, "customer-aliases.sql") {
+			t.Errorf("expected Content-Disposition to contain customer-aliases.sql, got %s", cd)
+		}
+
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		body := string(bodyBytes)
+		if !strings.Contains(body, "BEGIN TRANSACTION;") || !strings.Contains(body, "COMMIT;") {
+			t.Errorf("expected transaction in SQL export, got: %s", body)
+		}
+		if !strings.Contains(body, "O''Brien Clinic") {
+			t.Errorf("expected escaped quotes in SQL export, got: %s", body)
+		}
+	})
+
+	t.Run("POST import with application/sql body merge", func(t *testing.T) {
+		sqlBody := `
+BEGIN TRANSACTION;
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Alias Two', 'Canonical Two', 'Area Two');
+COMMIT;
+`
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(sqlBody))
+		req.Header.Set("Content-Type", "application/sql")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+		}
+
+		var res struct {
+			Status   string   `json:"status"`
+			Imported int      `json:"imported"`
+			Skipped  int      `json:"skipped"`
+			Errors   []string `json:"errors"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if res.Status != "ok" || res.Imported != 1 || res.Skipped != 0 {
+			t.Errorf("unexpected import result: %+v", res)
+		}
+
+		// Verify existing aliases are retained in merge mode
+		flat, err := store.GetCustomerAliasesFlat(ctx)
+		if err != nil {
+			t.Fatalf("GetCustomerAliasesFlat failed: %v", err)
+		}
+		if len(flat) != 3 {
+			t.Errorf("expected 3 aliases after merge import, got %d", len(flat))
+		}
+	})
+
+	t.Run("POST import with multipart form file replace", func(t *testing.T) {
+		sqlContent := `
+BEGIN TRANSACTION;
+INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Replaced Alias', 'Replaced Canonical', 'Replaced Area');
+COMMIT;
+`
+		var b bytes.Buffer
+		w := multipart.NewWriter(&b)
+		part, err := w.CreateFormFile("file", "backup.sql")
+		if err != nil {
+			t.Fatalf("CreateFormFile failed: %v", err)
+		}
+		if _, err := part.Write([]byte(sqlContent)); err != nil {
+			t.Fatalf("write to part failed: %v", err)
+		}
+		w.Close()
+
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=replace", &b)
+		req.Header.Set("Content-Type", w.FormDataContentType())
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+		}
+
+		var res struct {
+			Status   string `json:"status"`
+			Imported int    `json:"imported"`
+			Skipped  int    `json:"skipped"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&res)
+		if res.Imported != 1 {
+			t.Errorf("expected 1 imported, got %+v", res)
+		}
+
+		flat, err := store.GetCustomerAliasesFlat(ctx)
+		if err != nil {
+			t.Fatalf("GetCustomerAliasesFlat failed: %v", err)
+		}
+		if len(flat) != 1 || flat[0].Alias != "Replaced Alias" {
+			t.Errorf("expected exactly 1 replaced alias, got: %+v", flat)
+		}
+	})
+
+	t.Run("POST import invalid mode returns 400", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=invalid_mode", strings.NewReader("INSERT INTO customer_aliases VALUES ('a','b','c');"))
+		req.Header.Set("Content-Type", "application/sql")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for invalid mode, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST import empty body returns 400", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader("   "))
+		req.Header.Set("Content-Type", "application/sql")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for empty body, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST import application/json returns 400", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(`[{"alias":"a","canonical":"b"}]`))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for json content type, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST import non-SQL body returns 400", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader("Just some random text without sql"))
+		req.Header.Set("Content-Type", "text/plain")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for non-SQL body, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST import row with alias equal to canonical counts as skipped", func(t *testing.T) {
+		sqlBody := `INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Same Name', 'Same Name', '');`
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(sqlBody))
+		req.Header.Set("Content-Type", "application/sql")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+
+		var res struct {
+			Status   string   `json:"status"`
+			Imported int      `json:"imported"`
+			Skipped  int      `json:"skipped"`
+			Errors   []string `json:"errors"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&res)
+		if res.Imported != 0 || res.Skipped != 1 || len(res.Errors) != 1 {
+			t.Errorf("expected 0 imported, 1 skipped, got %+v", res)
+		}
+	})
+
+	t.Run("POST import payload too large returns 413", func(t *testing.T) {
+		// Create a body > 5MB
+		largeBody := make([]byte, (5<<20)+1024)
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", bytes.NewReader(largeBody))
+		req.Header.Set("Content-Type", "application/sql")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("expected 413 for oversized body, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("Round-trip export and import replace into fresh store", func(t *testing.T) {
+		srvFresh, storeFresh, _ := setupTestServer(t)
+
+		// 1. Export from srv
+		reqExport, _ := http.NewRequest("GET", "/api/v1/customer-aliases/export", nil)
+		respExport, err := srv.App().Test(reqExport)
+		if err != nil || respExport.StatusCode != http.StatusOK {
+			t.Fatalf("export failed: %v", err)
+		}
+		defer respExport.Body.Close()
+		dumpData, _ := io.ReadAll(respExport.Body)
+
+		// 2. Import replace into srvFresh
+		reqImport, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=replace", bytes.NewReader(dumpData))
+		reqImport.Header.Set("Content-Type", "application/sql")
+		respImport, err := srvFresh.App().Test(reqImport)
+		if err != nil || respImport.StatusCode != http.StatusOK {
+			t.Fatalf("import failed: %v", err)
+		}
+		defer respImport.Body.Close()
+
+		// 3. Verify counts match
+		aliasesOriginal, _ := store.GetCustomerAliasesFlat(ctx)
+		aliasesFresh, _ := storeFresh.GetCustomerAliasesFlat(ctx)
+		if len(aliasesOriginal) != len(aliasesFresh) {
+			t.Fatalf("count mismatch: original has %d, fresh has %d", len(aliasesOriginal), len(aliasesFresh))
 		}
 	})
 }
