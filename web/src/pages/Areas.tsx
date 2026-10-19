@@ -24,14 +24,16 @@ const MiniStatusBreakdown: Component<{ counts?: Record<string, number> }> = (pro
 
     const selesai = (counts.SELESAI || 0) + (counts.COMPLETED || 0);
     const proses = (counts.PROSES || 0) + (counts.PARTIAL || 0);
+    const belumSelesai = counts['BELUM SELESAI'] || 0;
     const batal = (counts.BATAL || 0) + (counts.CANCEL || 0);
-    const pending = total - selesai - proses - batal;
+    const pending = Math.max(0, total - selesai - proses - belumSelesai - batal);
 
     const items = [
-      { label: 'Selesai', count: selesai, pct: Math.round((selesai / total) * 100), color: 'var(--color-status-selesai, #2ec4b6)' },
-      { label: 'Proses', count: proses, pct: Math.round((proses / total) * 100), color: 'var(--color-status-proses, #ff9f1c)' },
-      { label: 'Pending', count: pending, pct: Math.round((pending / total) * 100), color: 'var(--color-status-pending, #e63946)' },
-      { label: 'Batal', count: batal, pct: Math.round((batal / total) * 100), color: 'var(--color-status-batal, #6c757d)' },
+      { label: 'Selesai', count: selesai, pct: Math.round((selesai / total) * 100), color: 'var(--color-status-selesai, #10b981)' },
+      { label: 'Proses', count: proses, pct: Math.round((proses / total) * 100), color: 'var(--color-status-proses, #f59e0b)' },
+      { label: 'Belum Selesai', count: belumSelesai, pct: Math.round((belumSelesai / total) * 100), color: 'var(--color-status-belum-selesai, #eab308)' },
+      { label: 'Pending', count: pending, pct: Math.round((pending / total) * 100), color: 'var(--color-status-pending, #a855f7)' },
+      { label: 'Batal', count: batal, pct: Math.round((batal / total) * 100), color: 'var(--color-status-batal, #ef4444)' },
     ].filter((s) => s.count > 0);
 
     return { total, items };

@@ -329,7 +329,7 @@ export const Timeline: Component = () => {
                             </Show>
                           </TableCell>
                           <TableCell>
-                            <Badge status={del.item.status_order} />
+                            <Badge status={del.item.status_order} kind="order" />
                           </TableCell>
                         </TableRow>
                       )}

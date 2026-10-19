@@ -186,6 +186,8 @@ type ListOrdersInput struct {
 	Status         string `query:"status" doc:"Filter by dominant item status_order"`
 	OrderNumber    string `query:"order_number" doc:"Filter by E-Katalog order ID (EP-...)"`
 	EcatalogNumber string `query:"ecatalog_number" doc:"Alias for order_number"`
+	Sort           string `query:"sort" doc:"Sort field"`
+	Order          string `query:"order" doc:"Sort direction (asc/desc)"`
 	Limit          int    `query:"limit" default:"50" doc:"Max orders to return (max 1000)"`
 	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
 }
@@ -195,15 +197,19 @@ type GetOrderByIDInput struct {
 }
 
 type ListItemsInput struct {
-	Customer       string `query:"customer" doc:"Filter by customer name"`
-	NamaBarang     string `query:"nama_barang" doc:"Filter by item name"`
-	StatusOrder    string `query:"status_order" doc:"Filter by order status"`
-	Date           string `query:"date" doc:"Filter by date"`
-	Tanggal        string `query:"tanggal" doc:"Alias for date"`
-	OrderNumber    string `query:"order_number" doc:"Filter by E-Katalog order ID"`
-	EcatalogNumber string `query:"ecatalog_number" doc:"Alias for order_number"`
-	Limit          int    `query:"limit" default:"50" doc:"Max items to return"`
-	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
+	Customer          string `query:"customer" doc:"Filter by customer name"`
+	NamaBarang        string `query:"nama_barang" doc:"Filter by item name"`
+	StatusOrder       string `query:"status_order" doc:"Filter by order status"`
+	StatusBarang      string `query:"status_barang" doc:"Filter by item status"`
+	StatusBarangOther bool   `query:"status_barang_other" doc:"Filter by status barang not in predefined list"`
+	Date              string `query:"date" doc:"Filter by date"`
+	Tanggal           string `query:"tanggal" doc:"Alias for date"`
+	OrderNumber       string `query:"order_number" doc:"Filter by E-Katalog order ID"`
+	EcatalogNumber    string `query:"ecatalog_number" doc:"Alias for order_number"`
+	Sort              string `query:"sort" doc:"Sort field"`
+	Order             string `query:"order" doc:"Sort direction (asc/desc)"`
+	Limit             int    `query:"limit" default:"50" doc:"Max items to return"`
+	Offset            int    `query:"offset" default:"0" doc:"Pagination offset"`
 }
 
 func (s *Server) handleHealth(ctx context.Context, input *struct{}) (*HealthOutput, error) {
@@ -305,6 +311,8 @@ func (s *Server) handleListOrders(ctx context.Context, input *ListOrdersInput) (
 		Status:         input.Status,
 		OrderNumber:    orderNumber,
 		EcatalogNumber: orderNumber,
+		Sort:           input.Sort,
+		Order:          input.Order,
 		Limit:          limit,
 		Offset:         offset,
 	})
@@ -374,15 +382,19 @@ func (s *Server) handleListItems(ctx context.Context, input *ListItemsInput) (*I
 	}
 
 	items, total, err := s.store.GetItems(ctx, storage.ItemFilter{
-		Customer:       customer,
-		NamaBarang:     namaBarang,
-		StatusOrder:    statusOrder,
-		Date:           date,
-		Tanggal:        date,
-		OrderNumber:    orderNumber,
-		EcatalogNumber: orderNumber,
-		Limit:          limit,
-		Offset:         offset,
+		Customer:          customer,
+		NamaBarang:        namaBarang,
+		StatusOrder:       statusOrder,
+		StatusBarang:      input.StatusBarang,
+		StatusBarangOther: input.StatusBarangOther,
+		Date:              date,
+		Tanggal:           date,
+		OrderNumber:       orderNumber,
+		EcatalogNumber:    orderNumber,
+		Sort:              input.Sort,
+		Order:             input.Order,
+		Limit:             limit,
+		Offset:            offset,
 	})
 	if err != nil {
 		return nil, huma.Error500InternalServerError(err.Error())
@@ -650,18 +662,26 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 	customer := c.Query("customer")
 	namaBarang := c.Query("nama_barang")
 	statusOrder := c.Query("status_order")
+	statusBarang := c.Query("status_barang")
+	statusBarangOther := c.Query("status_barang_other") == "true" || strings.EqualFold(statusBarang, "other")
+	sortField := c.Query("sort")
+	sortOrder := c.Query("order")
 	date := c.Query("date")
 	if date == "" {
 		date = c.Query("tanggal")
 	}
 
 	items, _, err := s.store.GetItems(c.Context(), storage.ItemFilter{
-		Customer:    customer,
-		NamaBarang:  namaBarang,
-		StatusOrder: statusOrder,
-		Date:        date,
-		Tanggal:     date,
-		Limit:       0,
+		Customer:          customer,
+		NamaBarang:        namaBarang,
+		StatusOrder:       statusOrder,
+		StatusBarang:      statusBarang,
+		StatusBarangOther: statusBarangOther,
+		Date:              date,
+		Tanggal:           date,
+		Sort:              sortField,
+		Order:             sortOrder,
+		Limit:             0,
 	})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())

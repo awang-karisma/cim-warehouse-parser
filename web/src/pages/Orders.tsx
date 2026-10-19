@@ -22,9 +22,10 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { DataTablePagination } from '../components/data-table-pagination';
+import { SortableTableHead } from '~/components/SortableTableHead';
 import { createUrlFilter } from '../utils/tableFilters';
 
-const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
+const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
 
  export const Orders: Component = () => {
   const filters = createUrlFilter({
@@ -52,6 +53,18 @@ const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
       defaultValue: '',
       parse: (v) => (v && VALID_STATUSES.includes(v as (typeof VALID_STATUSES)[number]) ? v : ''),
       serialize: (v) => v || null,
+    },
+    sort: {
+      key: 'sort',
+      defaultValue: 'date',
+      parse: (v) => v ?? 'date',
+      serialize: (v) => (v === 'date' ? null : v),
+    },
+    order: {
+      key: 'order',
+      defaultValue: 'desc' as 'asc' | 'desc',
+      parse: (v) => (v === 'asc' ? 'asc' : 'desc'),
+      serialize: (v) => (v === 'desc' ? null : v),
     },
     limit: {
       key: 'limit',
@@ -82,7 +95,20 @@ const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
     area: filters.values.area() || undefined,
     tanggal: filters.values.tanggal() || undefined,
     status: filters.values.status() || undefined,
+    sort: filters.values.sort(),
+    order: filters.values.order(),
   }));
+
+  const handleSort = (field: string) => {
+    const currentSort = filters.values.sort();
+    const currentOrder = filters.values.order();
+    if (currentSort === field) {
+      filters.setters.order(currentOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      filters.setters.sort(field);
+      filters.setters.order('asc');
+    }
+  };
 
   const [data] = createResource(queryParams, (params) => getOrders(params));
 
@@ -151,7 +177,7 @@ const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
             <div class="min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">Status</label>
               <Select<string>
-                options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                options={['All Statuses', 'BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
                 value={filters.values.status() || 'All Statuses'}
                 onChange={(val) => filters.setters.status(!val || val === 'All Statuses' ? '' : val)}
                 itemComponent={(props) => (
@@ -184,13 +210,49 @@ const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order ID</TableHead>
-                  <TableHead>Order / E-Katalog No.</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Area</TableHead>
-                  <TableHead class="text-right">Items</TableHead>
-                  <TableHead>Status</TableHead>
+                  <SortableTableHead
+                    field="id"
+                    label="Order ID"
+                    direction={filters.values.sort() === 'id' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="order_number"
+                    label="Order / E-Katalog No."
+                    direction={filters.values.sort() === 'order_number' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="date"
+                    label="Date"
+                    direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="customer"
+                    label="Customer"
+                    direction={filters.values.sort() === 'customer' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="area"
+                    label="Area"
+                    direction={filters.values.sort() === 'area' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="items"
+                    label="Items"
+                    class="text-right"
+                    direction={filters.values.sort() === 'items' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="status"
+                    label="Status"
+                    direction={filters.values.sort() === 'status' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
                   <TableHead class="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -238,7 +300,7 @@ const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
                               {order.total_items || order.items?.length || 0}
                             </TableCell>
                             <TableCell>
-                              <Badge status={firstStatus} />
+                              <Badge status={firstStatus} kind="order" />
                             </TableCell>
                             <TableCell class="text-right">
                               <Button

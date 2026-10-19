@@ -294,7 +294,7 @@ export const Search: Component = () => {
                             {item.jumlah}
                           </TableCell>
                           <TableCell>
-                            <Badge status={item.status_order} />
+                            <Badge status={item.status_order} kind="order" />
                           </TableCell>
                           <TableCell class="text-right">
                             <Button

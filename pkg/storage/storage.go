@@ -30,21 +30,27 @@ type OrderFilter struct {
 	Status         string `json:"status"`
 	OrderNumber    string `json:"order_number"`
 	EcatalogNumber string `json:"ecatalog_number"`
+	Sort           string `json:"sort"`
+	Order          string `json:"order"`
 	Limit          int    `json:"limit"`
 	Offset         int    `json:"offset"`
 }
 
 // ItemFilter defines filtering criteria for item queries.
 type ItemFilter struct {
-	Customer       string `json:"customer"`
-	NamaBarang     string `json:"nama_barang"`
-	StatusOrder    string `json:"status_order"`
-	Date           string `json:"date"`
-	Tanggal        string `json:"tanggal"`
-	OrderNumber    string `json:"order_number"`
-	EcatalogNumber string `json:"ecatalog_number"`
-	Limit          int    `json:"limit"`
-	Offset         int    `json:"offset"`
+	Customer          string `json:"customer"`
+	NamaBarang        string `json:"nama_barang"`
+	StatusOrder       string `json:"status_order"`
+	StatusBarang      string `json:"status_barang"`
+	StatusBarangOther bool   `json:"status_barang_other"`
+	Date              string `json:"date"`
+	Tanggal           string `json:"tanggal"`
+	OrderNumber       string `json:"order_number"`
+	EcatalogNumber    string `json:"ecatalog_number"`
+	Sort              string `json:"sort"`
+	Order             string `json:"order"`
+	Limit             int    `json:"limit"`
+	Offset            int    `json:"offset"`
 }
 
 // Delivery represents a single shipment row in the deliveries table.
@@ -1214,6 +1220,111 @@ func (s *Storage) customerMatchPatterns(ctx context.Context, query string) ([]st
 	return patterns, nil
 }
 
+func normalizedSortDirection(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "asc") {
+		return "ASC"
+	}
+	return "DESC"
+}
+
+const (
+	orderStatusRankSubquery = `COALESCE((
+		SELECT CASE UPPER(TRIM(status_order))
+			WHEN 'BELUM SELESAI' THEN 0
+			WHEN 'PROSES' THEN 1
+			WHEN 'PENDING' THEN 2
+			ELSE 3
+		END
+		FROM items
+		WHERE items.order_id = orders.id
+		ORDER BY
+			CASE UPPER(TRIM(status_order))
+				WHEN 'BELUM SELESAI' THEN 0
+				WHEN 'PROSES' THEN 1
+				WHEN 'PENDING' THEN 2
+				ELSE 3
+			END ASC,
+			LOWER(status_order) ASC
+		LIMIT 1
+	), 4)`
+
+	orderStatusNameSubquery = `COALESCE((
+		SELECT LOWER(status_order)
+		FROM items
+		WHERE items.order_id = orders.id
+		ORDER BY
+			CASE UPPER(TRIM(status_order))
+				WHEN 'BELUM SELESAI' THEN 0
+				WHEN 'PROSES' THEN 1
+				WHEN 'PENDING' THEN 2
+				ELSE 3
+			END ASC,
+			LOWER(status_order) ASC
+		LIMIT 1
+	), '')`
+
+	itemStatusRankExpr = `(CASE UPPER(TRIM(status_order))
+		WHEN 'BELUM SELESAI' THEN 0
+		WHEN 'PROSES' THEN 1
+		WHEN 'PENDING' THEN 2
+		ELSE 3
+	END)`
+)
+
+func orderSortSQL(sortField, direction string) string {
+	dir := normalizedSortDirection(direction)
+	cleanField := strings.ToLower(strings.TrimSpace(sortField))
+	switch cleanField {
+	case "", "date", "tanggal":
+		return fmt.Sprintf("tanggal %s, %s ASC, %s ASC, orders.id ASC", dir, orderStatusRankSubquery, orderStatusNameSubquery)
+	case "status":
+		return fmt.Sprintf("%s %s, %s %s, tanggal DESC, orders.id ASC", orderStatusRankSubquery, dir, orderStatusNameSubquery, dir)
+	case "id":
+		return fmt.Sprintf("orders.id %s, tanggal DESC", dir)
+	case "order_number", "ecatalog_number":
+		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') %s, tanggal DESC, orders.id ASC", dir)
+	case "customer":
+		return fmt.Sprintf("customer %s, tanggal DESC, orders.id ASC", dir)
+	case "area":
+		return fmt.Sprintf("area %s, tanggal DESC, orders.id ASC", dir)
+	case "items", "total_items":
+		return fmt.Sprintf("COALESCE(total_items, (SELECT COUNT(*) FROM items WHERE items.order_id = orders.id)) %s, tanggal DESC, orders.id ASC", dir)
+	default:
+		return fmt.Sprintf("tanggal DESC, %s ASC, %s ASC, orders.id ASC", orderStatusRankSubquery, orderStatusNameSubquery)
+	}
+}
+
+func itemSortSQL(sortField, direction string) string {
+	dir := normalizedSortDirection(direction)
+	cleanField := strings.ToLower(strings.TrimSpace(sortField))
+	switch cleanField {
+	case "", "date", "tanggal":
+		return fmt.Sprintf("tanggal %s, %s ASC, LOWER(status_order) ASC, id ASC", dir, itemStatusRankExpr)
+	case "status", "status_order":
+		return fmt.Sprintf("%s %s, LOWER(status_order) %s, tanggal DESC, id ASC", itemStatusRankExpr, dir, dir)
+	case "row_index":
+		return fmt.Sprintf("row_index %s, tanggal DESC, id ASC", dir)
+	case "order_number", "ecatalog_number":
+		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') %s, tanggal DESC, id ASC", dir)
+	case "customer":
+		return fmt.Sprintf("customer %s, tanggal DESC, id ASC", dir)
+	case "area":
+		return fmt.Sprintf("area %s, tanggal DESC, id ASC", dir)
+	case "nama_barang":
+		return fmt.Sprintf("nama_barang %s, tanggal DESC, id ASC", dir)
+	case "jumlah":
+		return fmt.Sprintf("CAST(jumlah AS REAL) %s, tanggal DESC, id ASC", dir)
+	case "status_barang":
+		return fmt.Sprintf("status_barang %s, tanggal DESC, id ASC", dir)
+	case "tanggal_pengiriman":
+		return fmt.Sprintf("tanggal_pengiriman %s, tanggal DESC, id ASC", dir)
+	case "catatan", "notes":
+		return fmt.Sprintf("catatan %s, tanggal DESC, id ASC", dir)
+	default:
+		return fmt.Sprintf("tanggal DESC, %s ASC, LOWER(status_order) ASC, id ASC", itemStatusRankExpr)
+	}
+}
+
 // GetOrders retrieves orders matching the filter criteria with pagination support.
 // Returns matched orders slice, total count before pagination, and any error.
 func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Order, int, error) {
@@ -1268,7 +1379,7 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		args = append(args, orderNum)
 	}
 	if filter.Status != "" {
-		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE status_order = ?)")
+		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(status_order)) = UPPER(TRIM(?)))")
 		args = append(args, filter.Status)
 	}
 
@@ -1286,7 +1397,7 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		return []model.Order{}, 0, nil
 	}
 
-	selectQuery := "SELECT id, order_number, ecatalog_number, tanggal, customer, area FROM orders" + whereClause + " ORDER BY id"
+	selectQuery := "SELECT id, order_number, ecatalog_number, tanggal, customer, area FROM orders" + whereClause + " ORDER BY " + orderSortSQL(filter.Sort, filter.Order)
 	queryArgs := append([]any{}, args...)
 	if filter.Limit > 0 {
 		selectQuery += " LIMIT ?"
@@ -1452,8 +1563,14 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 		args = append(args, "%"+filter.NamaBarang+"%")
 	}
 	if filter.StatusOrder != "" {
-		conditions = append(conditions, "status_order LIKE ?")
-		args = append(args, "%"+filter.StatusOrder+"%")
+		conditions = append(conditions, "UPPER(TRIM(status_order)) = UPPER(TRIM(?))")
+		args = append(args, filter.StatusOrder)
+	}
+	if filter.StatusBarangOther || strings.EqualFold(filter.StatusBarang, "other") {
+		conditions = append(conditions, "TRIM(COALESCE(status_barang, '')) != '' AND UPPER(TRIM(status_barang)) NOT IN ('PROSES ORDER', 'STOK GUDANG', 'STOK KOSONG', 'DELIVERY VENDOR', 'DONE')")
+	} else if filter.StatusBarang != "" && !strings.EqualFold(filter.StatusBarang, "all") {
+		conditions = append(conditions, "UPPER(TRIM(status_barang)) = UPPER(TRIM(?))")
+		args = append(args, strings.TrimSpace(filter.StatusBarang))
 	}
 
 	date := filter.Date
@@ -1499,7 +1616,7 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 		       tanggal_pengiriman, lead_time_pengiriman, jumlah_terkirim, belum_terkirim,
 		       status_order, status_barang, keterangan, catatan
 		FROM items
-	` + whereClause + " ORDER BY id"
+	` + whereClause + " ORDER BY " + itemSortSQL(filter.Sort, filter.Order)
 
 	queryArgs := append([]any{}, args...)
 	if filter.Limit > 0 {

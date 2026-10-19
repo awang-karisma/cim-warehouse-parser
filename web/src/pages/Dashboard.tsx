@@ -44,15 +44,18 @@ export const Dashboard: Component = () => {
 
     let selesai = 0;
     let proses = 0;
-    let batal = 0;
+    let belumSelesai = 0;
     let pending = 0;
+    let batal = 0;
 
     for (const [k, v] of Object.entries(counts)) {
-      const upper = k ? k.toUpperCase() : '';
+      const upper = k ? k.trim().toUpperCase() : '';
       if (upper === 'SELESAI' || upper === 'COMPLETED') {
         selesai += v;
       } else if (upper === 'PROSES' || upper === 'PARTIAL') {
         proses += v;
+      } else if (upper === 'BELUM SELESAI') {
+        belumSelesai += v;
       } else if (upper === 'BATAL' || upper === 'CANCEL') {
         batal += v;
       } else {
@@ -62,14 +65,16 @@ export const Dashboard: Component = () => {
 
     const pctSelesai = Math.round((selesai / total) * 100);
     const pctProses = Math.round((proses / total) * 100);
+    const pctBelumSelesai = Math.round((belumSelesai / total) * 100);
     const pctBatal = Math.round((batal / total) * 100);
-    const pctPending = Math.max(0, 100 - pctSelesai - pctProses - pctBatal);
+    const pctPending = Math.max(0, 100 - pctSelesai - pctProses - pctBelumSelesai - pctBatal);
 
     const segments = [
-      { key: 'SELESAI', label: 'Selesai', count: selesai, pct: pctSelesai, color: 'var(--color-status-selesai, #2ec4b6)' },
-      { key: 'PROSES', label: 'Proses', count: proses, pct: pctProses, color: 'var(--color-status-proses, #ff9f1c)' },
-      { key: 'PENDING', label: 'Pending', count: pending, pct: pctPending, color: 'var(--color-status-pending, #e63946)' },
-      { key: 'BATAL', label: 'Batal', count: batal, pct: pctBatal, color: 'var(--color-status-batal, #6c757d)' },
+      { key: 'SELESAI', label: 'Selesai', count: selesai, pct: pctSelesai, color: 'var(--color-status-selesai, #10b981)' },
+      { key: 'PROSES', label: 'Proses', count: proses, pct: pctProses, color: 'var(--color-status-proses, #f59e0b)' },
+      { key: 'BELUM SELESAI', label: 'Belum Selesai', count: belumSelesai, pct: pctBelumSelesai, color: 'var(--color-status-belum-selesai, #eab308)' },
+      { key: 'PENDING', label: 'Pending', count: pending, pct: pctPending, color: 'var(--color-status-pending, #a855f7)' },
+      { key: 'BATAL', label: 'Batal', count: batal, pct: pctBatal, color: 'var(--color-status-batal, #ef4444)' },
     ].filter((s) => s.count > 0);
 
     return { total, segments };
@@ -200,7 +205,7 @@ export const Dashboard: Component = () => {
                         return (
                           <TableRow>
                             <TableCell>
-                              <Badge status={status} />
+                              <Badge status={status} kind="order" />
                             </TableCell>
                             <TableCell class="text-right font-medium">{count.toLocaleString()}</TableCell>
                             <TableCell class="text-right text-muted-foreground">{pct}%</TableCell>
@@ -261,7 +266,7 @@ export const Dashboard: Component = () => {
                             {formatSyncTime(rec.synced_at)}
                           </TableCell>
                           <TableCell>
-                            <Badge status={rec.status} />
+                            <Badge status={rec.status} kind="sync" />
                           </TableCell>
                           <TableCell class="text-right font-medium">{rec.items_count}</TableCell>
                           <TableCell class="text-right text-muted-foreground font-mono text-xs">
@@ -339,7 +344,7 @@ export const Dashboard: Component = () => {
                             {order.total_items || order.items?.length || 0}
                           </TableCell>
                           <TableCell>
-                            <Badge status={firstStatus} />
+                            <Badge status={firstStatus} kind="order" />
                           </TableCell>
                         </TableRow>
                       );

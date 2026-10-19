@@ -51,6 +51,8 @@ export const getOrders = (params?: {
   status?: string;
   order_number?: string;
   ecatalog_number?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
 }) => {
@@ -64,10 +66,14 @@ export const getItems = (params?: {
   customer?: string;
   nama_barang?: string;
   status_order?: string;
+  status_barang?: string;
+  status_barang_other?: boolean;
   date?: string;
   tanggal?: string;
   order_number?: string;
   ecatalog_number?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
 }) => {

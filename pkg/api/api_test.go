@@ -1500,3 +1500,102 @@ COMMIT;
 		}
 	})
 }
+
+func TestOrdersAndItems_FilteringAndSortingAPI(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+
+	customItems := []model.NormalizedItem{
+		{
+			RowIndex:     10,
+			Tanggal:      model.ParseDate("15/01/2026"),
+			Customer:     "Hospital Alpha",
+			StatusOrder:  "BELUM SELESAI",
+			StatusBarang: "STOK GUDANG",
+			NamaBarang:   "Syringe",
+		},
+		{
+			RowIndex:     11,
+			Tanggal:      model.ParseDate("14/01/2026"),
+			Customer:     "Hospital Beta",
+			StatusOrder:  "PROSES",
+			StatusBarang: "VENDOR TRANSIT",
+			NamaBarang:   "Catheter",
+		},
+	}
+	customOrders := []model.Order{
+		{
+			ID:       "ORD-ALPHA",
+			Tanggal:  model.ParseDate("15/01/2026"),
+			Customer: "Hospital Alpha",
+			Items:    []model.OrderItem{{RowIndex: 10, StatusOrder: "BELUM SELESAI", StatusBarang: "STOK GUDANG"}},
+		},
+		{
+			ID:       "ORD-BETA",
+			Tanggal:  model.ParseDate("14/01/2026"),
+			Customer: "Hospital Beta",
+			Items:    []model.OrderItem{{RowIndex: 11, StatusOrder: "PROSES", StatusBarang: "VENDOR TRANSIT"}},
+		},
+	}
+	if err := store.SyncMirror(ctx, customItems, customOrders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Test 1: GET /api/v1/orders?status=BELUM SELESAI
+	req1, _ := http.NewRequest("GET", "/api/v1/orders?status=BELUM%20SELESAI", nil)
+	resp1, err := srv.App().Test(req1)
+	if err != nil || resp1.StatusCode != http.StatusOK {
+		t.Fatalf("GET orders BELUM SELESAI failed: %v, code=%d", err, resp1.StatusCode)
+	}
+	var ordersBody struct {
+		Total  int           `json:"total"`
+		Orders []model.Order `json:"orders"`
+	}
+	_ = json.NewDecoder(resp1.Body).Decode(&ordersBody)
+	if ordersBody.Total != 1 || len(ordersBody.Orders) != 1 || ordersBody.Orders[0].ID != "ORD-ALPHA" {
+		t.Fatalf("expected 1 order ORD-ALPHA, got %d orders", ordersBody.Total)
+	}
+
+	// Test 2: GET /api/v1/items?status_barang=STOK GUDANG
+	req2, _ := http.NewRequest("GET", "/api/v1/items?status_barang=STOK%20GUDANG", nil)
+	resp2, err := srv.App().Test(req2)
+	if err != nil || resp2.StatusCode != http.StatusOK {
+		t.Fatalf("GET items STOK GUDANG failed: %v, code=%d", err, resp2.StatusCode)
+	}
+	var itemsBody struct {
+		Total int                    `json:"total"`
+		Items []model.NormalizedItem `json:"items"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&itemsBody)
+	if itemsBody.Total != 1 || len(itemsBody.Items) != 1 || itemsBody.Items[0].RowIndex != 10 {
+		t.Fatalf("expected 1 item with RowIndex 10, got %d items", itemsBody.Total)
+	}
+
+	// Test 3: GET /api/v1/items?status_barang=OTHER
+	req3, _ := http.NewRequest("GET", "/api/v1/items?status_barang=OTHER", nil)
+	resp3, err := srv.App().Test(req3)
+	if err != nil || resp3.StatusCode != http.StatusOK {
+		t.Fatalf("GET items status_barang=OTHER failed: %v, code=%d", err, resp3.StatusCode)
+	}
+	var itemsBodyOther struct {
+		Total int                    `json:"total"`
+		Items []model.NormalizedItem `json:"items"`
+	}
+	_ = json.NewDecoder(resp3.Body).Decode(&itemsBodyOther)
+	if itemsBodyOther.Total != 1 || len(itemsBodyOther.Items) != 1 || itemsBodyOther.Items[0].StatusBarang != "VENDOR TRANSIT" {
+		t.Fatalf("expected 1 item with VENDOR TRANSIT, got %d items", itemsBodyOther.Total)
+	}
+
+	// Test 4: GET /api/v1/items/export?status_barang=OTHER
+	req4, _ := http.NewRequest("GET", "/api/v1/items/export?status_barang=OTHER", nil)
+	resp4, err := srv.App().Test(req4)
+	if err != nil || resp4.StatusCode != http.StatusOK {
+		t.Fatalf("GET items/export failed: %v, code=%d", err, resp4.StatusCode)
+	}
+	defer resp4.Body.Close()
+	csvBytes, _ := io.ReadAll(resp4.Body)
+	csvStr := string(csvBytes)
+	if !strings.Contains(csvStr, "VENDOR TRANSIT") || strings.Contains(csvStr, "STOK GUDANG") {
+		t.Fatalf("expected exported CSV to include VENDOR TRANSIT and exclude STOK GUDANG, got: %s", csvStr)
+	}
+}

@@ -23,10 +23,11 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { DataTablePagination } from '../components/data-table-pagination';
+import { SortableTableHead } from '~/components/SortableTableHead';
 import { createUrlFilter } from '../utils/tableFilters';
 
-const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
-
+const VALID_STATUS_ORDERS = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
+const STATUS_BARANG_OPTIONS = ['All', 'PROSES ORDER', 'STOK GUDANG', 'STOK KOSONG', 'DELIVERY VENDOR', 'DONE', 'OTHER'] as const;
 export const Items: Component = () => {
   const filters = createUrlFilter({
     customer: {
@@ -46,14 +47,36 @@ export const Items: Component = () => {
     status_order: {
       key: 'status_order',
       defaultValue: '',
-      parse: (v) => (v && VALID_STATUSES.includes(v as (typeof VALID_STATUSES)[number]) ? v : ''),
+      parse: (v) => (v && VALID_STATUS_ORDERS.includes(v as (typeof VALID_STATUS_ORDERS)[number]) ? v : ''),
       serialize: (v) => v || null,
+    },
+    status_barang: {
+      key: 'status_barang',
+      defaultValue: '',
+      parse: (v) => {
+        if (!v) return '';
+        const found = STATUS_BARANG_OPTIONS.find((opt) => opt.toLowerCase() === v.toLowerCase());
+        return found && found !== 'All' ? found : '';
+      },
+      serialize: (v) => (v && v !== 'All' ? v : null),
     },
     tanggal: {
       key: 'tanggal',
       defaultValue: '',
       parse: (v) => v ?? '',
       serialize: (v) => v || null,
+    },
+    sort: {
+      key: 'sort',
+      defaultValue: 'date',
+      parse: (v) => v ?? 'date',
+      serialize: (v) => (v === 'date' ? null : v),
+    },
+    order: {
+      key: 'order',
+      defaultValue: 'desc' as 'asc' | 'desc',
+      parse: (v) => (v === 'asc' ? 'asc' : 'desc'),
+      serialize: (v) => (v === 'desc' ? null : v),
     },
     limit: {
       key: 'limit',
@@ -75,14 +98,21 @@ export const Items: Component = () => {
     },
   });
 
-  const queryParams = createMemo(() => ({
-    limit: filters.values.limit(),
-    offset: filters.values.offset(),
-    customer: filters.debouncedValues.customer() || undefined,
-    nama_barang: filters.debouncedValues.nama_barang() || undefined,
-    status_order: filters.values.status_order() || undefined,
-    tanggal: filters.values.tanggal() || undefined,
-  }));
+  const queryParams = createMemo(() => {
+    const sb = filters.values.status_barang();
+    return {
+      limit: filters.values.limit(),
+      offset: filters.values.offset(),
+      customer: filters.debouncedValues.customer() || undefined,
+      nama_barang: filters.debouncedValues.nama_barang() || undefined,
+      status_order: filters.values.status_order() || undefined,
+      status_barang: sb && sb !== 'All' ? sb : undefined,
+      status_barang_other: sb === 'OTHER' ? true : undefined,
+      tanggal: filters.values.tanggal() || undefined,
+      sort: filters.values.sort(),
+      order: filters.values.order(),
+    };
+  });
 
   const [data] = createResource(queryParams, (params) => getItems(params));
 
@@ -96,16 +126,38 @@ export const Items: Component = () => {
     filters.setters.offset(0);
   };
 
+  const handleSort = (field: string) => {
+    const currentSort = filters.values.sort();
+    const currentOrder = filters.values.order();
+    if (currentSort === field) {
+      filters.setters.order(currentOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      filters.setters.sort(field);
+      filters.setters.order('asc');
+    }
+  };
+
   const getExportUrl = () => {
     const p = new URLSearchParams();
     const customer = filters.values.customer();
     const namaBarang = filters.values.nama_barang();
     const statusOrder = filters.values.status_order();
+    const statusBarang = filters.values.status_barang();
     const tanggal = filters.values.tanggal();
+    const sort = filters.values.sort();
+    const order = filters.values.order();
     if (customer) p.set('customer', customer);
     if (namaBarang) p.set('nama_barang', namaBarang);
     if (statusOrder) p.set('status_order', statusOrder);
+    if (statusBarang && statusBarang !== 'All') {
+      p.set('status_barang', statusBarang);
+      if (statusBarang === 'OTHER') {
+        p.set('status_barang_other', 'true');
+      }
+    }
     if (tanggal) p.set('tanggal', tanggal);
+    if (sort && sort !== 'date') p.set('sort', sort);
+    if (order && order !== 'desc') p.set('order', order);
     return `/api/v1/items/export?${p.toString()}`;
   };
 
@@ -136,7 +188,7 @@ export const Items: Component = () => {
             <div class="min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">Status Order</label>
               <Select<string>
-                options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                options={['All Statuses', ...VALID_STATUS_ORDERS]}
                 value={filters.values.status_order() || 'All Statuses'}
                 onChange={(val) => filters.setters.status_order(!val || val === 'All Statuses' ? '' : val)}
                 itemComponent={(props) => (
@@ -145,6 +197,23 @@ export const Items: Component = () => {
               >
                 <SelectTrigger class="h-9">
                   <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
+                </SelectTrigger>
+                <SelectContent />
+              </Select>
+            </div>
+
+            <div class="min-w-[150px] flex flex-col gap-1">
+              <label class="text-xs font-semibold text-muted-foreground">Status Barang</label>
+              <Select<string>
+                options={STATUS_BARANG_OPTIONS as unknown as string[]}
+                value={filters.values.status_barang() || 'All'}
+                onChange={(val) => filters.setters.status_barang(!val || val === 'All' ? '' : val)}
+                itemComponent={(props) => (
+                  <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
+                )}
+              >
+                <SelectTrigger class="h-9">
+                  <SelectValue<string>>{(state) => state.selectedOption() || 'All'}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
@@ -195,17 +264,74 @@ export const Items: Component = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead class="w-12">Row</TableHead>
-                  <TableHead>Order No.</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Area</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Item Name</TableHead>
-                  <TableHead class="text-right">Qty</TableHead>
-                  <TableHead>Status Order</TableHead>
-                  <TableHead>Status Barang</TableHead>
-                  <TableHead>Delivery Date</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <SortableTableHead
+                    field="row_index"
+                    label="Row"
+                    class="w-12"
+                    direction={filters.values.sort() === 'row_index' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="order_number"
+                    label="Order No."
+                    direction={filters.values.sort() === 'order_number' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="customer"
+                    label="Customer"
+                    direction={filters.values.sort() === 'customer' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="area"
+                    label="Area"
+                    direction={filters.values.sort() === 'area' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="date"
+                    label="Date"
+                    direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="nama_barang"
+                    label="Item Name"
+                    direction={filters.values.sort() === 'nama_barang' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="jumlah"
+                    label="Qty"
+                    class="text-right"
+                    direction={filters.values.sort() === 'jumlah' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="status_order"
+                    label="Status Order"
+                    direction={filters.values.sort() === 'status_order' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="status_barang"
+                    label="Status Barang"
+                    direction={filters.values.sort() === 'status_barang' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="tanggal_pengiriman"
+                    label="Delivery Date"
+                    direction={filters.values.sort() === 'tanggal_pengiriman' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    field="catatan"
+                    label="Notes"
+                    direction={filters.values.sort() === 'catatan' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -260,10 +386,10 @@ export const Items: Component = () => {
                             {item.jumlah} {item.satuan}
                           </TableCell>
                           <TableCell>
-                            <Badge status={item.status_order} />
+                            <Badge status={item.status_order} kind="order" />
                           </TableCell>
                           <TableCell>
-                            <Badge status={item.status_barang} />
+                            <Badge status={item.status_barang} kind="item" />
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground">
                             {item.tanggal_pengiriman || '-'}

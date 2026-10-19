@@ -102,7 +102,7 @@ export const OrderDetail: Component = () => {
               <div class="space-y-1">
                 <div class="flex items-center gap-2">
                   <CardTitle class="text-xl font-bold">{order()!.customer}</CardTitle>
-                  <Badge status={order()!.items?.[0]?.status_order || 'PENDING'} pill />
+                  <Badge status={order()!.items?.[0]?.status_order || 'PENDING'} kind="order" pill />
                 </div>
                 <CardDescription>
                   {order()!.area || 'No regional area specified'}
@@ -207,10 +207,10 @@ export const OrderDetail: Component = () => {
                             {item.jumlah_terkirim || '0'} / {item.belum_terkirim || '0'}
                           </TableCell>
                           <TableCell>
-                            <Badge status={item.status_order} />
+                            <Badge status={item.status_order} kind="order" />
                           </TableCell>
                           <TableCell>
-                            <Badge status={item.status_barang} />
+                            <Badge status={item.status_barang} kind="item" />
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground max-w-[200px] truncate">
                             {item.keterangan || item.catatan || '-'}

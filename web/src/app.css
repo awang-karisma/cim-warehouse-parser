@@ -42,8 +42,8 @@
   --color-status-proses: var(--status-proses);
   --color-status-pending: var(--status-pending);
   --color-status-batal: var(--status-batal);
+  --color-status-belum-selesai: var(--status-belum-selesai);
 }
-
 :root {
   --background: 0 0% 100%;
   --foreground: 240 10% 3.9%;
@@ -77,10 +77,10 @@
 
   --status-selesai: #10b981;
   --status-proses: #f59e0b;
-  --status-pending: #ef4444;
-  --status-batal: #71717a;
+  --status-pending: #a855f7;
+  --status-batal: #ef4444;
+  --status-belum-selesai: #eab308;
 }
-
 .dark,
 [data-kb-theme="dark"] {
   --background: 240 10% 3.9%;
@@ -114,8 +114,9 @@
 
   --status-selesai: #34d399;
   --status-proses: #fbbf24;
-  --status-pending: #f87171;
-  --status-batal: #a1a1aa;
+  --status-pending: #c084fc;
+  --status-batal: #f87171;
+  --status-belum-selesai: #facc15;
 }
 
 body {

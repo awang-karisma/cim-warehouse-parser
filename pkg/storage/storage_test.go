@@ -345,7 +345,7 @@ func TestSyncMirror_AndQueries(t *testing.T) {
 	if len(pagedOrders) != 2 {
 		t.Fatalf("expected 2 paged orders, got %d", len(pagedOrders))
 	}
-	if pagedOrders[0].ID != "ORD-0002" || pagedOrders[1].ID != "ORD-0003" {
+	if pagedOrders[0].ID != "ORD-0002" || pagedOrders[1].ID != "ORD-0001" {
 		t.Errorf("unexpected paged order IDs: %v, %v", pagedOrders[0].ID, pagedOrders[1].ID)
 	}
 
@@ -1237,7 +1237,7 @@ func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 	}
 
 	// Verify original item table has 3 rows with unchanged date strings
-	storedItems, totalItems, err := store.GetItems(ctx, storage.ItemFilter{})
+	storedItems, totalItems, err := store.GetItems(ctx, storage.ItemFilter{Sort: "row_index", Order: "asc"})
 	if err != nil || totalItems != 3 {
 		t.Fatalf("expected 3 items, got %d (err: %v)", totalItems, err)
 	}
@@ -1961,5 +1961,133 @@ INSERT INTO some_other_table VALUES ('foo', 'bar');
 	}
 	if resNoAliases.Imported != 0 || len(resNoAliases.Errors) == 0 {
 		t.Errorf("expected 0 imported and descriptive error message, got %+v", resNoAliases)
+	}
+}
+
+func TestGetOrdersAndItems_FilteringAndSorting(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test_filtering_sorting.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items := []model.NormalizedItem{
+		{
+			RowIndex:     1,
+			Tanggal:      model.ParseDate("10/01/2026"),
+			Customer:     "Hospital A",
+			StatusOrder:  "SELESAI",
+			StatusBarang: "STOK GUDANG",
+			NamaBarang:   "Item 1",
+		},
+		{
+			RowIndex:     2,
+			Tanggal:      model.ParseDate("10/01/2026"),
+			Customer:     "Hospital B",
+			StatusOrder:  "BELUM SELESAI",
+			StatusBarang: "PROSES ORDER",
+			NamaBarang:   "Item 2",
+		},
+		{
+			RowIndex:     3,
+			Tanggal:      model.ParseDate("10/01/2026"),
+			Customer:     "Hospital C",
+			StatusOrder:  "PROSES",
+			StatusBarang: "CUSTOM STATUS",
+			NamaBarang:   "Item 3",
+		},
+		{
+			RowIndex:     4,
+			Tanggal:      model.ParseDate("09/01/2026"),
+			Customer:     "Hospital D",
+			StatusOrder:  "PENDING",
+			StatusBarang: "",
+			NamaBarang:   "Item 4",
+		},
+	}
+
+	orders := []model.Order{
+		{
+			ID:       "ORD-A",
+			Tanggal:  model.ParseDate("10/01/2026"),
+			Customer: "Hospital A",
+			Items:    []model.OrderItem{{RowIndex: 1, StatusOrder: "SELESAI", StatusBarang: "STOK GUDANG"}},
+		},
+		{
+			ID:       "ORD-B",
+			Tanggal:  model.ParseDate("10/01/2026"),
+			Customer: "Hospital B",
+			Items:    []model.OrderItem{{RowIndex: 2, StatusOrder: "BELUM SELESAI", StatusBarang: "PROSES ORDER"}},
+		},
+		{
+			ID:       "ORD-C",
+			Tanggal:  model.ParseDate("10/01/2026"),
+			Customer: "Hospital C",
+			Items:    []model.OrderItem{{RowIndex: 3, StatusOrder: "PROSES", StatusBarang: "CUSTOM STATUS"}},
+		},
+		{
+			ID:       "ORD-D",
+			Tanggal:  model.ParseDate("09/01/2026"),
+			Customer: "Hospital D",
+			Items:    []model.OrderItem{{RowIndex: 4, StatusOrder: "PENDING", StatusBarang: ""}},
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// 1. Filter Orders by BELUM SELESAI
+	ordersBelum, count, err := store.GetOrders(ctx, storage.OrderFilter{Status: "BELUM SELESAI"})
+	if err != nil {
+		t.Fatalf("GetOrders BELUM SELESAI failed: %v", err)
+	}
+	if count != 1 || len(ordersBelum) != 1 || ordersBelum[0].ID != "ORD-B" {
+		t.Fatalf("expected only ORD-B for BELUM SELESAI, got %d orders: %+v", count, ordersBelum)
+	}
+
+	// 2. Filter Items by BELUM SELESAI
+	itemsBelum, countItems, err := store.GetItems(ctx, storage.ItemFilter{StatusOrder: "BELUM SELESAI"})
+	if err != nil {
+		t.Fatalf("GetItems BELUM SELESAI failed: %v", err)
+	}
+	if countItems != 1 || len(itemsBelum) != 1 || itemsBelum[0].RowIndex != 2 {
+		t.Fatalf("expected item with RowIndex 2 for BELUM SELESAI, got %d items", countItems)
+	}
+
+	// 3. Filter Items by exact STOK GUDANG
+	itemsStok, countStok, err := store.GetItems(ctx, storage.ItemFilter{StatusBarang: "STOK GUDANG"})
+	if err != nil {
+		t.Fatalf("GetItems STOK GUDANG failed: %v", err)
+	}
+	if countStok != 1 || len(itemsStok) != 1 || itemsStok[0].RowIndex != 1 {
+		t.Fatalf("expected item with RowIndex 1 for STOK GUDANG, got %d items", countStok)
+	}
+
+	// 4. Filter Items by OTHER status barang
+	itemsOther, countOther, err := store.GetItems(ctx, storage.ItemFilter{StatusBarangOther: true})
+	if err != nil {
+		t.Fatalf("GetItems OTHER failed: %v", err)
+	}
+	if countOther != 1 || len(itemsOther) != 1 || itemsOther[0].StatusBarang != "CUSTOM STATUS" {
+		t.Fatalf("expected 1 CUSTOM STATUS item for OTHER, got %d items: %+v", countOther, itemsOther)
+	}
+
+	// 5. Default Date sorting for orders: 10/01/2026 before 09/01/2026.
+	// On same date (10/01/2026), priority is: BELUM SELESAI (ORD-B), PROSES (ORD-C), SELESAI (ORD-A)
+	sortedOrders, _, err := store.GetOrders(ctx, storage.OrderFilter{Sort: "date", Order: "desc"})
+	if err != nil {
+		t.Fatalf("GetOrders sort date failed: %v", err)
+	}
+	expectedOrderIDs := []string{"ORD-B", "ORD-C", "ORD-A", "ORD-D"}
+	if len(sortedOrders) != len(expectedOrderIDs) {
+		t.Fatalf("expected %d orders, got %d", len(expectedOrderIDs), len(sortedOrders))
+	}
+	for i, expectedID := range expectedOrderIDs {
+		if sortedOrders[i].ID != expectedID {
+			t.Errorf("order sort mismatch at %d: expected %s, got %s", i, expectedID, sortedOrders[i].ID)
+		}
 	}
 }

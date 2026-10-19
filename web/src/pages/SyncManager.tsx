@@ -94,6 +94,7 @@ export const SyncManager: Component = () => {
               <CardTitle class="text-base font-semibold">Live Worker State</CardTitle>
               <Badge
                 status={isSyncing() ? 'SYNCING' : status()?.status || 'IDLE'}
+                kind="sync"
                 pill
               />
             </div>
@@ -301,7 +302,7 @@ export const SyncManager: Component = () => {
                             {formatDateTime(rec.synced_at)}
                           </TableCell>
                           <TableCell>
-                            <Badge status={rec.status} />
+                            <Badge status={rec.status} kind="sync" />
                           </TableCell>
                           <TableCell class="text-right font-medium text-xs">
                             {rec.items_count} items
