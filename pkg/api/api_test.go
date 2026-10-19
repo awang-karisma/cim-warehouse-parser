@@ -1599,3 +1599,52 @@ func TestOrdersAndItems_FilteringAndSortingAPI(t *testing.T) {
 		t.Fatalf("expected exported CSV to include VENDOR TRANSIT and exclude STOK GUDANG, got: %s", csvStr)
 	}
 }
+
+func TestOrdersAndItems_SortingHTTP(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+
+	items := []model.NormalizedItem{
+		{RowIndex: 1, Tanggal: model.ParseDate("10/01/2026"), Customer: "Zebra Hospital", StatusOrder: "SELESAI", NamaBarang: "Item Z"},
+		{RowIndex: 2, Tanggal: model.ParseDate("10/01/2026"), Customer: "Alpha Hospital", StatusOrder: "SELESAI", NamaBarang: "Item A"},
+	}
+	orders := []model.Order{
+		{ID: "ORD-Z", Tanggal: model.ParseDate("10/01/2026"), Customer: "Zebra Hospital", Items: []model.OrderItem{{RowIndex: 1, StatusOrder: "SELESAI"}}},
+		{ID: "ORD-A", Tanggal: model.ParseDate("10/01/2026"), Customer: "Alpha Hospital", Items: []model.OrderItem{{RowIndex: 2, StatusOrder: "SELESAI"}}},
+	}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	reqAsc, _ := http.NewRequest("GET", "/api/v1/orders?sort=customer&order=asc", nil)
+	respAsc, err := srv.App().Test(reqAsc)
+	if err != nil || respAsc.StatusCode != http.StatusOK {
+		t.Fatalf("GET orders asc failed: %v", err)
+	}
+	var bodyAsc struct {
+		Orders []model.Order `json:"orders"`
+	}
+	_ = json.NewDecoder(respAsc.Body).Decode(&bodyAsc)
+	if len(bodyAsc.Orders) < 2 {
+		t.Fatalf("expected at least 2 orders, got %d", len(bodyAsc.Orders))
+	}
+	t.Logf("Asc order 0: %s, order 1: %s", bodyAsc.Orders[0].Customer, bodyAsc.Orders[1].Customer)
+
+	reqDesc, _ := http.NewRequest("GET", "/api/v1/orders?sort=customer&order=desc", nil)
+	respDesc, err := srv.App().Test(reqDesc)
+	if err != nil || respDesc.StatusCode != http.StatusOK {
+		t.Fatalf("GET orders desc failed: %v", err)
+	}
+	var bodyDesc struct {
+		Orders []model.Order `json:"orders"`
+	}
+	_ = json.NewDecoder(respDesc.Body).Decode(&bodyDesc)
+	t.Logf("Desc order 0: %s, order 1: %s", bodyDesc.Orders[0].Customer, bodyDesc.Orders[1].Customer)
+
+	if bodyAsc.Orders[0].Customer != "Alpha Hospital" {
+		t.Errorf("expected Alpha Hospital first for asc, got %s", bodyAsc.Orders[0].Customer)
+	}
+	if bodyDesc.Orders[0].Customer != "Zebra Hospital" {
+		t.Errorf("expected Zebra Hospital first for desc, got %s", bodyDesc.Orders[0].Customer)
+	}
+}

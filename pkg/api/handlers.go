@@ -187,9 +187,37 @@ type ListOrdersInput struct {
 	OrderNumber    string `query:"order_number" doc:"Filter by E-Katalog order ID (EP-...)"`
 	EcatalogNumber string `query:"ecatalog_number" doc:"Alias for order_number"`
 	Sort           string `query:"sort" doc:"Sort field"`
-	Order          string `query:"order" doc:"Sort direction (asc/desc)"`
+	OrderBy        string `query:"order_by" doc:"Alias for sort field"`
+	Order          string `query:"order" doc:"Sort direction (asc/desc) or sort field"`
+	Dir            string `query:"dir" doc:"Sort direction (asc/desc)"`
+	Direction      string `query:"direction" doc:"Alias for sort direction"`
 	Limit          int    `query:"limit" default:"50" doc:"Max orders to return (max 1000)"`
 	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
+}
+
+func resolveSortAndOrder(sort, orderBy, order, dir, direction string) (string, string) {
+	s := strings.TrimSpace(sort)
+	if s == "" {
+		s = strings.TrimSpace(orderBy)
+	}
+
+	d := strings.TrimSpace(dir)
+	if d == "" {
+		d = strings.TrimSpace(direction)
+	}
+
+	o := strings.TrimSpace(order)
+	if strings.EqualFold(o, "asc") || strings.EqualFold(o, "desc") {
+		if d == "" {
+			d = o
+		}
+	} else if o != "" && s == "" {
+		s = o
+	} else if d == "" {
+		d = o
+	}
+
+	return s, d
 }
 
 type GetOrderByIDInput struct {
@@ -207,7 +235,10 @@ type ListItemsInput struct {
 	OrderNumber       string `query:"order_number" doc:"Filter by E-Katalog order ID"`
 	EcatalogNumber    string `query:"ecatalog_number" doc:"Alias for order_number"`
 	Sort              string `query:"sort" doc:"Sort field"`
-	Order             string `query:"order" doc:"Sort direction (asc/desc)"`
+	OrderBy           string `query:"order_by" doc:"Alias for sort field"`
+	Order             string `query:"order" doc:"Sort direction (asc/desc) or sort field"`
+	Dir               string `query:"dir" doc:"Sort direction (asc/desc)"`
+	Direction         string `query:"direction" doc:"Alias for sort direction"`
 	Limit             int    `query:"limit" default:"50" doc:"Max items to return"`
 	Offset            int    `query:"offset" default:"0" doc:"Pagination offset"`
 }
@@ -303,6 +334,7 @@ func (s *Server) handleListOrders(ctx context.Context, input *ListOrdersInput) (
 		offset = 0
 	}
 
+	sortField, sortOrder := resolveSortAndOrder(input.Sort, input.OrderBy, input.Order, input.Dir, input.Direction)
 	orders, total, err := s.store.GetOrders(ctx, storage.OrderFilter{
 		Customer:       customer,
 		Date:           date,
@@ -311,8 +343,8 @@ func (s *Server) handleListOrders(ctx context.Context, input *ListOrdersInput) (
 		Status:         input.Status,
 		OrderNumber:    orderNumber,
 		EcatalogNumber: orderNumber,
-		Sort:           input.Sort,
-		Order:          input.Order,
+		Sort:           sortField,
+		Order:          sortOrder,
 		Limit:          limit,
 		Offset:         offset,
 	})
@@ -381,6 +413,7 @@ func (s *Server) handleListItems(ctx context.Context, input *ListItemsInput) (*I
 		offset = 0
 	}
 
+	sortField, sortOrder := resolveSortAndOrder(input.Sort, input.OrderBy, input.Order, input.Dir, input.Direction)
 	items, total, err := s.store.GetItems(ctx, storage.ItemFilter{
 		Customer:          customer,
 		NamaBarang:        namaBarang,
@@ -391,8 +424,8 @@ func (s *Server) handleListItems(ctx context.Context, input *ListItemsInput) (*I
 		Tanggal:           date,
 		OrderNumber:       orderNumber,
 		EcatalogNumber:    orderNumber,
-		Sort:              input.Sort,
-		Order:             input.Order,
+		Sort:              sortField,
+		Order:             sortOrder,
 		Limit:             limit,
 		Offset:            offset,
 	})

@@ -1363,13 +1363,13 @@ func orderSortSQL(sortField, direction string) string {
 	case "id":
 		return fmt.Sprintf("orders.id %s, tanggal DESC", dir)
 	case "order_number", "ecatalog_number":
-		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') %s, tanggal DESC, orders.id ASC", dir)
+		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') COLLATE NOCASE %s, tanggal DESC, orders.id ASC", dir)
 	case "customer":
-		return fmt.Sprintf("customer %s, tanggal DESC, orders.id ASC", dir)
+		return fmt.Sprintf("customer COLLATE NOCASE %s, tanggal DESC, orders.id ASC", dir)
 	case "area":
-		return fmt.Sprintf("area %s, tanggal DESC, orders.id ASC", dir)
+		return fmt.Sprintf("area COLLATE NOCASE %s, tanggal DESC, orders.id ASC", dir)
 	case "items", "total_items":
-		return fmt.Sprintf("COALESCE(total_items, (SELECT COUNT(*) FROM items WHERE items.order_id = orders.id)) %s, tanggal DESC, orders.id ASC", dir)
+		return fmt.Sprintf("CAST(COALESCE(total_items, (SELECT COUNT(*) FROM items WHERE items.order_id = orders.id)) AS INTEGER) %s, tanggal DESC, orders.id ASC", dir)
 	default:
 		return fmt.Sprintf("tanggal DESC, %s ASC, %s ASC, orders.id ASC", orderStatusRankSubquery, orderStatusNameSubquery)
 	}
@@ -1386,21 +1386,21 @@ func itemSortSQL(sortField, direction string) string {
 	case "row_index":
 		return fmt.Sprintf("row_index %s, tanggal DESC, id ASC", dir)
 	case "order_number", "ecatalog_number":
-		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') %s, tanggal DESC, id ASC", dir)
+		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	case "customer":
-		return fmt.Sprintf("customer %s, tanggal DESC, id ASC", dir)
+		return fmt.Sprintf("customer COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	case "area":
-		return fmt.Sprintf("area %s, tanggal DESC, id ASC", dir)
+		return fmt.Sprintf("area COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	case "nama_barang":
-		return fmt.Sprintf("nama_barang %s, tanggal DESC, id ASC", dir)
+		return fmt.Sprintf("nama_barang COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	case "jumlah":
 		return fmt.Sprintf("CAST(jumlah AS REAL) %s, tanggal DESC, id ASC", dir)
 	case "status_barang":
-		return fmt.Sprintf("status_barang %s, tanggal DESC, id ASC", dir)
+		return fmt.Sprintf("status_barang COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	case "tanggal_pengiriman":
-		return fmt.Sprintf("tanggal_pengiriman %s, tanggal DESC, id ASC", dir)
+		return fmt.Sprintf("tanggal_pengiriman COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	case "catatan", "notes":
-		return fmt.Sprintf("catatan %s, tanggal DESC, id ASC", dir)
+		return fmt.Sprintf("catatan COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	default:
 		return fmt.Sprintf("tanggal DESC, %s ASC, LOWER(status_order) ASC, id ASC", itemStatusRankExpr)
 	}

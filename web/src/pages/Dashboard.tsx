@@ -22,6 +22,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
+import { getDominantOrderStatus } from './Orders';
 
 export const Dashboard: Component = () => {
   const [stats] = createResource(getStats);
@@ -323,7 +324,7 @@ export const Dashboard: Component = () => {
                 >
                   <For each={recentOrders()?.orders}>
                     {(order) => {
-                      const firstStatus = order.items?.[0]?.status_order || 'PENDING';
+                      const firstStatus = getDominantOrderStatus(order.items);
                       return (
                         <TableRow>
                           <TableCell>

@@ -27,6 +27,15 @@ import { createUrlFilter } from '../utils/tableFilters';
 
 const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
 
+export function getDominantOrderStatus(items?: { status_order?: string }[]): string {
+  if (!items || items.length === 0) return 'PENDING';
+  const upperList = items.map((it) => it.status_order?.trim().toUpperCase() || '');
+  if (upperList.includes('BELUM SELESAI')) return 'BELUM SELESAI';
+  if (upperList.includes('PROSES')) return 'PROSES';
+  if (upperList.includes('PENDING')) return 'PENDING';
+  const nonBlank = upperList.find((s) => s !== '');
+  return nonBlank || items[0].status_order || 'PENDING';
+}
  export const Orders: Component = () => {
   const filters = createUrlFilter({
     customer: {
@@ -279,7 +288,7 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                   >
                     <For each={data()?.orders}>
                       {(order) => {
-                        const firstStatus = order.items?.[0]?.status_order || 'PENDING';
+                        const firstStatus = getDominantOrderStatus(order.items);
                         return (
                           <TableRow>
                             <TableCell>
