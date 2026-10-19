@@ -1,5 +1,5 @@
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
-import { useParams, A } from '@solidjs/router';
+import { useParams, useNavigate, A } from '@solidjs/router';
 import { IconArrowLeft, IconPackage, IconCalendar, IconBuildingHospital, IconFileText } from '@tabler/icons-solidjs';
 import { getOrderById } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
@@ -45,17 +45,26 @@ const ItemProgress: Component<{ terkirim: string | number; total: string | numbe
 
 export const OrderDetail: Component = () => {
   const params = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [order] = createResource(() => params.id, (id) => getOrderById(id));
+
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigate('/orders');
+    }
+  };
 
   return (
     <div class="flex flex-1 flex-col gap-6">
       <div class="flex items-center justify-between">
         <Button
-          as={A}
-          href="/orders"
+          type="button"
           variant="outline"
           size="sm"
           class="gap-1.5 text-xs h-9"
+          onClick={handleBack}
         >
           <IconArrowLeft class="size-4" />
           <span>Back to Orders</span>

@@ -42,10 +42,18 @@ import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert';
 import { Separator } from '~/components/ui/separator';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
-import { createDebouncedSignal } from '../utils/debounce';
+import { createUrlFilter } from '../utils/tableFilters';
 
 export const Customers: Component = () => {
-  const [search, debouncedSearch, setSearch, flushSearch] = createDebouncedSignal('', 300);
+  const filters = createUrlFilter({
+    search: {
+      key: 'search',
+      defaultValue: '',
+      parse: (v) => v ?? '',
+      serialize: (v) => v || null,
+      debounceMs: 300,
+    },
+  });
   const PAGE_SIZE = 24;
 
   const [customers, setCustomers] = createSignal<CustomerSummary[]>([]);
@@ -97,7 +105,7 @@ export const Customers: Component = () => {
   };
 
   createEffect(() => {
-    const term = debouncedSearch();
+    const term = filters.debouncedValues.search();
     untrack(() => {
       fetchInitial(term);
     });
@@ -107,7 +115,7 @@ export const Customers: Component = () => {
     const currentTotal = total();
     const currentList = customers();
     const currentGen = searchGeneration;
-    const currentSearch = debouncedSearch();
+    const currentSearch = filters.debouncedValues.search();
     if (
       isLoadingInitial() ||
       isLoadingMore() ||
@@ -195,7 +203,7 @@ export const Customers: Component = () => {
     const gen = ++searchGeneration;
     const currentList = customers();
     const countToFetch = Math.max(PAGE_SIZE, currentList.length);
-    const currentSearch = debouncedSearch();
+    const currentSearch = filters.debouncedValues.search();
 
     inFlightOffset = 0;
     setIsLoadingMore(true);
@@ -324,7 +332,7 @@ export const Customers: Component = () => {
       <Card>
         <CardContent class="p-4 md:p-6">
           <div class="relative">
-            <TextField value={search()} onChange={setSearch}>
+            <TextField value={filters.values.search()} onChange={filters.setters.search}>
               <div class="relative flex items-center">
                 <IconSearch class="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
                 <TextFieldInput
@@ -333,7 +341,7 @@ export const Customers: Component = () => {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      flushSearch();
+                      filters.flush();
                     }
                   }}
                 />
@@ -354,7 +362,7 @@ export const Customers: Component = () => {
               variant="outline"
               size="sm"
               class="h-8"
-              onClick={() => fetchInitial(debouncedSearch())}
+              onClick={() => fetchInitial(filters.debouncedValues.search())}
             >
               Retry
             </Button>
@@ -389,9 +397,9 @@ export const Customers: Component = () => {
           fallback={
             <Card>
               <CardContent class="p-12 text-center text-muted-foreground">
-                {search() ? (
+                {filters.debouncedValues.search() ? (
                   <p>
-                    No customers found matching <span class="font-medium text-foreground">{search()}</span>
+                    No customers found matching <span class="font-medium text-foreground">{filters.debouncedValues.search()}</span>
                   </p>
                 ) : (
                   <p>No customers recorded in database yet</p>

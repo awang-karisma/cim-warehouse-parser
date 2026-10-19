@@ -1,6 +1,6 @@
-import { type Component, createSignal, createResource, Show, For, createMemo, createEffect, on } from 'solid-js';
-import { A } from '@solidjs/router';
-import { getOrders, getAreas } from '../api';
+import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+ import { A } from '@solidjs/router';
+ import { getOrders, getAreas } from '../api';
 import { Card, CardContent } from '~/components/ui/card';
 import {
   Table,
@@ -22,66 +22,87 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { DataTablePagination } from '../components/data-table-pagination';
-import { createDebouncedSignal } from '../utils/debounce';
+import { createUrlFilter } from '../utils/tableFilters';
 
-export const Orders: Component = () => {
-  const [customer, debouncedCustomer, setCustomer, flushCustomer] = createDebouncedSignal('', 300);
-  const [area, setArea] = createSignal('');
-  const [tanggal, setTanggal] = createSignal('');
-  const [status, setStatus] = createSignal('');
-  const [offset, setOffset] = createSignal(0);
-  const [limit, setLimit] = createSignal(10);
+const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
+
+ export const Orders: Component = () => {
+  const filters = createUrlFilter({
+    customer: {
+      key: 'customer',
+      defaultValue: '',
+      parse: (v) => v ?? '',
+      serialize: (v) => v || null,
+      debounceMs: 300,
+    },
+    area: {
+      key: 'area',
+      defaultValue: '',
+      parse: (v) => v ?? '',
+      serialize: (v) => v || null,
+    },
+    tanggal: {
+      key: 'tanggal',
+      defaultValue: '',
+      parse: (v) => v ?? '',
+      serialize: (v) => v || null,
+    },
+    status: {
+      key: 'status',
+      defaultValue: '',
+      parse: (v) => (v && VALID_STATUSES.includes(v as (typeof VALID_STATUSES)[number]) ? v : ''),
+      serialize: (v) => v || null,
+    },
+    limit: {
+      key: 'limit',
+      defaultValue: 10,
+      parse: (v) => {
+        const n = parseInt(v ?? '10', 10);
+        return isNaN(n) || n <= 0 ? 10 : n;
+      },
+      serialize: (v) => (v === 10 ? null : String(v)),
+    },
+    offset: {
+      key: 'offset',
+      defaultValue: 0,
+      parse: (v) => {
+        const n = parseInt(v ?? '0', 10);
+        return isNaN(n) || n < 0 ? 0 : n;
+      },
+      serialize: (v) => (v === 0 ? null : String(v)),
+    },
+  });
 
   const [areasData] = createResource(getAreas);
 
-  // When any filter changes, reset pagination offset to 0
-  createEffect(
-    on(
-      [debouncedCustomer, area, tanggal, status],
-      () => {
-        setOffset(0);
-      },
-      { defer: true }
-    )
-  );
-
-  // Active query state for triggering fetch
   const queryParams = createMemo(() => ({
-    limit: limit(),
-    offset: offset(),
-    customer: debouncedCustomer() || undefined,
-    area: area() || undefined,
-    tanggal: tanggal() || undefined,
-    status: status() || undefined,
+    limit: filters.values.limit(),
+    offset: filters.values.offset(),
+    customer: filters.debouncedValues.customer() || undefined,
+    area: filters.values.area() || undefined,
+    tanggal: filters.values.tanggal() || undefined,
+    status: filters.values.status() || undefined,
   }));
 
   const [data] = createResource(queryParams, (params) => getOrders(params));
 
   const applyFilters = (e?: Event) => {
     if (e) e.preventDefault();
-    flushCustomer();
-  };
-
-  const resetFilters = () => {
-    setCustomer('');
-    setArea('');
-    setTanggal('');
-    setStatus('');
-    setOffset(0);
-  };
-  const handlePageChange = (newOffset: number) => {
-    setOffset(newOffset);
+    filters.flush();
   };
 
   const handleLimitChange = (newLimit: number) => {
-    setLimit(newLimit);
-    setOffset(0);
+    filters.setters.limit(newLimit);
+    filters.setters.offset(0);
   };
-
-  const areaOptions = createMemo(() => [
-    'All Areas',
-    ...(areasData()?.areas.map((a) => a.name) || []),
-  ]);
+  const areaOptions = createMemo(() => {
+    const names = areasData()?.areas.map((a) => a.name) || [];
+    const current = filters.values.area();
+    if (current && !names.includes(current)) {
+      return ['All Areas', current, ...names];
+    }
+    return ['All Areas', ...names];
+  });
 
   return (
     <div class="flex flex-1 flex-col gap-6">
@@ -90,7 +111,7 @@ export const Orders: Component = () => {
         <CardContent class="p-4 md:p-6">
           <form class="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
             <div class="flex-1 min-w-[200px]">
-              <TextField value={customer()} onChange={setCustomer}>
+              <TextField value={filters.values.customer()} onChange={filters.setters.customer}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Customer Name
                 </TextFieldLabel>
@@ -105,8 +126,8 @@ export const Orders: Component = () => {
               <label class="text-xs font-semibold text-muted-foreground">Area / Region</label>
               <Select<string>
                 options={areaOptions()}
-                value={area() || 'All Areas'}
-                onChange={(val) => setArea(!val || val === 'All Areas' ? '' : val)}
+                value={filters.values.area() || 'All Areas'}
+                onChange={(val) => filters.setters.area(!val || val === 'All Areas' ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
@@ -119,7 +140,7 @@ export const Orders: Component = () => {
             </div>
 
             <div class="min-w-[150px]">
-              <TextField value={tanggal()} onChange={setTanggal}>
+              <TextField value={filters.values.tanggal()} onChange={filters.setters.tanggal}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Order Date
                 </TextFieldLabel>
@@ -131,8 +152,8 @@ export const Orders: Component = () => {
               <label class="text-xs font-semibold text-muted-foreground">Status</label>
               <Select<string>
                 options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
-                value={status() || 'All Statuses'}
-                onChange={(val) => setStatus(!val || val === 'All Statuses' ? '' : val)}
+                value={filters.values.status() || 'All Statuses'}
+                onChange={(val) => filters.setters.status(!val || val === 'All Statuses' ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
@@ -148,7 +169,7 @@ export const Orders: Component = () => {
               <Button type="submit" size="sm" class="h-9">
                 Apply
               </Button>
-              <Button type="button" variant="outline" size="sm" class="h-9" onClick={resetFilters}>
+              <Button type="button" variant="outline" size="sm" class="h-9" onClick={filters.reset}>
                 Reset
               </Button>
             </div>
@@ -243,9 +264,9 @@ export const Orders: Component = () => {
           <Show when={data() && data()!.total > 0}>
             <DataTablePagination
               total={data()!.total}
-              limit={limit()}
-              offset={offset()}
-              onPageChange={handlePageChange}
+              limit={filters.values.limit()}
+              offset={filters.values.offset()}
+              onPageChange={filters.setters.offset}
               onLimitChange={handleLimitChange}
             />
           </Show>

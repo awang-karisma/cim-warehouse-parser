@@ -1,4 +1,4 @@
-import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
+import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import { A } from '@solidjs/router';
 import {
   IconSearch,
@@ -22,22 +22,37 @@ import { TextField, TextFieldInput } from '~/components/ui/text-field';
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
-import { createDebouncedSignal } from '../utils/debounce';
+import { createUrlFilter } from '../utils/tableFilters';
+
+const VALID_TYPES = ['all', 'orders', 'items', 'customers'] as const;
+type SearchType = (typeof VALID_TYPES)[number];
 
 export const Search: Component = () => {
-  const [queryInput, debouncedQuery, setQueryInput, flushQuery] = createDebouncedSignal('', 300);
-  const [filterType, setFilterType] = createSignal<'all' | 'orders' | 'items' | 'customers'>('all');
-
-  const activeParams = createMemo(() => {
-    const q = debouncedQuery().trim();
-    return q ? { q, type: filterType() } : null;
+  const filters = createUrlFilter({
+    q: {
+      key: 'q',
+      defaultValue: '',
+      parse: (v) => v ?? '',
+      serialize: (v) => v || null,
+      debounceMs: 300,
+    },
+    type: {
+      key: 'type',
+      defaultValue: 'all' as SearchType,
+      parse: (v) => (v && VALID_TYPES.includes(v as SearchType) ? (v as SearchType) : 'all'),
+      serialize: (v) => (v === 'all' ? null : v),
+    },
   });
 
+  const activeParams = createMemo(() => {
+    const q = filters.debouncedValues.q().trim();
+    return q ? { q, type: filters.values.type() } : null;
+  });
   const [data] = createResource(activeParams, (params) => search(params));
 
   const handleSubmit = (e?: Event) => {
     if (e) e.preventDefault();
-    flushQuery();
+    filters.flush();
   };
 
   const totalMatches = createMemo(() => {
@@ -71,7 +86,7 @@ export const Search: Component = () => {
         <CardContent class="p-4 md:p-6">
           <form class="flex items-center gap-3" onSubmit={handleSubmit}>
             <div class="relative flex-1">
-              <TextField value={queryInput()} onChange={setQueryInput}>
+              <TextField value={filters.values.q()} onChange={filters.setters.q}>
                 <div class="relative flex items-center">
                   <IconSearch class="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
                   <TextFieldInput
@@ -90,8 +105,8 @@ export const Search: Component = () => {
 
       {/* Tabs Filter Bar (Tasks faceted pattern) */}
       <Tabs
-        value={filterType()}
-        onChange={(val) => setFilterType(val as 'all' | 'orders' | 'items' | 'customers')}
+        value={filters.values.type()}
+        onChange={(val) => filters.setters.type(val as SearchType)}
         class="w-full"
       >
         <div class="flex items-center justify-between gap-4 mb-4">
@@ -117,7 +132,7 @@ export const Search: Component = () => {
           </div>
         </Show>
 
-        <Show when={!data.loading && !debouncedQuery().trim()}>
+        <Show when={!data.loading && !filters.debouncedValues.q().trim()}>
           <Card>
             <CardContent class="p-12 text-center text-muted-foreground">
               <IconSearch class="size-8 mx-auto mb-3 opacity-40" />
@@ -129,11 +144,11 @@ export const Search: Component = () => {
           </Card>
         </Show>
 
-        <Show when={!data.loading && debouncedQuery().trim() && totalMatches() === 0}>
+        <Show when={!data.loading && filters.debouncedValues.q().trim() && totalMatches() === 0}>
           <Card>
             <CardContent class="p-12 text-center text-muted-foreground">
               <p>
-                No results found matching <span class="font-medium text-foreground">"{debouncedQuery()}"</span>
+                No results found matching <span class="font-medium text-foreground">"{filters.debouncedValues.q()}"</span>
               </p>
             </CardContent>
           </Card>
@@ -143,7 +158,7 @@ export const Search: Component = () => {
         <Show
           when={
             !data.loading &&
-            (filterType() === 'all' || filterType() === 'orders') &&
+            (filters.values.type() === 'all' || filters.values.type() === 'orders') &&
             data()?.orders &&
             data()!.orders.results.length > 0
           }
@@ -158,7 +173,7 @@ export const Search: Component = () => {
               </div>
               <Button
                 as={A}
-                href={`/orders?customer=${encodeURIComponent(debouncedQuery())}`}
+                href={`/orders?customer=${encodeURIComponent(filters.debouncedValues.q())}`}
                 variant="ghost"
                 size="sm"
                 class="gap-1 text-xs text-primary"
@@ -191,7 +206,7 @@ export const Search: Component = () => {
                             </A>
                           </TableCell>
                           <TableCell class="font-medium">
-                            {highlightMatch(ord.customer, debouncedQuery())}
+                            {highlightMatch(ord.customer, filters.debouncedValues.q())}
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground">{ord.tanggal}</TableCell>
                           <TableCell>
@@ -199,7 +214,7 @@ export const Search: Component = () => {
                               <For each={ord.matched_items || []}>
                                 {(item) => (
                                   <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] bg-secondary text-secondary-foreground font-medium">
-                                    {highlightMatch(item, debouncedQuery())}
+                                    {highlightMatch(item, filters.debouncedValues.q())}
                                   </span>
                                 )}
                               </For>
@@ -230,7 +245,7 @@ export const Search: Component = () => {
         <Show
           when={
             !data.loading &&
-            (filterType() === 'all' || filterType() === 'items') &&
+            (filters.values.type() === 'all' || filters.values.type() === 'items') &&
             data()?.items &&
             data()!.items.results.length > 0
           }
@@ -270,10 +285,10 @@ export const Search: Component = () => {
                       {(item) => (
                         <TableRow>
                           <TableCell class="font-medium">
-                            {highlightMatch(item.customer, debouncedQuery())}
+                            {highlightMatch(item.customer, filters.debouncedValues.q())}
                           </TableCell>
                           <TableCell class="font-medium">
-                            {highlightMatch(item.nama_barang, debouncedQuery())}
+                            {highlightMatch(item.nama_barang, filters.debouncedValues.q())}
                           </TableCell>
                           <TableCell class="text-right font-medium">
                             {item.jumlah}
@@ -306,7 +321,7 @@ export const Search: Component = () => {
         <Show
           when={
             !data.loading &&
-            (filterType() === 'all' || filterType() === 'customers') &&
+            (filters.values.type() === 'all' || filters.values.type() === 'customers') &&
             data()?.customers &&
             data()!.customers.results.length > 0
           }
@@ -336,7 +351,7 @@ export const Search: Component = () => {
                     <Card class="flex flex-col justify-between p-4 bg-muted/20">
                       <div>
                         <div class="font-semibold text-sm mb-1">
-                          {highlightMatch(cust.name, debouncedQuery())}
+                          {highlightMatch(cust.name, filters.debouncedValues.q())}
                         </div>
                         <p class="text-xs text-muted-foreground mb-3">{cust.area || 'Unknown Area'}</p>
                         <div class="flex justify-between text-xs py-1 border-t">

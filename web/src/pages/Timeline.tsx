@@ -1,4 +1,4 @@
-import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
+import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import {
   IconTruckDelivery,
   IconCircleCheck,
@@ -27,7 +27,7 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { Badge as UiBadge } from '~/components/ui/badge';
-import { createDebouncedSignal } from '../utils/debounce';
+import { createUrlFilter } from '../utils/tableFilters';
 
 const DeliveryProgress: Component<{ terkirim: string | number; total: string | number }> = (props) => {
   const percent = createMemo(() => {
@@ -57,16 +57,41 @@ const DeliveryProgress: Component<{ terkirim: string | number; total: string | n
   );
 };
 
+const formatDeliveryDate = (dateStr?: string): string => {
+  if (!dateStr) return '-';
+  const trimmed = dateStr.trim();
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return `${d}/${m}/${y}`;
+  }
+  return trimmed;
+};
+
+const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
+
 export const Timeline: Component = () => {
-  const [statusFilter, setStatusFilter] = createSignal('');
-  const [dateFilter, debouncedDateFilter, setDateFilter, flushDateFilter] = createDebouncedSignal('', 300);
+  const filters = createUrlFilter({
+    status: {
+      key: 'status',
+      defaultValue: '',
+      parse: (v) => (v && VALID_STATUSES.includes(v as (typeof VALID_STATUSES)[number]) ? v : ''),
+      serialize: (v) => v || null,
+    },
+    date: {
+      key: 'date',
+      defaultValue: '',
+      parse: (v) => v ?? '',
+      serialize: (v) => v || null,
+      debounceMs: 300,
+    },
+  });
 
   // Fetch individual deliveries with limit 100 for timeline analysis
   const [deliveriesData] = createResource(
-    () => ({ status_order: statusFilter(), date: debouncedDateFilter() }),
+    () => ({ status_order: filters.values.status(), date: filters.debouncedValues.date() }),
     (params) => getDeliveries({ limit: 100, ...params })
   );
-
   const deliveriesList = createMemo(() => deliveriesData()?.deliveries || []);
 
   const summary = createMemo(() => {
@@ -173,8 +198,8 @@ export const Timeline: Component = () => {
               <label class="text-xs font-semibold text-muted-foreground">Delivery Status</label>
               <Select<string>
                 options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
-                value={statusFilter() || 'All Statuses'}
-                onChange={(val) => setStatusFilter(!val || val === 'All Statuses' ? '' : val)}
+                value={filters.values.status() || 'All Statuses'}
+                onChange={(val) => filters.setters.status(!val || val === 'All Statuses' ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
@@ -187,7 +212,7 @@ export const Timeline: Component = () => {
             </div>
 
             <div class="min-w-[160px]">
-              <TextField value={dateFilter()} onChange={setDateFilter}>
+              <TextField value={filters.values.date()} onChange={filters.setters.date}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Delivery Date
                 </TextFieldLabel>
@@ -200,10 +225,7 @@ export const Timeline: Component = () => {
               variant="outline"
               size="sm"
               class="h-9"
-              onClick={() => {
-                setStatusFilter('');
-                flushDateFilter('');
-              }}
+              onClick={filters.reset}
             >
               Reset Filters
             </Button>
@@ -263,10 +285,14 @@ export const Timeline: Component = () => {
                       {(del) => (
                         <TableRow>
                           <TableCell class="font-medium text-xs font-mono">
-                            {del.delivery_date}
+                            {formatDeliveryDate(del.delivery_date)}
                           </TableCell>
                           <TableCell class="text-xs">
-                            {del.shipped_quantity ? `${del.shipped_quantity} ${del.item.satuan}` : '-'}
+                            {del.shipped_quantity
+                              ? del.item.satuan
+                                ? `${del.shipped_quantity} ${del.item.satuan}`
+                                : del.shipped_quantity
+                              : '-'}
                           </TableCell>
                           <TableCell class="font-medium text-xs">{del.item.customer}</TableCell>
                           <TableCell class="text-xs text-muted-foreground">{del.item.area}</TableCell>
