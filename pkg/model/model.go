@@ -66,6 +66,7 @@ type OrderItem struct {
 	RowIndex           int    `json:"row_index"`
 	OrderNumber        string `json:"order_number,omitempty"`
 	EcatalogNumber     string `json:"ecatalog_number,omitempty"`
+	Area               string `json:"area,omitempty"`
 	NamaBarang         string `json:"nama_barang"`
 	Jumlah             string `json:"jumlah"`
 	Satuan             string `json:"satuan"`

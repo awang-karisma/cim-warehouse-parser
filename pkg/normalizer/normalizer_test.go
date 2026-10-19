@@ -774,3 +774,106 @@ func TestGroupOrders_CalendarDateGrouping(t *testing.T) {
 		t.Errorf("unexpected order 1: %+v", orders[1])
 	}
 }
+func TestNormalizeRows_InheritCustomerAreaAcrossOrders(t *testing.T) {
+	rawRows := []model.RawOrderRow{
+		{
+			Tanggal:    "02/01/2026",
+			Customer:   "RS Narmada",
+			Area:       "Lombok Barat",
+			NamaBarang: "Yellowtip",
+		},
+		{
+			Tanggal:    "02/01/2026",
+			Customer:   "RS Patuh Karya",
+			Area:       "Lombok Tengah",
+			NamaBarang: "BC-5D",
+		},
+		{
+			Tanggal:    "03/01/2026",
+			Customer:   "RS Narmada",
+			Area:       "",
+			NamaBarang: "Plesterin",
+		},
+	}
+
+	items := normalizer.NormalizeRows(rawRows)
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+
+	if items[0].Area != "Lombok Barat" {
+		t.Errorf("order 1 expected area 'Lombok Barat', got %q", items[0].Area)
+	}
+	if items[1].Area != "Lombok Tengah" {
+		t.Errorf("order 2 expected area 'Lombok Tengah', got %q", items[1].Area)
+	}
+	if items[2].Area != "Lombok Barat" {
+		t.Errorf("order 3 expected inherited area 'Lombok Barat', got %q", items[2].Area)
+	}
+}
+
+func TestNormalizeRows_BackwardCustomerAreaInheritance(t *testing.T) {
+	rawRows := []model.RawOrderRow{
+		{
+			Tanggal:    "02/01/2026",
+			Customer:   "Klinik Harapan",
+			Area:       "",
+			NamaBarang: "Spuit 3cc",
+		},
+		{
+			Tanggal:    "03/01/2026",
+			Customer:   "Klinik Harapan",
+			Area:       "Lombok Timur",
+			NamaBarang: "Infus RL",
+		},
+	}
+
+	items := normalizer.NormalizeRows(rawRows)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	if items[0].Area != "Lombok Timur" {
+		t.Errorf("order 1 expected backward inherited area 'Lombok Timur', got %q", items[0].Area)
+	}
+	if items[1].Area != "Lombok Timur" {
+		t.Errorf("order 2 expected area 'Lombok Timur', got %q", items[1].Area)
+	}
+}
+
+func TestGroupOrders_InheritCustomerAreaAcrossOrders(t *testing.T) {
+	t1 := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+
+	items := []model.NormalizedItem{
+		{
+			RowIndex:   2,
+			Tanggal:    t1,
+			Customer:   "RS Narmada",
+			Area:       "",
+			NamaBarang: "Item 1",
+		},
+		{
+			RowIndex:   3,
+			Tanggal:    t2,
+			Customer:   "RS Narmada",
+			Area:       "Lombok Barat",
+			NamaBarang: "Item 2",
+		},
+	}
+
+	orders := normalizer.GroupOrders(items)
+	if len(orders) != 2 {
+		t.Fatalf("expected 2 orders, got %d", len(orders))
+	}
+	for i, ord := range orders {
+		if ord.Area != "Lombok Barat" {
+			t.Errorf("order %d (%s) expected Area 'Lombok Barat', got %q", i, ord.ID, ord.Area)
+		}
+		for j, it := range ord.Items {
+			if it.Area != "Lombok Barat" {
+				t.Errorf("order %d item %d expected Area 'Lombok Barat', got %q", i, j, it.Area)
+			}
+		}
+	}
+}

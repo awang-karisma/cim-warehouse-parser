@@ -2091,3 +2091,149 @@ func TestGetOrdersAndItems_FilteringAndSorting(t *testing.T) {
 		}
 	}
 }
+func TestSyncMirror_CustomerAreaInheritance(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	d1 := model.ParseDate("02/01/2026")
+	d2 := model.ParseDate("03/01/2026")
+
+	// Order 1 has Area specified, Order 2 for same customer has Area empty.
+	// Order 3 is for another customer with Area specified later in Order 4.
+	items := []model.NormalizedItem{
+		{
+			RowIndex:   2,
+			Tanggal:    d1,
+			Customer:   "RS Narmada",
+			Area:       "Lombok Barat",
+			NamaBarang: "Yellowtip",
+		},
+		{
+			RowIndex:   3,
+			Tanggal:    d2,
+			Customer:   "RS Narmada",
+			Area:       "",
+			NamaBarang: "Plesterin",
+		},
+		{
+			RowIndex:   4,
+			Tanggal:    d1,
+			Customer:   "Klinik Harapan",
+			Area:       "",
+			NamaBarang: "Spuit 3cc",
+		},
+		{
+			RowIndex:   5,
+			Tanggal:    d2,
+			Customer:   "Klinik Harapan",
+			Area:       "Lombok Timur",
+			NamaBarang: "Infus RL",
+		},
+	}
+
+	orders := []model.Order{
+		{
+			ID:       "ORD-0001",
+			Tanggal:  d1,
+			Customer: "RS Narmada",
+			Area:     "Lombok Barat",
+			Items: []model.OrderItem{
+				{RowIndex: 2, NamaBarang: "Yellowtip"},
+			},
+		},
+		{
+			ID:       "ORD-0002",
+			Tanggal:  d2,
+			Customer: "RS Narmada",
+			Area:     "",
+			Items: []model.OrderItem{
+				{RowIndex: 3, NamaBarang: "Plesterin"},
+			},
+		},
+		{
+			ID:       "ORD-0003",
+			Tanggal:  d1,
+			Customer: "Klinik Harapan",
+			Area:     "",
+			Items: []model.OrderItem{
+				{RowIndex: 4, NamaBarang: "Spuit 3cc"},
+			},
+		},
+		{
+			ID:       "ORD-0004",
+			Tanggal:  d2,
+			Customer: "Klinik Harapan",
+			Area:     "Lombok Timur",
+			Items: []model.OrderItem{
+				{RowIndex: 5, NamaBarang: "Infus RL"},
+			},
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// 1. Verify GetOrders returns inherited non-empty areas for all orders
+	allOrders, totalOrd, err := store.GetOrders(ctx, storage.OrderFilter{})
+	if err != nil {
+		t.Fatalf("GetOrders failed: %v", err)
+	}
+	if totalOrd != 4 || len(allOrders) != 4 {
+		t.Fatalf("expected 4 orders, got %d", totalOrd)
+	}
+	orderAreaMap := make(map[string]string)
+	for _, ord := range allOrders {
+		orderAreaMap[ord.ID] = ord.Area
+		for _, it := range ord.Items {
+			if it.Area == "" {
+				t.Errorf("order %s item %s has empty area", ord.ID, it.NamaBarang)
+			}
+		}
+	}
+	if orderAreaMap["ORD-0001"] != "Lombok Barat" {
+		t.Errorf("ORD-0001 expected 'Lombok Barat', got %q", orderAreaMap["ORD-0001"])
+	}
+	if orderAreaMap["ORD-0002"] != "Lombok Barat" {
+		t.Errorf("ORD-0002 expected inherited 'Lombok Barat', got %q", orderAreaMap["ORD-0002"])
+	}
+	if orderAreaMap["ORD-0003"] != "Lombok Timur" {
+		t.Errorf("ORD-0003 expected backward inherited 'Lombok Timur', got %q", orderAreaMap["ORD-0003"])
+	}
+	if orderAreaMap["ORD-0004"] != "Lombok Timur" {
+		t.Errorf("ORD-0004 expected 'Lombok Timur', got %q", orderAreaMap["ORD-0004"])
+	}
+
+	// 2. Verify GetItems returns non-empty area for all items
+	allItems, totalItems, err := store.GetItems(ctx, storage.ItemFilter{})
+	if err != nil {
+		t.Fatalf("GetItems failed: %v", err)
+	}
+	if totalItems != 4 || len(allItems) != 4 {
+		t.Fatalf("expected 4 items, got %d", totalItems)
+	}
+	for _, it := range allItems {
+		if it.Customer == "RS Narmada" && it.Area != "Lombok Barat" {
+			t.Errorf("item %s (RS Narmada) expected 'Lombok Barat', got %q", it.NamaBarang, it.Area)
+		}
+		if it.Customer == "Klinik Harapan" && it.Area != "Lombok Timur" {
+			t.Errorf("item %s (Klinik Harapan) expected 'Lombok Timur', got %q", it.NamaBarang, it.Area)
+		}
+	}
+
+	// 3. Verify GetOrderByID also returns inherited area on order and items
+	ord2, err := store.GetOrderByID(ctx, "ORD-0002")
+	if err != nil {
+		t.Fatalf("GetOrderByID ORD-0002 failed: %v", err)
+	}
+	if ord2.Area != "Lombok Barat" {
+		t.Errorf("GetOrderByID ORD-0002 expected Area 'Lombok Barat', got %q", ord2.Area)
+	}
+	if len(ord2.Items) != 1 || ord2.Items[0].Area != "Lombok Barat" {
+		t.Errorf("GetOrderByID ORD-0002 item expected Area 'Lombok Barat', got %+v", ord2.Items)
+	}
+}

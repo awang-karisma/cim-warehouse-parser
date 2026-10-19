@@ -201,6 +201,7 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 		currentOrderNumber string
 	)
 
+	customerAreaMap := make(map[string]string)
 	items := make([]model.NormalizedItem, 0, len(rawRows))
 
 	for i, raw := range rawRows {
@@ -218,10 +219,18 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 
 		if cleanCust != "" {
 			currentCustomer = cleanCust
+			custKey := strings.ToLower(strings.TrimSpace(cleanCust))
 			if trimmedArea != "" {
 				currentArea = trimmedArea
+				if _, exists := customerAreaMap[custKey]; !exists {
+					customerAreaMap[custKey] = trimmedArea
+				}
 			} else {
-				currentArea = ""
+				if known, ok := customerAreaMap[custKey]; ok && known != "" {
+					currentArea = known
+				} else {
+					currentArea = ""
+				}
 			}
 			currentOrderNumber = epFromCust
 		} else if epFromCust != "" {
@@ -230,11 +239,32 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 			currentOrderNumber = epFromCust
 			if trimmedArea != "" {
 				currentArea = trimmedArea
+				if currentCustomer != "" {
+					custKey := strings.ToLower(strings.TrimSpace(currentCustomer))
+					if _, exists := customerAreaMap[custKey]; !exists {
+						customerAreaMap[custKey] = trimmedArea
+					}
+				}
+			} else if currentArea == "" && currentCustomer != "" {
+				custKey := strings.ToLower(strings.TrimSpace(currentCustomer))
+				if known, ok := customerAreaMap[custKey]; ok && known != "" {
+					currentArea = known
+				}
 			}
 		} else if trimmedArea != "" {
 			currentArea = trimmedArea
+			if currentCustomer != "" {
+				custKey := strings.ToLower(strings.TrimSpace(currentCustomer))
+				if _, exists := customerAreaMap[custKey]; !exists {
+					customerAreaMap[custKey] = trimmedArea
+				}
+			}
+		} else if currentArea == "" && currentCustomer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(currentCustomer))
+			if known, ok := customerAreaMap[custKey]; ok && known != "" {
+				currentArea = known
+			}
 		}
-
 		itemOrderNumber := currentOrderNumber
 		if ep := epRegex.FindString(raw.Keterangan); ep != "" {
 			itemOrderNumber = strings.ToUpper(ep)
@@ -277,6 +307,28 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 			Keterangan:         strings.TrimSpace(raw.Keterangan),
 			Catatan:            strings.TrimSpace(raw.Catatan),
 		})
+	}
+
+	// Post-processing passes for cross-order customer area inheritance:
+	// First pass: collect any non-empty canonical area for each customer
+	for _, it := range items {
+		normArea := NormalizeArea(it.Area)
+		if normArea != "" && it.Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(it.Customer))
+			if _, exists := customerAreaMap[custKey]; !exists {
+				customerAreaMap[custKey] = normArea
+			}
+		}
+	}
+
+	// Second pass: backfill empty area from matching customer
+	for i := range items {
+		if items[i].Area == "" && items[i].Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(items[i].Customer))
+			if knownArea, ok := customerAreaMap[custKey]; ok && knownArea != "" {
+				items[i].Area = knownArea
+			}
+		}
 	}
 
 	return items
@@ -330,6 +382,45 @@ func GroupOrders(items []model.NormalizedItem) []model.Order {
 		finalizeOrder(currentOrder)
 		orders = append(orders, *currentOrder)
 	}
+	// Guarantee area consistency across grouped orders for the same customer
+	customerAreaMap := make(map[string]string)
+	for _, ord := range orders {
+		normArea := NormalizeArea(ord.Area)
+		if normArea != "" && ord.Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(ord.Customer))
+			if _, exists := customerAreaMap[custKey]; !exists {
+				customerAreaMap[custKey] = normArea
+			}
+		}
+		for _, it := range ord.Items {
+			itArea := NormalizeArea(it.Area)
+			if itArea != "" && ord.Customer != "" {
+				custKey := strings.ToLower(strings.TrimSpace(ord.Customer))
+				if _, exists := customerAreaMap[custKey]; !exists {
+					customerAreaMap[custKey] = itArea
+				}
+			}
+		}
+	}
+
+	for i := range orders {
+		if NormalizeArea(orders[i].Area) == "" && orders[i].Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(orders[i].Customer))
+			if knownArea, ok := customerAreaMap[custKey]; ok && knownArea != "" {
+				orders[i].Area = knownArea
+				for j := range orders[i].Items {
+					orders[i].Items[j].Area = orders[i].Area
+				}
+			}
+		} else if orders[i].Area != "" {
+			for j := range orders[i].Items {
+				if orders[i].Items[j].Area == "" {
+					orders[i].Items[j].Area = orders[i].Area
+				}
+			}
+		}
+	}
+
 
 	return orders
 }
@@ -339,6 +430,21 @@ func finalizeOrder(ord *model.Order) {
 		return
 	}
 	ord.Area = NormalizeArea(ord.Area)
+	if ord.Area == "" {
+		for _, item := range ord.Items {
+			if a := NormalizeArea(item.Area); a != "" {
+				ord.Area = a
+				break
+			}
+		}
+	}
+	if ord.Area != "" {
+		for i := range ord.Items {
+			if ord.Items[i].Area == "" {
+				ord.Items[i].Area = ord.Area
+			}
+		}
+	}
 	epCode := ord.OrderNumber
 	if epCode == "" {
 		for _, item := range ord.Items {
@@ -368,6 +474,7 @@ func toOrderItem(item model.NormalizedItem) model.OrderItem {
 		RowIndex:           item.RowIndex,
 		OrderNumber:        item.OrderNumber,
 		EcatalogNumber:     item.EcatalogNumber,
+		Area:               item.Area,
 		NamaBarang:         item.NamaBarang,
 		Jumlah:             item.Jumlah,
 		Satuan:             item.Satuan,

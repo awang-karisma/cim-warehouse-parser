@@ -589,6 +589,66 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	if len(orders) == 0 && len(items) > 0 {
 		orders = normalizer.GroupOrders(items)
 	}
+	// Build map of known areas per customer across orders and items in batch
+	customerAreaMap := make(map[string]string)
+	for _, ord := range orders {
+		normArea := normalizer.NormalizeArea(ord.Area)
+		if normArea != "" && ord.Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(ord.Customer))
+			if _, exists := customerAreaMap[custKey]; !exists {
+				customerAreaMap[custKey] = normArea
+			}
+		}
+		for _, oi := range ord.Items {
+			normArea := normalizer.NormalizeArea(oi.Area)
+			if normArea != "" && ord.Customer != "" {
+				custKey := strings.ToLower(strings.TrimSpace(ord.Customer))
+				if _, exists := customerAreaMap[custKey]; !exists {
+					customerAreaMap[custKey] = normArea
+				}
+			}
+		}
+	}
+	for _, it := range items {
+		normArea := normalizer.NormalizeArea(it.Area)
+		if normArea != "" && it.Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(it.Customer))
+			if _, exists := customerAreaMap[custKey]; !exists {
+				customerAreaMap[custKey] = normArea
+			}
+		}
+	}
+
+	// Ensure all orders have resolved area if known
+	for i := range orders {
+		if normalizer.NormalizeArea(orders[i].Area) == "" && orders[i].Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(orders[i].Customer))
+			if knownArea, ok := customerAreaMap[custKey]; ok && knownArea != "" {
+				orders[i].Area = knownArea
+				for j := range orders[i].Items {
+					if orders[i].Items[j].Area == "" {
+						orders[i].Items[j].Area = orders[i].Area
+					}
+				}
+			}
+		} else if orders[i].Area != "" {
+			for j := range orders[i].Items {
+				if orders[i].Items[j].Area == "" {
+					orders[i].Items[j].Area = orders[i].Area
+				}
+			}
+		}
+	}
+
+	// Ensure all items have resolved area if known
+	for i := range items {
+		if normalizer.NormalizeArea(items[i].Area) == "" && items[i].Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(items[i].Customer))
+			if knownArea, ok := customerAreaMap[custKey]; ok && knownArea != "" {
+				items[i].Area = knownArea
+			}
+		}
+	}
 
 	// Build map from row index to order ID
 	orderIDByRowIndex := make(map[int]string, len(items))
@@ -656,6 +716,12 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 			total = len(ord.Items)
 		}
 		cleanArea := normalizer.NormalizeArea(ord.Area)
+		if cleanArea == "" && ord.Customer != "" {
+			custKey := strings.ToLower(strings.TrimSpace(ord.Customer))
+			if knownArea, ok := customerAreaMap[custKey]; ok && knownArea != "" {
+				cleanArea = knownArea
+			}
+		}
 		tanggalStr := ""
 		if !ord.Tanggal.IsZero() {
 			tanggalStr = ord.Tanggal.UTC().Format("2006-01-02")
@@ -709,6 +775,12 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 					cleanArea = normalizer.NormalizeArea(ord.Area)
 				}
 			}
+			if cleanArea == "" && it.Customer != "" {
+				custKey := strings.ToLower(strings.TrimSpace(it.Customer))
+				if knownArea, ok := customerAreaMap[custKey]; ok && knownArea != "" {
+					cleanArea = knownArea
+				}
+			}
 			tanggalStr := ""
 			if !it.Tanggal.IsZero() {
 				tanggalStr = it.Tanggal.UTC().Format("2006-01-02")
@@ -746,7 +818,16 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 				if ecatNum == "" {
 					ecatNum = ord.EcatalogNumber
 				}
-				cleanArea := normalizer.NormalizeArea(ord.Area)
+				cleanArea := normalizer.NormalizeArea(oi.Area)
+				if cleanArea == "" {
+					cleanArea = normalizer.NormalizeArea(ord.Area)
+				}
+				if cleanArea == "" && ord.Customer != "" {
+					custKey := strings.ToLower(strings.TrimSpace(ord.Customer))
+					if knownArea, ok := customerAreaMap[custKey]; ok && knownArea != "" {
+						cleanArea = knownArea
+					}
+				}
 				tanggalStr := ""
 				if !ord.Tanggal.IsZero() {
 					tanggalStr = ord.Tanggal.UTC().Format("2006-01-02")
@@ -1448,7 +1529,7 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		itemQuery := fmt.Sprintf(`
 			SELECT order_id, row_index, order_number, ecatalog_number, nama_barang, jumlah, satuan, tanggal_pengiriman,
 			       lead_time_pengiriman, jumlah_terkirim, belum_terkirim, status_order,
-			       status_barang, keterangan, catatan
+			       status_barang, keterangan, catatan, area
 			FROM items
 			WHERE order_id IN (%s)
 			ORDER BY id
@@ -1461,20 +1542,26 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 			for itemRows.Next() {
 				var orderID string
 				var oi model.OrderItem
-				var itemOrderNum, itemEcatNum sql.NullString
+				var itemOrderNum, itemEcatNum, itemArea sql.NullString
 				if err := itemRows.Scan(
 					&orderID, &oi.RowIndex, &itemOrderNum, &itemEcatNum, &oi.NamaBarang, &oi.Jumlah, &oi.Satuan,
 					&oi.TanggalPengiriman, &oi.LeadTimePengiriman, &oi.JumlahTerkirim,
 					&oi.BelumTerkirim, &oi.StatusOrder, &oi.StatusBarang,
-					&oi.Keterangan, &oi.Catatan,
+					&oi.Keterangan, &oi.Catatan, &itemArea,
 				); err == nil {
 					oi.OrderNumber = itemOrderNum.String
 					oi.EcatalogNumber = itemEcatNum.String
+					oi.Area = itemArea.String
 					orderItemMap[orderID] = append(orderItemMap[orderID], oi)
 				}
 			}
 			for i := range orders {
 				if its, ok := orderItemMap[orders[i].ID]; ok {
+					for j := range its {
+						if its[j].Area == "" && orders[i].Area != "" {
+							its[j].Area = orders[i].Area
+						}
+					}
 					orders[i].Items = its
 				}
 			}
@@ -1507,7 +1594,7 @@ func (s *Storage) GetOrderByID(ctx context.Context, id string) (*model.Order, er
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT row_index, order_number, ecatalog_number, nama_barang, jumlah, satuan, tanggal_pengiriman,
 		       lead_time_pengiriman, jumlah_terkirim, belum_terkirim, status_order,
-		       status_barang, keterangan, catatan
+		       status_barang, keterangan, catatan, area
 		FROM items
 		WHERE order_id = ?
 		ORDER BY id
@@ -1520,17 +1607,21 @@ func (s *Storage) GetOrderByID(ctx context.Context, id string) (*model.Order, er
 	ord.Items = []model.OrderItem{}
 	for rows.Next() {
 		var it model.OrderItem
-		var itemOrderNum, itemEcatNum sql.NullString
+		var itemOrderNum, itemEcatNum, itemArea sql.NullString
 		if err := rows.Scan(
 			&it.RowIndex, &itemOrderNum, &itemEcatNum, &it.NamaBarang, &it.Jumlah, &it.Satuan,
 			&it.TanggalPengiriman, &it.LeadTimePengiriman, &it.JumlahTerkirim,
 			&it.BelumTerkirim, &it.StatusOrder, &it.StatusBarang,
-			&it.Keterangan, &it.Catatan,
+			&it.Keterangan, &it.Catatan, &itemArea,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan item for order %q: %w", id, err)
 		}
 		it.OrderNumber = itemOrderNum.String
 		it.EcatalogNumber = itemEcatNum.String
+		it.Area = itemArea.String
+		if it.Area == "" && ord.Area != "" {
+			it.Area = ord.Area
+		}
 		ord.Items = append(ord.Items, it)
 	}
 	if err := rows.Err(); err != nil {
