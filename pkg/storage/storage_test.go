@@ -1265,10 +1265,10 @@ func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 	if len(needleDeliveries) != 2 {
 		t.Fatalf("expected 2 deliveries for Needle 23G, got %d", len(needleDeliveries))
 	}
-	if needleDeliveries[0].DeliveryDate != "07/01/2026" || needleDeliveries[0].ShippedQuantity != "3" || needleDeliveries[0].ShipmentIndex != 0 || needleDeliveries[0].ShipmentCount != 2 {
+	if needleDeliveries[0].DeliveryDate != "2026-01-07" || needleDeliveries[0].ShippedQuantity != "3" || needleDeliveries[0].ShipmentIndex != 0 || needleDeliveries[0].ShipmentCount != 2 {
 		t.Errorf("unexpected first shipment: %+v", needleDeliveries[0])
 	}
-	if needleDeliveries[1].DeliveryDate != "03/02/2026" || needleDeliveries[1].ShippedQuantity != "1" || needleDeliveries[1].ShipmentIndex != 1 || needleDeliveries[1].ShipmentCount != 2 {
+	if needleDeliveries[1].DeliveryDate != "2026-02-03" || needleDeliveries[1].ShippedQuantity != "1" || needleDeliveries[1].ShipmentIndex != 1 || needleDeliveries[1].ShipmentCount != 2 {
 		t.Errorf("unexpected second shipment: %+v", needleDeliveries[1])
 	}
 
@@ -1321,11 +1321,159 @@ func TestStorage_DeliveriesMigrationBackfill(t *testing.T) {
 	if err != nil || total != 2 {
 		t.Fatalf("expected 2 backfilled deliveries, got total=%d err=%v", total, err)
 	}
-	if dels[0].DeliveryDate != "10/01/2026" || dels[0].ShippedQuantity != "5" {
+	if dels[0].DeliveryDate != "2026-01-10" || dels[0].ShippedQuantity != "5" {
 		t.Errorf("unexpected delivery 0: %+v", dels[0])
 	}
-	if dels[1].DeliveryDate != "15/01/2026" || dels[1].ShippedQuantity != "5" {
+	if dels[1].DeliveryDate != "2026-01-15" || dels[1].ShippedQuantity != "5" {
 		t.Errorf("unexpected delivery 1: %+v", dels[1])
+	}
+}
+
+func TestStorage_DeliveriesMigrationRepair(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "legacy_repair.db")
+
+	// 1. Create store and populate legacy single-blob delivery (old buggy state)
+	store1, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	res, err := store1.DB().Exec(`
+		INSERT INTO items (row_index, order_id, order_number, customer, area, nama_barang, jumlah, satuan, tanggal_pengiriman, status_order)
+		VALUES (1, 'ORD-BLOB', 'EP-BLOB', 'RS Blob', 'Mataram', 'Reagen', '100', 'BOX', '08/07/2026 (39 pack) 24/07/2026 (45 pack)', 'SELESAI')
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert item: %v", err)
+	}
+	itemID, _ := res.LastInsertId()
+
+	// Insert buggy single row containing the raw blob as delivery_date
+	_, err = store1.DB().Exec(`
+		INSERT INTO deliveries (item_id, delivery_date, shipped_quantity, shipment_index)
+		VALUES (?, '08/07/2026 (39 pack) 24/07/2026 (45 pack)', '', 0)
+	`, itemID)
+	if err != nil {
+		t.Fatalf("failed to insert buggy delivery: %v", err)
+	}
+	store1.Close()
+
+	// 2. Reopen store to trigger migrate() -> repairDeliveries()
+	store2, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to reopen store: %v", err)
+	}
+	defer store2.Close()
+
+	dels, total, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{})
+	if err != nil {
+		t.Fatalf("GetDeliveries failed: %v", err)
+	}
+	if total != 2 || len(dels) != 2 {
+		t.Fatalf("expected 2 repaired deliveries, got total=%d len=%d (%+v)", total, len(dels), dels)
+	}
+	if dels[0].DeliveryDate != "2026-07-08" || dels[0].ShippedQuantity != "39" || dels[0].ShipmentIndex != 0 || dels[0].ShipmentCount != 2 {
+		t.Errorf("unexpected first repaired delivery: %+v", dels[0])
+	}
+	if dels[1].DeliveryDate != "2026-07-24" || dels[1].ShippedQuantity != "45" || dels[1].ShipmentIndex != 1 || dels[1].ShipmentCount != 2 {
+		t.Errorf("unexpected second repaired delivery: %+v", dels[1])
+	}
+
+	// Test date filter works with both ISO and DD/MM/YYYY query strings
+	byISO, _, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{Date: "2026-07-08"})
+	if err != nil || len(byISO) != 1 || byISO[0].DeliveryDate != "2026-07-08" {
+		t.Errorf("expected 1 delivery matching ISO date 2026-07-08, got %+v", byISO)
+	}
+	byDDMM, _, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{Date: "08/07/2026"})
+	if err != nil || len(byDDMM) != 1 || byDDMM[0].DeliveryDate != "2026-07-08" {
+		t.Errorf("expected 1 delivery matching DD/MM/YYYY date 08/07/2026, got %+v", byDDMM)
+	}
+}
+
+func TestStorage_DeliveriesSyncMirrorRawBlobs(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "sync_raw_blobs.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	items := []model.NormalizedItem{
+		{
+			RowIndex:          2,
+			Customer:          "RSUD Provinsi NTB",
+			Area:              "Mataram",
+			NamaBarang:        "Needle 23G",
+			Jumlah:            "100",
+			Satuan:            "pack",
+			TanggalPengiriman: "08/07/2026 (39 pack) 24/07/2026 (45 pack)",
+			StatusOrder:       "PROSES",
+		},
+		{
+			RowIndex:          3,
+			Customer:          "RSUD Praya",
+			Area:              "Lombok Tengah",
+			NamaBarang:        "Spuit 5cc",
+			Jumlah:            "2000",
+			Satuan:            "pcs",
+			TanggalPengiriman: "07/10/2026(900pcs) 15/10/2026(1000pcs)",
+			StatusOrder:       "PROSES",
+		},
+		{
+			RowIndex:          4,
+			Customer:          "RSUD Selong",
+			Area:              "Lombok Timur",
+			NamaBarang:        "Vaksin",
+			Jumlah:            "10",
+			Satuan:            "vial",
+			TanggalPengiriman: "13/04/2026 (1VIAL), 16/04/2026 (5VIAL)",
+			StatusOrder:       "PROSES",
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, nil); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	dels, total, err := store.GetDeliveries(ctx, storage.DeliveryFilter{})
+	if err != nil {
+		t.Fatalf("GetDeliveries failed: %v", err)
+	}
+	if total != 6 || len(dels) != 6 {
+		t.Fatalf("expected 6 total deliveries, got total=%d len=%d", total, len(dels))
+	}
+
+	// Assert chronological ordering:
+	// 2026-04-13 (1), 2026-04-16 (5), 2026-07-08 (39), 2026-07-24 (45), 2026-10-07 (900), 2026-10-15 (1000)
+	expectedDates := []string{
+		"2026-04-13",
+		"2026-04-16",
+		"2026-07-08",
+		"2026-07-24",
+		"2026-10-07",
+		"2026-10-15",
+	}
+	expectedQuantities := []string{
+		"1",
+		"5",
+		"39",
+		"45",
+		"900",
+		"1000",
+	}
+
+	for i, d := range dels {
+		if d.DeliveryDate != expectedDates[i] {
+			t.Errorf("delivery %d: expected date %s, got %s", i, expectedDates[i], d.DeliveryDate)
+		}
+		if d.ShippedQuantity != expectedQuantities[i] {
+			t.Errorf("delivery %d: expected quantity %s, got %s", i, expectedQuantities[i], d.ShippedQuantity)
+		}
+		if d.ShipmentCount != 2 {
+			t.Errorf("delivery %d: expected shipment count 2, got %d", i, d.ShipmentCount)
+		}
 	}
 }
 

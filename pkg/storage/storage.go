@@ -353,6 +353,11 @@ func (s *Storage) migrate() error {
 			}
 		}
 	}
+
+	// Repair deliveries that have legacy dates or unparsed blob formats
+	if err := s.repairDeliveries(); err != nil {
+		return fmt.Errorf("failed to repair deliveries: %w", err)
+	}
 	return nil
 }
 
@@ -442,6 +447,116 @@ func (s *Storage) migrateTanggal() error {
 		}
 	}
 	return nil
+}
+
+// repairDeliveries fixes legacy deliveries that were stored with DD/MM/YYYY dates
+// or raw blobs (e.g. including unit text or multiple dates in a single row).
+func (s *Storage) repairDeliveries() error {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT d.item_id, i.tanggal_pengiriman
+		FROM deliveries d
+		JOIN items i ON d.item_id = i.id
+		WHERE d.delivery_date LIKE '%/%'
+		   OR d.delivery_date LIKE '%(%'
+		   OR d.delivery_date LIKE '%,%'
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type repairItem struct {
+		itemID            int64
+		tanggalPengiriman string
+	}
+	var itemsToRepair []repairItem
+	for rows.Next() {
+		var it repairItem
+		if err := rows.Scan(&it.itemID, &it.tanggalPengiriman); err == nil {
+			itemsToRepair = append(itemsToRepair, it)
+		}
+	}
+	_ = rows.Close()
+
+	if len(itemsToRepair) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	delStmt, err := tx.Prepare(`DELETE FROM deliveries WHERE item_id = ?`)
+	if err != nil {
+		return err
+	}
+	defer delStmt.Close()
+
+	insStmt, err := tx.Prepare(`
+		INSERT INTO deliveries (item_id, delivery_date, shipped_quantity, shipment_index)
+		VALUES (?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer insStmt.Close()
+
+	selStmt, err := tx.Prepare(`
+		SELECT delivery_date, shipped_quantity
+		FROM deliveries
+		WHERE item_id = ?
+		ORDER BY shipment_index ASC, id ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer selStmt.Close()
+
+	for _, it := range itemsToRepair {
+		entries := normalizer.ParseDeliveryEntries(it.tanggalPengiriman)
+
+		dRows, err := selStmt.Query(it.itemID)
+		if err != nil {
+			continue
+		}
+		type simpleDel struct {
+			date string
+			qty  string
+		}
+		var stored []simpleDel
+		for dRows.Next() {
+			var sd simpleDel
+			if err := dRows.Scan(&sd.date, &sd.qty); err == nil {
+				stored = append(stored, sd)
+			}
+		}
+		dRows.Close()
+
+		match := len(stored) == len(entries)
+		if match {
+			for i := range entries {
+				if stored[i].date != entries[i].Date || stored[i].qty != entries[i].Quantity {
+					match = false
+					break
+				}
+			}
+		}
+
+		if !match {
+			if _, err := delStmt.Exec(it.itemID); err != nil {
+				return err
+			}
+			for idx, entry := range entries {
+				if _, err := insStmt.Exec(it.itemID, entry.Date, entry.Quantity, idx); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 // SyncMirror replaces all existing items and orders with remote items and orders
@@ -1461,8 +1576,16 @@ func (s *Storage) GetDeliveries(ctx context.Context, filter DeliveryFilter) ([]D
 		date = filter.Tanggal
 	}
 	if date != "" {
-		conditions = append(conditions, "(d.delivery_date LIKE ? OR i.tanggal LIKE ?)")
+		dateConds := []string{"d.delivery_date LIKE ?", "i.tanggal LIKE ?"}
 		args = append(args, "%"+date+"%", "%"+date+"%")
+		if parsed := model.ParseDate(date); !parsed.IsZero() {
+			isoDate := parsed.Format("2006-01-02")
+			if isoDate != date {
+				dateConds = append(dateConds, "d.delivery_date LIKE ?", "i.tanggal LIKE ?")
+				args = append(args, "%"+isoDate+"%", "%"+isoDate+"%")
+			}
+		}
+		conditions = append(conditions, "("+strings.Join(dateConds, " OR ")+")")
 	}
 
 	orderNum := filter.OrderNumber

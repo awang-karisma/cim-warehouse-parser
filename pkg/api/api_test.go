@@ -1188,7 +1188,7 @@ func TestDeliveriesAPI(t *testing.T) {
 
 		// First shipment should be 07/01/2026 with quantity 3
 		d0 := res.Deliveries[0]
-		if d0.DeliveryDate != "07/01/2026" || d0.ShippedQuantity != "3" || d0.ShipmentIndex != 0 || d0.ShipmentCount != 2 {
+		if d0.DeliveryDate != "2026-01-07" || d0.ShippedQuantity != "3" || d0.ShipmentIndex != 0 || d0.ShipmentCount != 2 {
 			t.Errorf("unexpected d0: %+v", d0)
 		}
 		if d0.Item.NamaBarang != "Needle 23G" || d0.Item.Customer != "RSUD Provinsi NTB" {

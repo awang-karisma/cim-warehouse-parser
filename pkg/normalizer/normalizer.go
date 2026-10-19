@@ -29,11 +29,11 @@ type DeliveryEntry struct {
 func ParseDate(raw string) time.Time {
 	return model.ParseDate(raw)
 }
-var deliveryEntryRegex = regexp.MustCompile(`(\d{1,2}/\d{1,2}/\d{4})\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*\)`)
+var deliveryEntryRegex = regexp.MustCompile(`(\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2})\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*[^)]*\)`)
 
-// ParseDeliveryEntries parses comma-separated or formatted shipment dates and quantities.
-// E.g. "07/01/2026 (3), 03/02/2026 (1)" -> [{Date: "07/01/2026", Quantity: "3"}, {Date: "03/02/2026", Quantity: "1"}].
-// If no pairs match but raw is non-empty, returns a single entry with trimmed date and empty quantity.
+// ParseDeliveryEntries parses comma-separated, space-separated, or formatted shipment dates and quantities.
+// E.g. "07/01/2026 (3), 03/02/2026 (1)" -> [{Date: "2026-01-07", Quantity: "3"}, {Date: "2026-02-03", Quantity: "1"}].
+// If no pairs match but raw is non-empty, returns a single entry with normalized date (if parseable) and empty quantity.
 // If raw is empty, returns an empty slice.
 func ParseDeliveryEntries(raw string) []DeliveryEntry {
 	trimmed := strings.TrimSpace(raw)
@@ -43,16 +43,27 @@ func ParseDeliveryEntries(raw string) []DeliveryEntry {
 
 	matches := deliveryEntryRegex.FindAllStringSubmatch(trimmed, -1)
 	if len(matches) == 0 {
+		dateStr := trimmed
+		if t := model.ParseDate(trimmed); !t.IsZero() {
+			dateStr = t.Format("2006-01-02")
+		}
 		return []DeliveryEntry{
-			{Date: trimmed, Quantity: ""},
+			{Date: dateStr, Quantity: ""},
 		}
 	}
 
 	entries := make([]DeliveryEntry, len(matches))
 	for i, m := range matches {
+		dateRaw := strings.TrimSpace(m[1])
+		if t := model.ParseDate(dateRaw); !t.IsZero() {
+			dateRaw = t.Format("2006-01-02")
+		}
+		qtyRaw := strings.TrimSpace(m[2])
+		qtyRaw = strings.ReplaceAll(qtyRaw, ",", ".")
+
 		entries[i] = DeliveryEntry{
-			Date:     strings.TrimSpace(m[1]),
-			Quantity: strings.TrimSpace(m[2]),
+			Date:     dateRaw,
+			Quantity: qtyRaw,
 		}
 	}
 	return entries

@@ -615,30 +615,71 @@ func TestParseDeliveryEntries(t *testing.T) {
 			name: "single plain date",
 			raw:  "07/01/2026",
 			expected: []normalizer.DeliveryEntry{
-				{Date: "07/01/2026", Quantity: ""},
+				{Date: "2026-01-07", Quantity: ""},
 			},
 		},
 		{
 			name: "single date with quantity",
 			raw:  "07/01/2026 (4)",
 			expected: []normalizer.DeliveryEntry{
-				{Date: "07/01/2026", Quantity: "4"},
+				{Date: "2026-01-07", Quantity: "4"},
 			},
 		},
 		{
 			name: "multiple dates with quantities",
 			raw:  "07/01/2026 (3), 03/02/2026 (1)",
 			expected: []normalizer.DeliveryEntry{
-				{Date: "07/01/2026", Quantity: "3"},
-				{Date: "03/02/2026", Quantity: "1"},
+				{Date: "2026-01-07", Quantity: "3"},
+				{Date: "2026-02-03", Quantity: "1"},
 			},
 		},
 		{
 			name: "multiple dates with decimal quantities",
-			raw:  "07/01/2026 (2.5), 03/02/2026 (1.5)",
+			raw:  "07/01/2026 (2,5), 03/02/2026 (1.5)",
 			expected: []normalizer.DeliveryEntry{
-				{Date: "07/01/2026", Quantity: "2.5"},
-				{Date: "03/02/2026", Quantity: "1.5"},
+				{Date: "2026-01-07", Quantity: "2.5"},
+				{Date: "2026-02-03", Quantity: "1.5"},
+			},
+		},
+		{
+			name: "multiple dates with units in parens",
+			raw:  "08/07/2026 (39 pack) 24/07/2026 (45 pack) 03/08/2026 (8 pack) 11/08/2026 (90 pack)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "2026-07-08", Quantity: "39"},
+				{Date: "2026-07-24", Quantity: "45"},
+				{Date: "2026-08-03", Quantity: "8"},
+				{Date: "2026-08-11", Quantity: "90"},
+			},
+		},
+		{
+			name: "no space before paren and pcs unit",
+			raw:  "07/10/2026(900pcs) 15/10/2026(1000pcs)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "2026-10-07", Quantity: "900"},
+				{Date: "2026-10-15", Quantity: "1000"},
+			},
+		},
+		{
+			name: "single date with vial unit",
+			raw:  "05/10/2026 (1 vial)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "2026-10-05", Quantity: "1"},
+			},
+		},
+		{
+			name: "uppercase unit comma separated",
+			raw:  "13/04/2026 (1VIAL), 16/04/2026 (5VIAL)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "2026-04-13", Quantity: "1"},
+				{Date: "2026-04-16", Quantity: "5"},
+			},
+		},
+		{
+			name: "newline separated entries",
+			raw:  "08/07/2026 (39 pack)\n24/07/2026 (45 pack)",
+			expected: []normalizer.DeliveryEntry{
+				{Date: "2026-07-08", Quantity: "39"},
+				{Date: "2026-07-24", Quantity: "45"},
 			},
 		},
 		{
@@ -649,7 +690,6 @@ func TestParseDeliveryEntries(t *testing.T) {
 			},
 		},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := normalizer.ParseDeliveryEntries(tc.raw)
