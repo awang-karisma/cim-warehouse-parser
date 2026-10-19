@@ -46,7 +46,7 @@ export const Search: Component = () => {
 
   const activeParams = createMemo(() => {
     const q = filters.debouncedValues.q().trim();
-    return q ? { q, type: filters.values.type() } : null;
+    return q ? { q, type: 'all' } : null;
   });
   const [data] = createResource(activeParams, (params) => search(params));
 
@@ -60,7 +60,38 @@ export const Search: Component = () => {
     if (!res) return 0;
     return (res.orders?.total || 0) + (res.items?.total || 0) + (res.customers?.total || 0);
   });
+  const currentTabCount = createMemo(() => {
+    const type = filters.values.type();
+    if (type === 'orders') return data()?.orders?.total || 0;
+    if (type === 'items') return data()?.items?.total || 0;
+    if (type === 'customers') return data()?.customers?.total || 0;
+    return totalMatches();
+  });
+  const currentQuery = createMemo(() => filters.values.q().trim() || filters.debouncedValues.q().trim());
 
+  const ordersLink = createMemo(() => {
+    const q = currentQuery();
+    return q ? `/orders?customer=${encodeURIComponent(q)}` : '/orders';
+  });
+
+  const itemsLink = createMemo(() => {
+    const q = currentQuery();
+    if (!q) return '/items';
+    const items = data()?.items?.results || [];
+    const qLower = q.toLowerCase();
+    const matchesNamaBarang = items.some((it) => it.nama_barang?.toLowerCase().includes(qLower));
+    const matchesCustomer = items.some((it) => it.customer?.toLowerCase().includes(qLower));
+
+    if (matchesCustomer && !matchesNamaBarang) {
+      return `/items?customer=${encodeURIComponent(q)}`;
+    }
+    return `/items?nama_barang=${encodeURIComponent(q)}`;
+  });
+
+  const customersLink = createMemo(() => {
+    const q = currentQuery();
+    return q ? `/customers?search=${encodeURIComponent(q)}` : '/customers';
+  });
   const highlightMatch = (text: string, q: string) => {
     if (!q || !text) return text;
     const parts = text.split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
@@ -144,11 +175,12 @@ export const Search: Component = () => {
           </Card>
         </Show>
 
-        <Show when={!data.loading && filters.debouncedValues.q().trim() && totalMatches() === 0}>
+        <Show when={!data.loading && filters.debouncedValues.q().trim() && currentTabCount() === 0}>
           <Card>
             <CardContent class="p-12 text-center text-muted-foreground">
               <p>
-                No results found matching <span class="font-medium text-foreground">"{filters.debouncedValues.q()}"</span>
+                No {filters.values.type() === 'all' ? 'results' : filters.values.type()} found matching{' '}
+                <span class="font-medium text-foreground">"{filters.debouncedValues.q()}"</span>
               </p>
             </CardContent>
           </Card>
@@ -173,7 +205,7 @@ export const Search: Component = () => {
               </div>
               <Button
                 as={A}
-                href={`/orders?customer=${encodeURIComponent(filters.debouncedValues.q())}`}
+                href={ordersLink()}
                 variant="ghost"
                 size="sm"
                 class="gap-1 text-xs text-primary"
@@ -260,7 +292,7 @@ export const Search: Component = () => {
               </div>
               <Button
                 as={A}
-                href={`/items`}
+                href={itemsLink()}
                 variant="ghost"
                 size="sm"
                 class="gap-1 text-xs text-primary"
@@ -299,7 +331,7 @@ export const Search: Component = () => {
                           <TableCell class="text-right">
                             <Button
                               as={A}
-                              href={`/items`}
+                              href={`/items?nama_barang=${encodeURIComponent(item.nama_barang)}`}
                               variant="ghost"
                               size="sm"
                               class="text-xs"
@@ -336,7 +368,7 @@ export const Search: Component = () => {
               </div>
               <Button
                 as={A}
-                href={`/customers`}
+                href={customersLink()}
                 variant="ghost"
                 size="sm"
                 class="gap-1 text-xs text-primary"
