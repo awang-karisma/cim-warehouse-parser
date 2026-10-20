@@ -303,6 +303,17 @@ func (s *Storage) migrate() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_deliveries_item_id ON deliveries(item_id);
 	CREATE INDEX IF NOT EXISTS idx_deliveries_delivery_date ON deliveries(delivery_date);
+
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		name TEXT NOT NULL DEFAULT '',
+		picture TEXT NOT NULL DEFAULT '',
+		role TEXT NOT NULL DEFAULT 'guest',
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -1239,7 +1250,6 @@ func (s *Storage) ImportCustomerAliasesSQL(ctx context.Context, rawSQL string, m
 
 	return s.ImportCustomerAliases(ctx, aliases, normMode)
 }
-
 
 // DeleteCustomerAlias deletes a customer alias mapping case-insensitively.
 func (s *Storage) DeleteCustomerAlias(ctx context.Context, alias string) error {
@@ -2341,4 +2351,144 @@ func (s *Storage) HasSynced(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// UpsertUser inserts a new user with 'guest' role or updates name/picture/updated_at if existing.
+func (s *Storage) UpsertUser(ctx context.Context, email, name, picture string) (*model.User, error) {
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		return nil, fmt.Errorf("email cannot be empty")
+	}
+	trimmedName := strings.TrimSpace(name)
+	trimmedPicture := strings.TrimSpace(picture)
+	now := time.Now().UTC()
+
+	query := `
+		INSERT INTO users (email, name, picture, role, created_at, updated_at)
+		VALUES (?, ?, ?, 'guest', ?, ?)
+		ON CONFLICT(email) DO UPDATE SET
+			name = excluded.name,
+			picture = excluded.picture,
+			updated_at = excluded.updated_at
+	`
+	if _, err := s.db.ExecContext(ctx, query, trimmedEmail, trimmedName, trimmedPicture, now, now); err != nil {
+		return nil, fmt.Errorf("failed to upsert user: %w", err)
+	}
+	return s.GetUserByEmail(ctx, trimmedEmail)
+}
+
+// GetUserByEmail retrieves a user by email case-insensitively, returning nil, nil if not found.
+func (s *Storage) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		return nil, nil
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, email, name, picture, role, created_at, updated_at
+		FROM users
+		WHERE email = ? COLLATE NOCASE
+	`, trimmedEmail)
+
+	var u model.User
+	if err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
+	}
+	return &u, nil
+}
+
+// GetUsers returns all users ordered by created_at DESC.
+func (s *Storage) GetUsers(ctx context.Context) ([]model.User, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, email, name, picture, role, created_at, updated_at
+		FROM users
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate users: %w", err)
+	}
+	if users == nil {
+		users = []model.User{}
+	}
+	return users, nil
+}
+
+// SetUserRole updates a user's role and updated_at.
+// Reject if role not in {"guest", "user", "admin"}.
+func (s *Storage) SetUserRole(ctx context.Context, email, role string) error {
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		return fmt.Errorf("email cannot be empty")
+	}
+	switch role {
+	case "guest", "user", "admin":
+	default:
+		return fmt.Errorf("invalid role %q: must be guest, user, or admin", role)
+	}
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET role = ?, updated_at = ? WHERE email = ? COLLATE NOCASE`, role, now, trimmedEmail)
+	if err != nil {
+		return fmt.Errorf("failed to update user role: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// DeleteUser deletes a user by email case-insensitively.
+func (s *Storage) DeleteUser(ctx context.Context, email string) error {
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		return fmt.Errorf("email cannot be empty")
+	}
+	query := `DELETE FROM users WHERE email = ? COLLATE NOCASE`
+	if _, err := s.db.ExecContext(ctx, query, trimmedEmail); err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	return nil
+}
+
+// ClearData atomically clears items, orders, deliveries, and sync_history.
+// Customer aliases and users are preserved.
+func (s *Storage) ClearData(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	tables := []string{"deliveries", "items", "orders", "sync_history"}
+	for _, table := range tables {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", table)); err != nil {
+			return fmt.Errorf("failed to clear table %s: %w", table, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit clear transaction: %w", err)
+	}
+
+	return nil
 }

@@ -20,13 +20,13 @@ import (
 
 // Config holds the configuration for the sync worker.
 type Config struct {
-	Interval        time.Duration  `json:"interval"`
-	WorkHoursStart  string         `json:"work_hours_start"` // "08:00", HH:MM 24h format
-	WorkHoursEnd    string         `json:"work_hours_end"`   // "17:00", HH:MM 24h format
-	Timezone        string         `json:"timezone"`         // e.g. "Asia/Makassar", default UTC+8
-	WorkDays        []time.Weekday `json:"work_days"`        // e.g. Mon-Sat
-	SpreadsheetID   string         `json:"spreadsheet_id"`
-	SheetName       string         `json:"sheet_name"`
+	Interval                   time.Duration  `json:"interval"`
+	WorkHoursStart             string         `json:"work_hours_start"` // "08:00", HH:MM 24h format
+	WorkHoursEnd               string         `json:"work_hours_end"`   // "17:00", HH:MM 24h format
+	Timezone                   string         `json:"timezone"`         // e.g. "Asia/Makassar", default UTC+8
+	WorkDays                   []time.Weekday `json:"work_days"`        // e.g. Mon-Sat
+	SpreadsheetID              string         `json:"spreadsheet_id"`
+	SheetName                  string         `json:"sheet_name"`
 	CSVFallbackPath            string         `json:"csv_fallback_path"`
 	BypassWorkHoursOnFirstSync *bool          `json:"bypass_work_hours_on_first_sync"`
 }
@@ -79,14 +79,14 @@ type SyncEvent struct {
 
 // Worker coordinates periodic synchronization within allowed work hours.
 type Worker struct {
-	cfg      Config
-	store    *storage.Storage
-	fetcher  Fetcher
-	loc      *time.Location
-	startMin int // minutes from midnight (0..1439)
-	endMin   int // minutes from midnight (0..1439)
+	cfg                        Config
+	store                      *storage.Storage
+	fetcher                    Fetcher
+	loc                        *time.Location
+	startMin                   int // minutes from midnight (0..1439)
+	endMin                     int // minutes from midnight (0..1439)
 	bypassWorkHoursOnFirstSync bool
-	syncMu       sync.Mutex
+	syncMu                     sync.Mutex
 
 	mu           sync.RWMutex
 	lastRunTime  time.Time
@@ -157,12 +157,12 @@ func New(cfg Config, store *storage.Storage, fetcher Fetcher) (*Worker, error) {
 	}
 
 	w := &Worker{
-		cfg:      cfg,
-		store:    store,
-		fetcher:  fetcher,
-		loc:      loc,
-		startMin: startMin,
-		endMin:   endMin,
+		cfg:                        cfg,
+		store:                      store,
+		fetcher:                    fetcher,
+		loc:                        loc,
+		startMin:                   startMin,
+		endMin:                     endMin,
 		bypassWorkHoursOnFirstSync: bypassOnFirst,
 		status:                     "IDLE",
 		subscribers:                make(map[chan SyncEvent]struct{}),

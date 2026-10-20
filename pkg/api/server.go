@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/auth"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/awang-karisma/warehouse-parser/pkg/version"
@@ -20,6 +22,67 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/static"
 )
+
+type contextKey string
+
+const authClaimsKey contextKey = "auth_claims"
+
+func claimsFromContext(ctx context.Context) *auth.Claims {
+	if ctx == nil {
+		return nil
+	}
+	if claims, ok := ctx.Value(authClaimsKey).(*auth.Claims); ok {
+		return claims
+	}
+	return nil
+}
+
+func roleLevel(role string) int {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "superadmin":
+		return 4
+	case "admin":
+		return 3
+	case "user":
+		return 2
+	case "guest":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func hasMinRole(userRole, minRole string) bool {
+	return roleLevel(userRole) >= roleLevel(minRole)
+}
+
+// requireRole validates that the request has at least minRole permissions.
+// If auth is disabled (claims is nil), returns nil (allow).
+func requireRole(c fiber.Ctx, minRole string) error {
+	claims, ok := c.Locals("user").(*auth.Claims)
+	if !ok || claims == nil {
+		return nil
+	}
+	if !hasMinRole(claims.Role, minRole) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
+	}
+	return nil
+}
+
+// requireRole validates that the request has at least minRole permissions.
+func (s *Server) requireRole(c fiber.Ctx, minRole string) error {
+	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
+		return nil
+	}
+	claims, ok := c.Locals("user").(*auth.Claims)
+	if !ok || claims == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
+	}
+	if !hasMinRole(claims.Role, minRole) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
+	}
+	return nil
+}
 
 // Config holds dependencies for creating an API Server.
 type Config struct {
@@ -64,14 +127,27 @@ func New(cfg Config) *Server {
 		appConfig: cfg.AppConfig,
 		startTime: time.Now(),
 	}
+	app.Use(s.authMiddleware)
+	humaAPI.UseMiddleware(s.humaAuthMiddleware)
 
 	s.registerOperations()
-
 	// Raw Fiber routes
 	app.Get("/api/v1/items/export", s.handleExportItems)
 	app.Get("/api/v1/sync/events", s.handleSyncSSE)
 	app.Get("/api/v1/customer-aliases/export", s.handleExportCustomerAliases)
 	app.Post("/api/v1/customer-aliases/import", s.handleImportCustomerAliases)
+
+	// Auth routes (raw Fiber routes)
+	app.Get("/auth/config", s.handleAuthConfig)
+	app.Post("/auth/google/callback", s.handleGoogleCallback)
+	app.Get("/auth/me", s.handleAuthMe)
+	app.Post("/auth/logout", s.handleLogout)
+
+	// Admin routes (raw Fiber routes)
+	app.Get("/api/v1/admin/users", s.handleListUsers)
+	app.Put("/api/v1/admin/users/:email/role", s.handleSetUserRole)
+	app.Delete("/api/v1/admin/users/:email", s.handleDeleteUser)
+	app.Post("/api/v1/admin/clear-database", s.handleClearDatabase)
 	return s
 }
 
@@ -90,7 +166,7 @@ func (s *Server) SetupStaticFiles(distPath string) {
 	s.app.Use("/assets", static.New(filepath.Join(distPath, "assets")))
 	s.app.Get("/*", func(c fiber.Ctx) error {
 		p := c.Path()
-		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") {
+		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") || strings.HasPrefix(p, "/auth") {
 			return c.Next()
 		}
 		targetFile := filepath.Join(distPath, filepath.Clean(p))
@@ -109,7 +185,7 @@ func (s *Server) SetupStaticFS(distFS fs.FS) {
 	}))
 	s.app.Get("/*", func(c fiber.Ctx) error {
 		p := c.Path()
-		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") {
+		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") || strings.HasPrefix(p, "/auth") {
 			return c.Next()
 		}
 		indexData, err := fs.ReadFile(distFS, "index.html")
@@ -147,6 +223,7 @@ func (s *Server) registerOperations() {
 		Summary:     "Trigger manual sync",
 		Description: "Trigger an immediate synchronization from remote data source into local storage (force=true)",
 		Tags:        []string{"worker"},
+		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSync)
 
 	huma.Register(s.humaAPI, huma.Operation{
@@ -263,6 +340,7 @@ func (s *Server) registerOperations() {
 		Summary:     "Set customer alias",
 		Description: "Create or update a customer name alias mapping",
 		Tags:        []string{"customers"},
+		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSetCustomerAlias)
 
 	huma.Register(s.humaAPI, huma.Operation{
@@ -272,5 +350,75 @@ func (s *Server) registerOperations() {
 		Summary:     "Delete customer alias",
 		Description: "Delete a customer name alias mapping",
 		Tags:        []string{"customers"},
+		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeleteCustomerAlias)
+}
+
+// authMiddleware verifies the warehouse_session cookie for protected routes.
+func (s *Server) authMiddleware(c fiber.Ctx) error {
+	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
+		return c.Next()
+	}
+
+	p := c.Path()
+	if strings.HasPrefix(p, "/auth/") || p == "/auth" ||
+		p == "/health" || strings.HasPrefix(p, "/health/") ||
+		strings.HasPrefix(p, "/docs") ||
+		strings.HasPrefix(p, "/openapi") ||
+		(!strings.HasPrefix(p, "/api/") && p != "/api") {
+		return c.Next()
+	}
+
+	cookie := c.Cookies("warehouse_session")
+	if cookie == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
+	}
+
+	claims, err := auth.ValidateToken(s.appConfig.JWTSecret, cookie)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
+	}
+
+	c.Locals("user", claims)
+	c.SetContext(context.WithValue(c.Context(), authClaimsKey, claims))
+	return c.Next()
+}
+
+// humaAuthMiddleware enforces minimum role authorization for Huma operations.
+func (s *Server) humaAuthMiddleware(ctx huma.Context, next func(huma.Context)) {
+	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
+		next(ctx)
+		return
+	}
+
+	op := ctx.Operation()
+	if op == nil {
+		next(ctx)
+		return
+	}
+
+	if !strings.HasPrefix(op.Path, "/api/v1/") {
+		next(ctx)
+		return
+	}
+
+	minRole := "user"
+	if op.Metadata != nil {
+		if r, ok := op.Metadata["minRole"].(string); ok && r != "" {
+			minRole = r
+		}
+	}
+
+	claims := claimsFromContext(ctx.Context())
+	if claims == nil {
+		_ = huma.WriteErr(s.humaAPI, ctx, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	if !hasMinRole(claims.Role, minRole) {
+		_ = huma.WriteErr(s.humaAPI, ctx, http.StatusForbidden, "insufficient permissions")
+		return
+	}
+
+	next(ctx)
 }

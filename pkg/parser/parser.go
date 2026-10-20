@@ -70,6 +70,7 @@ func ParseSheetWithAliases(ctx context.Context, svc *sheets.Service, spreadsheet
 	orders := normalizer.GroupOrders(items)
 	return items, orders, nil
 }
+
 // ParseCSV reads order data from an io.Reader containing CSV formatted data,
 // maps CSV header columns to RawOrderRow fields, normalizes rows, and groups orders.
 func ParseCSV(r io.Reader) ([]model.NormalizedItem, []model.Order, error) {

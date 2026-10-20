@@ -688,6 +688,9 @@ func (s *Server) handleSystem(ctx context.Context, input *struct{}) (*SystemOutp
 }
 
 func (s *Server) handleExportItems(c fiber.Ctx) error {
+	if err := s.requireRole(c, "user"); err != nil {
+		return err
+	}
 	if s.store == nil {
 		return c.Status(fiber.StatusServiceUnavailable).SendString("storage service not available")
 	}
@@ -766,6 +769,9 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 	return writer.Error()
 }
 func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
+	if err := s.requireRole(c, "user"); err != nil {
+		return err
+	}
 	if s.store == nil {
 		return c.Status(fiber.StatusServiceUnavailable).SendString("storage service not available")
 	}
@@ -783,6 +789,9 @@ func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
 }
 
 func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
+	if err := s.requireRole(c, "admin"); err != nil {
+		return err
+	}
 	if s.store == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
 	}
@@ -858,6 +867,9 @@ func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
 }
 
 func (s *Server) handleSyncSSE(c fiber.Ctx) error {
+	if err := s.requireRole(c, "user"); err != nil {
+		return err
+	}
 	if s.worker == nil {
 		return c.Status(fiber.StatusServiceUnavailable).SendString("worker service not available")
 	}

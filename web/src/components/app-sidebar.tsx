@@ -1,5 +1,6 @@
-import { type Component, For } from 'solid-js';
+import { type Component, For, createMemo } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
+import { useAuth } from '~/auth';
 import {
   IconLayoutDashboard,
   IconClipboardList,
@@ -10,6 +11,7 @@ import {
   IconRefresh,
   IconSearch,
   IconSettings,
+  IconUserCog,
   type IconProps,
 } from '@tabler/icons-solidjs';
 
@@ -48,6 +50,22 @@ const navItems: NavItem[] = [
 
 export const AppSidebar: Component = () => {
   const location = useLocation();
+  const auth = useAuth();
+
+  const isPrivileged = createMemo(() => {
+    const role = auth.user()?.role;
+    return role === 'admin' || role === 'superadmin';
+  });
+
+  const currentNavItems = createMemo(() => {
+    if (isPrivileged()) {
+      return [
+        ...navItems,
+        { href: '/admin/users', label: 'User Management', icon: IconUserCog },
+      ];
+    }
+    return navItems;
+  });
 
   const isActive = (item: NavItem) => {
     if (item.exact) {
@@ -55,7 +73,6 @@ export const AppSidebar: Component = () => {
     }
     return location.pathname.startsWith(item.href);
   };
-
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -79,7 +96,7 @@ export const AppSidebar: Component = () => {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <For each={navItems}>
+              <For each={currentNavItems()}>
                 {(item) => {
                   const active = () => isActive(item);
                   const Icon = item.icon;

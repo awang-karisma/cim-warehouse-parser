@@ -14,6 +14,9 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - SPREADSHEET_ID=${SPREADSHEET_ID:-1X3FqpqpP7utvkyFK98YE863ItVsvmmUrBTBsGfuzK3s}
       - SHEET_NAME=${SHEET_NAME:-PESANAN}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - SUPERADMIN_EMAILS=${SUPERADMIN_EMAILS:-}
     volumes:
       - warehouse-data:/data
 

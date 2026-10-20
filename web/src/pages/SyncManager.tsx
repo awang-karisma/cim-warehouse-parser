@@ -1,4 +1,5 @@
 import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import { useAuth } from '~/auth';
 import {
   IconBolt,
   IconLoader2,
@@ -35,6 +36,11 @@ export const SyncManager: Component = () => {
   const [isSyncing, setIsSyncing] = createSignal(false);
   const [syncProgressMsg, setSyncProgressMsg] = createSignal<string>('');
   const [syncError, setSyncError] = createSignal<string>('');
+  const auth = useAuth();
+  const canSync = () => {
+    const role = auth.user()?.role;
+    return role === 'admin' || role === 'superadmin';
+  };
 
   const handleManualSync = async () => {
     if (isSyncing()) return;
@@ -102,25 +108,27 @@ export const SyncManager: Component = () => {
               Real-time synchronization engine connected to remote Google Sheets mirror
             </CardDescription>
           </div>
-          <Button
-            size="sm"
-            disabled={isSyncing()}
-            onClick={handleManualSync}
-            class="gap-2"
-          >
-            <Show
-              when={isSyncing()}
-              fallback={
-                <>
-                  <IconBolt class="size-4" />
-                  <span>Trigger Sync Now</span>
-                </>
-              }
+          <Show when={canSync()}>
+            <Button
+              size="sm"
+              disabled={isSyncing()}
+              onClick={handleManualSync}
+              class="gap-2"
             >
-              <IconLoader2 class="size-4 animate-spin" />
-              <span>Syncing...</span>
-            </Show>
-          </Button>
+              <Show
+                when={isSyncing()}
+                fallback={
+                  <>
+                    <IconBolt class="size-4" />
+                    <span>Trigger Sync Now</span>
+                  </>
+                }
+              >
+                <IconLoader2 class="size-4 animate-spin" />
+                <span>Syncing...</span>
+              </Show>
+            </Button>
+          </Show>
         </CardHeader>
         <CardContent class="space-y-4">
           <Show when={isSyncing() || syncProgressMsg() || syncError()}>

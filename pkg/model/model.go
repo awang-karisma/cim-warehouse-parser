@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 )
+
 // RawOrderRow represents a single unparsed row directly mapped from the Google Sheet or CSV.
 // All fields are strings to prevent conversion errors from irregular human input in spreadsheet cells.
 type RawOrderRow struct {
@@ -30,23 +31,23 @@ type RawOrderRow struct {
 // NormalizedItem represents a flat, normalized order item with forward-filled Tanggal,
 // Customer, and Area, along with the 1-based sheet row number.
 type NormalizedItem struct {
-	RowIndex           int    `json:"row_index"`
-	OrderNumber        string `json:"order_number,omitempty"`
-	EcatalogNumber     string `json:"ecatalog_number,omitempty"`
+	RowIndex           int       `json:"row_index"`
+	OrderNumber        string    `json:"order_number,omitempty"`
+	EcatalogNumber     string    `json:"ecatalog_number,omitempty"`
 	Tanggal            time.Time `json:"tanggal" format:"date"`
-	Customer           string `json:"customer"`
-	Area               string `json:"area"`
-	NamaBarang         string `json:"nama_barang"`
-	Jumlah             string `json:"jumlah"`
-	Satuan             string `json:"satuan"`
-	TanggalPengiriman  string `json:"tanggal_pengiriman"`
-	LeadTimePengiriman string `json:"lead_time_pengiriman"`
-	JumlahTerkirim     string `json:"jumlah_terkirim"`
-	BelumTerkirim      string `json:"belum_terkirim"`
-	StatusOrder        string `json:"status_order"`
-	StatusBarang       string `json:"status_barang"`
-	Keterangan         string `json:"keterangan"`
-	Catatan            string `json:"catatan"`
+	Customer           string    `json:"customer"`
+	Area               string    `json:"area"`
+	NamaBarang         string    `json:"nama_barang"`
+	Jumlah             string    `json:"jumlah"`
+	Satuan             string    `json:"satuan"`
+	TanggalPengiriman  string    `json:"tanggal_pengiriman"`
+	LeadTimePengiriman string    `json:"lead_time_pengiriman"`
+	JumlahTerkirim     string    `json:"jumlah_terkirim"`
+	BelumTerkirim      string    `json:"belum_terkirim"`
+	StatusOrder        string    `json:"status_order"`
+	StatusBarang       string    `json:"status_barang"`
+	Keterangan         string    `json:"keterangan"`
+	Catatan            string    `json:"catatan"`
 }
 
 // Order represents a grouped order belonging to a specific customer on a specific date,
@@ -186,3 +187,13 @@ func (o *Order) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// User represents an authenticated system user.
+type User struct {
+	ID        int64     `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Picture   string    `json:"picture"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

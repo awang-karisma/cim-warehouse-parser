@@ -199,3 +199,17 @@ export interface PaginatedDeliveries {
   offset: number;
   deliveries: DeliveryItem[];
 }
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  picture: string;
+  role: 'guest' | 'user' | 'admin' | 'superadmin';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UsersResponse {
+  users: User[];
+}

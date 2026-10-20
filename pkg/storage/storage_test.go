@@ -2237,3 +2237,171 @@ func TestSyncMirror_CustomerAreaInheritance(t *testing.T) {
 		t.Errorf("GetOrderByID ORD-0002 item expected Area 'Lombok Barat', got %+v", ord2.Items)
 	}
 }
+
+func TestUserCRUD(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	// 1. Initial lookup on empty DB
+	u, err := store.GetUserByEmail(ctx, "test@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail returned error: %v", err)
+	}
+	if u != nil {
+		t.Fatalf("expected nil user, got %+v", u)
+	}
+
+	// 2. Upsert new user
+	u1, err := store.UpsertUser(ctx, "Test@Example.com", "Test User", "https://example.com/pic.jpg")
+	if err != nil {
+		t.Fatalf("UpsertUser failed: %v", err)
+	}
+	if u1 == nil {
+		t.Fatal("expected non-nil user")
+	}
+	if u1.Email != "Test@Example.com" {
+		t.Errorf("expected email 'Test@Example.com', got %q", u1.Email)
+	}
+	if u1.Name != "Test User" {
+		t.Errorf("expected name 'Test User', got %q", u1.Name)
+	}
+	if u1.Picture != "https://example.com/pic.jpg" {
+		t.Errorf("expected picture 'https://example.com/pic.jpg', got %q", u1.Picture)
+	}
+	if u1.Role != "guest" {
+		t.Errorf("expected default role 'guest', got %q", u1.Role)
+	}
+
+	// 3. Set role to 'user'
+	if err := store.SetUserRole(ctx, "test@example.com", "user"); err != nil {
+		t.Fatalf("SetUserRole failed: %v", err)
+	}
+	uCheck, err := store.GetUserByEmail(ctx, "TEST@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail failed: %v", err)
+	}
+	if uCheck.Role != "user" {
+		t.Errorf("expected role 'user', got %q", uCheck.Role)
+	}
+
+	// 4. Upsert existing user: name/picture updated, role preserved
+	u2, err := store.UpsertUser(ctx, "test@example.com", "Updated Name", "https://example.com/new.jpg")
+	if err != nil {
+		t.Fatalf("UpsertUser existing failed: %v", err)
+	}
+	if u2.Name != "Updated Name" {
+		t.Errorf("expected updated name 'Updated Name', got %q", u2.Name)
+	}
+	if u2.Picture != "https://example.com/new.jpg" {
+		t.Errorf("expected updated picture 'https://example.com/new.jpg', got %q", u2.Picture)
+	}
+	if u2.Role != "user" {
+		t.Errorf("expected preserved role 'user', got %q", u2.Role)
+	}
+
+	// 5. Invalid roles
+	if err := store.SetUserRole(ctx, "test@example.com", "superadmin"); err == nil {
+		t.Error("expected error setting role to 'superadmin', got nil")
+	}
+	if err := store.SetUserRole(ctx, "test@example.com", "unknown"); err == nil {
+		t.Error("expected error setting role to 'unknown', got nil")
+	}
+	if err := store.SetUserRole(ctx, "nonexistent@example.com", "admin"); err == nil {
+		t.Error("expected error setting role for non-existent user, got nil")
+	}
+
+	// 6. Add second user and GetUsers
+	_, err = store.UpsertUser(ctx, "admin@example.com", "Admin User", "")
+	if err != nil {
+		t.Fatalf("UpsertUser admin failed: %v", err)
+	}
+	users, err := store.GetUsers(ctx)
+	if err != nil {
+		t.Fatalf("GetUsers failed: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+
+	// 7. Delete user
+	if err := store.DeleteUser(ctx, "test@example.com"); err != nil {
+		t.Fatalf("DeleteUser failed: %v", err)
+	}
+	uDeleted, err := store.GetUserByEmail(ctx, "test@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail after delete failed: %v", err)
+	}
+	if uDeleted != nil {
+		t.Errorf("expected nil after delete, got %+v", uDeleted)
+	}
+	remaining, err := store.GetUsers(ctx)
+	if err != nil {
+		t.Fatalf("GetUsers after delete failed: %v", err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("expected 1 remaining user, got %d", len(remaining))
+	}
+}
+
+func TestClearData(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items, orders := createSampleData()
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// Add an alias and a user
+	if err := store.SetCustomerAlias(ctx, "RSN", "RS Narmada", "Lombok Barat"); err != nil {
+		t.Fatalf("SetCustomerAlias failed: %v", err)
+	}
+	if _, err := store.UpsertUser(ctx, "keep@example.com", "Keep Me", ""); err != nil {
+		t.Fatalf("UpsertUser failed: %v", err)
+	}
+
+	statsBefore, err := store.GetTableStats(ctx)
+	if err != nil {
+		t.Fatalf("GetTableStats failed: %v", err)
+	}
+	if statsBefore["orders"].RowCount == 0 || statsBefore["items"].RowCount == 0 {
+		t.Fatal("expected non-zero orders and items before clear")
+	}
+
+	// Clear
+	if err := store.ClearData(ctx); err != nil {
+		t.Fatalf("ClearData failed: %v", err)
+	}
+
+	statsAfter, err := store.GetTableStats(ctx)
+	if err != nil {
+		t.Fatalf("GetTableStats failed: %v", err)
+	}
+	if statsAfter["orders"].RowCount != 0 {
+		t.Errorf("expected 0 orders, got %d", statsAfter["orders"].RowCount)
+	}
+	if statsAfter["items"].RowCount != 0 {
+		t.Errorf("expected 0 items, got %d", statsAfter["items"].RowCount)
+	}
+	if statsAfter["sync_history"].RowCount != 0 {
+		t.Errorf("expected 0 sync_history, got %d", statsAfter["sync_history"].RowCount)
+	}
+
+	// Verify user and alias are still present
+	u, err := store.GetUserByEmail(ctx, "keep@example.com")
+	if err != nil || u == nil {
+		t.Errorf("expected user to be preserved after ClearData, got %v, err=%v", u, err)
+	}
+	aliases, err := store.GetCustomerAliases(ctx)
+	if err != nil || len(aliases) == 0 {
+		t.Errorf("expected aliases to be preserved after ClearData, got %v, err=%v", aliases, err)
+	}
+}

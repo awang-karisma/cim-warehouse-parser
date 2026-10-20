@@ -1,0 +1,250 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/awang-karisma/warehouse-parser/pkg/auth"
+	"github.com/gofiber/fiber/v3"
+)
+
+type googleCallbackReq struct {
+	Credential string `json:"credential"`
+}
+
+// handleAuthConfig returns public authentication configuration (Google Client ID and status).
+func (s *Server) handleAuthConfig(c fiber.Ctx) error {
+	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
+		return c.JSON(fiber.Map{
+			"auth_enabled": false,
+		})
+	}
+	return c.JSON(fiber.Map{
+		"auth_enabled":     true,
+		"google_client_id": s.appConfig.GoogleClientID,
+	})
+}
+
+// handleGoogleCallback verifies the Google ID token and issues a session cookie.
+func (s *Server) handleGoogleCallback(c fiber.Ctx) error {
+	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "authentication is not enabled"})
+	}
+
+	var req googleCallbackReq
+	if err := json.Unmarshal(c.Body(), &req); err != nil || strings.TrimSpace(req.Credential) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body: credential is required"})
+	}
+
+	ctx := c.Context()
+	email, name, picture, err := auth.VerifyGoogleIDToken(ctx, req.Credential, s.appConfig.GoogleClientID)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": fmt.Sprintf("invalid google credential: %v", err)})
+	}
+
+	user, err := s.store.UpsertUser(ctx, email, name, picture)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("failed to store user: %v", err)})
+	}
+
+	var superadminEmails []string
+	if s.appConfig.SuperadminEmails != "" {
+		superadminEmails = strings.Split(s.appConfig.SuperadminEmails, ",")
+	}
+
+	token, err := auth.GenerateToken(s.appConfig.JWTSecret, user, superadminEmails)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("failed to generate session token: %v", err)})
+	}
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "warehouse_session",
+		Value:    token,
+		Path:     "/",
+		HTTPOnly: true,
+		Secure:   c.Protocol() == "https",
+		SameSite: "Lax",
+		MaxAge:   86400,
+	})
+
+	role := user.Role
+	if s.appConfig.IsSuperadmin(user.Email) {
+		role = "superadmin"
+	}
+
+	return c.JSON(fiber.Map{
+		"user": fiber.Map{
+			"email":   user.Email,
+			"name":    user.Name,
+			"picture": user.Picture,
+			"role":    role,
+		},
+	})
+}
+
+// handleAuthMe returns the current authenticated user from session cookie claims.
+func (s *Server) handleAuthMe(c fiber.Ctx) error {
+	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "authentication is not enabled"})
+	}
+
+	cookie := c.Cookies("warehouse_session")
+	if cookie == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "not authenticated"})
+	}
+
+	claims, err := auth.ValidateToken(s.appConfig.JWTSecret, cookie)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "not authenticated"})
+	}
+
+	return c.JSON(fiber.Map{
+		"user": fiber.Map{
+			"email":   claims.Email,
+			"name":    claims.Name,
+			"picture": claims.Picture,
+			"role":    claims.Role,
+		},
+	})
+}
+
+// handleLogout clears the session cookie.
+func (s *Server) handleLogout(c fiber.Ctx) error {
+	c.Cookie(&fiber.Cookie{
+		Name:     "warehouse_session",
+		Value:    "",
+		Path:     "/",
+		HTTPOnly: true,
+		SameSite: "Lax",
+		MaxAge:   -1,
+		Expires:  time.Now().Add(-1 * time.Hour),
+	})
+	return c.JSON(fiber.Map{"status": "ok"})
+}
+
+// handleListUsers returns all users in the system.
+func (s *Server) handleListUsers(c fiber.Ctx) error {
+	if err := s.requireRole(c, "superadmin"); err != nil {
+		return err
+	}
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
+	}
+
+	users, err := s.store.GetUsers(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	for i := range users {
+		if s.appConfig != nil && s.appConfig.IsSuperadmin(users[i].Email) {
+			users[i].Role = "superadmin"
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"users": users,
+	})
+}
+
+type setUserRoleReq struct {
+	Role string `json:"role"`
+}
+
+// handleSetUserRole changes a user's role to 'user' or 'admin'.
+func (s *Server) handleSetUserRole(c fiber.Ctx) error {
+	if err := s.requireRole(c, "superadmin"); err != nil {
+		return err
+	}
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
+	}
+
+	targetEmail := c.Params("email")
+	if unescaped, err := url.PathUnescape(targetEmail); err == nil && unescaped != "" {
+		targetEmail = unescaped
+	}
+	targetEmail = strings.TrimSpace(targetEmail)
+	if targetEmail == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email is required"})
+	}
+
+	if s.appConfig != nil && s.appConfig.IsSuperadmin(targetEmail) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot change role of superadmin"})
+	}
+
+	var req setUserRoleReq
+	if err := json.Unmarshal(c.Body(), &req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if req.Role != "user" && req.Role != "admin" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "role must be 'user' or 'admin'"})
+	}
+
+	if err := s.store.SetUserRole(c.Context(), targetEmail, req.Role); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"status": "ok"})
+}
+
+// handleDeleteUser deletes a user by email.
+func (s *Server) handleDeleteUser(c fiber.Ctx) error {
+	if err := s.requireRole(c, "superadmin"); err != nil {
+		return err
+	}
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
+	}
+
+	targetEmail := c.Params("email")
+	if unescaped, err := url.PathUnescape(targetEmail); err == nil && unescaped != "" {
+		targetEmail = unescaped
+	}
+	targetEmail = strings.TrimSpace(targetEmail)
+	if targetEmail == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email is required"})
+	}
+
+	if s.appConfig != nil && s.appConfig.IsSuperadmin(targetEmail) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot delete superadmin"})
+	}
+
+	if claims, ok := c.Locals("user").(*auth.Claims); ok && claims != nil {
+		if strings.EqualFold(claims.Email, targetEmail) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot delete self"})
+		}
+	}
+
+	if err := s.store.DeleteUser(c.Context(), targetEmail); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"status": "ok"})
+}
+
+// handleClearDatabase wipes orders, items, deliveries, and sync history.
+func (s *Server) handleClearDatabase(c fiber.Ctx) error {
+	if err := s.requireRole(c, "admin"); err != nil {
+		return err
+	}
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
+	}
+
+	if err := s.store.ClearData(c.Context()); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("failed to clear database: %v", err)})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "ok",
+		"message": "database cleared",
+	})
+}

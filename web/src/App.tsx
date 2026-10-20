@@ -1,6 +1,9 @@
-import { type Component, createMemo } from 'solid-js';
+import { type Component, createMemo, Show } from 'solid-js';
 import { type RouteSectionProps, useLocation } from '@solidjs/router';
 
+import { useAuth } from '~/auth';
+import { Login } from '~/pages/Login';
+import { PendingApproval } from '~/pages/PendingApproval';
 import { SidebarProvider, SidebarInset, SidebarTrigger } from '~/components/ui/sidebar';
 import { AppSidebar } from '~/components/app-sidebar';
 import { Separator } from '~/components/ui/separator';
@@ -12,7 +15,15 @@ import {
   BreadcrumbSeparator,
 } from '~/components/ui/breadcrumb';
 import { ModeToggle } from '~/components/mode-toggle';
-
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '~/components/ui/dropdown-menu';
+import { Avatar, AvatarImage, AvatarFallback } from '~/components/ui/avatar';
+import { IconLogout } from '@tabler/icons-solidjs';
 export const App: Component<RouteSectionProps> = (props) => {
   const location = useLocation();
 
@@ -28,35 +39,94 @@ export const App: Component<RouteSectionProps> = (props) => {
     if (path.startsWith('/sync')) return 'Sync Manager';
     if (path.startsWith('/search')) return 'Search';
     if (path.startsWith('/settings')) return 'Settings';
+    if (path.startsWith('/admin/users')) return 'User Management';
     return 'Console';
   });
 
+  const auth = useAuth();
+  const currentUser = () => auth.user();
+
   return (
-    <SidebarProvider style={{ '--sidebar-width': '16rem' } as any}>
-      <AppSidebar />
-      <SidebarInset>
-        <header class="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4 bg-background">
-          <div class="flex items-center gap-2">
-            <SidebarTrigger class="-ml-1" />
-            <Separator orientation="vertical" class="mr-2 h-4" />
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/">Warehouse</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <span class="font-medium text-foreground">{routeTitle()}</span>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
+    <Show
+      when={!auth.loading() || currentUser() !== undefined}
+      fallback={
+        <div class="min-h-screen w-full flex items-center justify-center bg-background">
+          <div class="flex flex-col items-center gap-3">
+            <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <span class="text-sm text-muted-foreground font-medium">Loading session...</span>
           </div>
-          <div class="flex items-center gap-2">
-            <ModeToggle />
-          </div>
-        </header>
-        <main class="flex flex-1 flex-col gap-4 p-4 md:p-6 min-w-0 bg-background">{props.children}</main>
-      </SidebarInset>
-    </SidebarProvider>
+        </div>
+      }
+    >
+      <Show when={currentUser() !== null} fallback={<Login />}>
+        <Show when={currentUser()?.role !== 'guest'} fallback={<PendingApproval />}>
+          <SidebarProvider style={{ '--sidebar-width': '16rem' } as any}>
+            <AppSidebar />
+            <SidebarInset>
+              <header class="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4 bg-background">
+                <div class="flex items-center gap-2">
+                  <SidebarTrigger class="-ml-1" />
+                  <Separator orientation="vertical" class="mr-2 h-4" />
+                  <Breadcrumb>
+                    <BreadcrumbList>
+                      <BreadcrumbItem>
+                        <BreadcrumbLink href="/">Warehouse</BreadcrumbLink>
+                      </BreadcrumbItem>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        <span class="font-medium text-foreground">{routeTitle()}</span>
+                      </BreadcrumbItem>
+                    </BreadcrumbList>
+                  </Breadcrumb>
+                </div>
+                <div class="flex items-center gap-3">
+                  <ModeToggle />
+                  <Show when={currentUser() && currentUser()?.email}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger class="rounded-full ring-offset-background transition-opacity hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                        <Avatar class="h-8 w-8 cursor-pointer border border-border">
+                          <AvatarImage src={currentUser()?.picture} alt={currentUser()?.name} />
+                          <AvatarFallback class="text-xs font-semibold bg-primary/10 text-primary">
+                            {(currentUser()?.name || currentUser()?.email || 'U')
+                              .charAt(0)
+                              .toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent class="w-56 p-2">
+                        <div class="flex flex-col space-y-1 p-2">
+                          <p class="text-sm font-medium leading-none text-foreground truncate">
+                            {currentUser()?.name || 'User'}
+                          </p>
+                          <p class="text-xs leading-none text-muted-foreground font-mono truncate">
+                            {currentUser()?.email}
+                          </p>
+                          <div class="pt-1.5">
+                            <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono uppercase bg-muted text-muted-foreground font-semibold">
+                              {currentUser()?.role}
+                            </span>
+                          </div>
+                        </div>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          class="cursor-pointer gap-2 text-destructive focus:text-destructive"
+                          onSelect={() => auth.logout()}
+                        >
+                          <IconLogout class="h-4 w-4" />
+                          <span>Sign Out</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </Show>
+                </div>
+              </header>
+              <main class="flex flex-1 flex-col gap-4 p-4 md:p-6 min-w-0 bg-background">
+                {props.children}
+              </main>
+            </SidebarInset>
+          </SidebarProvider>
+        </Show>
+      </Show>
+    </Show>
   );
 };

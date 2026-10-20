@@ -14,13 +14,15 @@ import (
 	"time"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/api"
+	"github.com/awang-karisma/warehouse-parser/pkg/auth"
+	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/gofiber/fiber/v3"
 )
 
-func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worker) {
+func setupTestServer(t *testing.T, customConfig ...*config.Config) (*api.Server, *storage.Storage, *worker.Worker) {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test_api.db")
@@ -133,9 +135,14 @@ func setupTestServer(t *testing.T) (*api.Server, *storage.Storage, *worker.Worke
 		t.Fatalf("failed to initialize worker: %v", err)
 	}
 
+	var appCfg *config.Config
+	if len(customConfig) > 0 && customConfig[0] != nil {
+		appCfg = customConfig[0]
+	}
 	srv := api.New(api.Config{
-		Store:  store,
-		Worker: w,
+		Store:     store,
+		Worker:    w,
+		AppConfig: appCfg,
 	})
 
 	return srv, store, w
@@ -1647,4 +1654,230 @@ func TestOrdersAndItems_SortingHTTP(t *testing.T) {
 	if bodyDesc.Orders[0].Customer != "Zebra Hospital" {
 		t.Errorf("expected Zebra Hospital first for desc, got %s", bodyDesc.Orders[0].Customer)
 	}
+}
+
+func TestAuthAndRBAC(t *testing.T) {
+	jwtSecret := "test-jwt-secret-key-32-chars-long!"
+	cfg := &config.Config{
+		GoogleClientID:   "test-client-id.apps.googleusercontent.com",
+		JWTSecret:        jwtSecret,
+		SuperadminEmails: "superadmin@example.com",
+	}
+
+	srv, store, _ := setupTestServer(t, cfg)
+	ctx := context.Background()
+
+	// Seed users with different roles
+	guestUser, err := store.UpsertUser(ctx, "guest@example.com", "Guest User", "")
+	if err != nil {
+		t.Fatalf("failed to create guest user: %v", err)
+	}
+	normalUser, err := store.UpsertUser(ctx, "user@example.com", "Normal User", "")
+	if err != nil {
+		t.Fatalf("failed to create normal user: %v", err)
+	}
+	if err := store.SetUserRole(ctx, "user@example.com", "user"); err != nil {
+		t.Fatalf("failed to set user role: %v", err)
+	}
+	normalUser.Role = "user"
+
+	adminUser, err := store.UpsertUser(ctx, "admin@example.com", "Admin User", "")
+	if err != nil {
+		t.Fatalf("failed to create admin user: %v", err)
+	}
+	if err := store.SetUserRole(ctx, "admin@example.com", "admin"); err != nil {
+		t.Fatalf("failed to set admin role: %v", err)
+	}
+	adminUser.Role = "admin"
+
+	superUser, err := store.UpsertUser(ctx, "superadmin@example.com", "Super User", "")
+	if err != nil {
+		t.Fatalf("failed to create superadmin user: %v", err)
+	}
+
+	superEmails := []string{"superadmin@example.com"}
+
+	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, superEmails)
+	userToken, _ := auth.GenerateToken(jwtSecret, normalUser, superEmails)
+	adminToken, _ := auth.GenerateToken(jwtSecret, adminUser, superEmails)
+	superToken, _ := auth.GenerateToken(jwtSecret, superUser, superEmails)
+
+	// 1. Unauthenticated request to protected endpoint returns 401
+	t.Run("unauthenticated request returns 401", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+
+	// 2. Health endpoint is public (returns 200 without cookie)
+	t.Run("health endpoint is public 200", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/health", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+
+	// 3. /auth/config is public
+	t.Run("auth config endpoint is public", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/auth/config", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+
+	// 4. Role enforcement on GET /api/v1/orders (minRole: user)
+	// guest -> 403, user -> 200, admin -> 200
+	t.Run("GET /api/v1/orders guest gets 403", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: guestToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for guest on orders, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("GET /api/v1/orders user gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for user on orders, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("GET /api/v1/orders admin gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin on orders, got %d", resp.StatusCode)
+		}
+	})
+
+	// 5. POST /api/v1/sync requires admin
+	// user -> 403, admin -> 200
+	t.Run("POST /api/v1/sync user gets 403", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/sync", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user on sync, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST /api/v1/sync admin gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/sync", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin on sync, got %d", resp.StatusCode)
+		}
+	})
+
+	// 6. User management endpoints require superadmin
+	// user -> 403, superadmin -> 200
+	t.Run("GET /api/v1/admin/users user gets 403", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/admin/users", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user on admin/users, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("GET /api/v1/admin/users superadmin gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/admin/users", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: superToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for superadmin on admin/users, got %d", resp.StatusCode)
+		}
+	})
+
+	// 7. GET /auth/me
+	t.Run("GET /auth/me returns current user info", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("GET /auth/me unauthenticated returns 401", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/auth/me", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+
+	// 8. POST /auth/logout
+	t.Run("POST /auth/logout clears cookie", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/auth/logout", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+
+	// 9. POST /api/v1/admin/clear-database requires admin
+	t.Run("POST /api/v1/admin/clear-database user gets 403, admin gets 200", func(t *testing.T) {
+		reqUser, _ := http.NewRequest("POST", "/api/v1/admin/clear-database", nil)
+		reqUser.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respUser, _ := srv.App().Test(reqUser)
+		if respUser.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user on clear-database, got %d", respUser.StatusCode)
+		}
+
+		reqAdmin, _ := http.NewRequest("POST", "/api/v1/admin/clear-database", nil)
+		reqAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respAdmin, _ := srv.App().Test(reqAdmin)
+		if respAdmin.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin on clear-database, got %d", respAdmin.StatusCode)
+		}
+	})
 }

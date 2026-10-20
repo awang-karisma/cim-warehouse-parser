@@ -15,6 +15,7 @@ func TestDefaultConfig(t *testing.T) {
 		"SYNC_WORK_HOURS_START", "SYNC_WORK_HOURS_END", "SYNC_TIMEZONE",
 		"SPREADSHEET_ID", "SHEET_NAME", "GOOGLE_APPLICATION_CREDENTIALS",
 		"GOOGLE_API_KEY", "CSV_FALLBACK_PATH", "SYNC_BYPASS_WORK_HOURS_ON_FIRST_SYNC",
+		"GOOGLE_CLIENT_ID", "JWT_SECRET", "SUPERADMIN_EMAILS",
 	}
 	for _, k := range envKeys {
 		oldVal, exists := os.LookupEnv(k)
@@ -65,6 +66,18 @@ func TestDefaultConfig(t *testing.T) {
 	wCfgDefault := cfg.WorkerConfig()
 	if wCfgDefault.BypassWorkHoursOnFirstSync == nil || !*wCfgDefault.BypassWorkHoursOnFirstSync {
 		t.Errorf("expected WorkerConfig BypassWorkHoursOnFirstSync to be true")
+	}
+	if cfg.GoogleClientID != "" {
+		t.Errorf("expected GoogleClientID default to be empty, got %s", cfg.GoogleClientID)
+	}
+	if len(cfg.JWTSecret) != 64 {
+		t.Errorf("expected generated JWTSecret of length 64 hex characters, got %s", cfg.JWTSecret)
+	}
+	if cfg.SuperadminEmails != "" {
+		t.Errorf("expected SuperadminEmails default to be empty, got %s", cfg.SuperadminEmails)
+	}
+	if cfg.IsSuperadmin("admin@example.com") {
+		t.Errorf("expected IsSuperadmin to be false by default")
 	}
 }
 
@@ -170,5 +183,49 @@ func TestGoogleAPIKeyFromEnvFile(t *testing.T) {
 
 	if cfg.GoogleAPIKey != "AIzaSyFromEnvFile987" {
 		t.Errorf("expected GoogleAPIKey=AIzaSyFromEnvFile987, got %q", cfg.GoogleAPIKey)
+	}
+}
+
+func TestAuthConfig(t *testing.T) {
+	envKeys := map[string]string{
+		"GOOGLE_CLIENT_ID":  "test-client-id.apps.googleusercontent.com",
+		"JWT_SECRET":        "custom-test-secret-12345",
+		"SUPERADMIN_EMAILS": "Admin@Example.com, boss@company.org , root@test.local",
+	}
+	for k, v := range envKeys {
+		oldVal, exists := os.LookupEnv(k)
+		if exists {
+			defer os.Setenv(k, oldVal)
+		} else {
+			defer os.Unsetenv(k)
+		}
+		os.Setenv(k, v)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.GoogleClientID != "test-client-id.apps.googleusercontent.com" {
+		t.Errorf("expected GoogleClientID override, got %q", cfg.GoogleClientID)
+	}
+	if cfg.JWTSecret != "custom-test-secret-12345" {
+		t.Errorf("expected JWTSecret override, got %q", cfg.JWTSecret)
+	}
+	if !cfg.IsSuperadmin("admin@example.com") {
+		t.Errorf("expected admin@example.com to be superadmin")
+	}
+	if !cfg.IsSuperadmin("BOSS@company.org") {
+		t.Errorf("expected BOSS@company.org (case insensitive) to be superadmin")
+	}
+	if !cfg.IsSuperadmin("root@test.local") {
+		t.Errorf("expected root@test.local to be superadmin")
+	}
+	if cfg.IsSuperadmin("other@example.com") {
+		t.Errorf("expected other@example.com NOT to be superadmin")
+	}
+	if cfg.IsSuperadmin("") {
+		t.Errorf("expected empty email NOT to be superadmin")
 	}
 }

@@ -16,6 +16,7 @@ import {
   IconCheck,
 } from '@tabler/icons-solidjs';
 import { useColorMode } from '@kobalte/core';
+import { useAuth } from '~/auth';
 import {
   getSystemInfo,
   getConfig,
@@ -26,6 +27,7 @@ import {
   deleteCustomerAlias,
   getCustomerAliasesExportUrl,
   importCustomerAliasesFile,
+  clearDatabase,
   type AliasImportResult,
 } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
@@ -67,6 +69,14 @@ export const Settings: Component = () => {
   const [isImporting, setIsImporting] = createSignal(false);
   const [importResult, setImportResult] = createSignal<AliasImportResult | null>(null);
   const [showImportModeDialog, setShowImportModeDialog] = createSignal(false);
+  const auth = useAuth();
+  const isAdmin = () => {
+    const role = auth.user()?.role;
+    return role === 'admin' || role === 'superadmin';
+  };
+  const [showClearDbDialog, setShowClearDbDialog] = createSignal(false);
+  const [isClearingDb, setIsClearingDb] = createSignal(false);
+  const [clearDbMsg, setClearDbMsg] = createSignal<string | null>(null);
   const [pendingFile, setPendingFile] = createSignal<File | null>(null);
   let fileInputRef: HTMLInputElement | undefined;
 
@@ -375,32 +385,34 @@ export const Settings: Component = () => {
                 <IconDownload class="size-3.5" />
                 <span>Export SQL</span>
               </Button>
-              <input
-                type="file"
-                accept=".sql,.txt,application/sql"
-                ref={fileInputRef}
-                class="hidden"
-                onChange={(e) => {
-                  const file = e.currentTarget.files?.[0];
-                  if (file) {
-                    setPendingFile(file);
-                    setImportMode('merge');
-                    setShowImportModeDialog(true);
-                  }
-                  e.currentTarget.value = '';
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                class="gap-1.5 h-8 text-xs"
-                disabled={isImporting()}
-                onClick={() => fileInputRef?.click()}
-              >
-                <IconUpload class="size-3.5" />
-                <span>{isImporting() ? 'Importing...' : 'Import SQL'}</span>
-              </Button>
+              <Show when={isAdmin()}>
+                <input
+                  type="file"
+                  accept=".sql,.txt,application/sql"
+                  ref={fileInputRef}
+                  class="hidden"
+                  onChange={(e) => {
+                    const file = e.currentTarget.files?.[0];
+                    if (file) {
+                      setPendingFile(file);
+                      setImportMode('merge');
+                      setShowImportModeDialog(true);
+                    }
+                    e.currentTarget.value = '';
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class="gap-1.5 h-8 text-xs"
+                  disabled={isImporting()}
+                  onClick={() => fileInputRef?.click()}
+                >
+                  <IconUpload class="size-3.5" />
+                  <span>{isImporting() ? 'Importing...' : 'Import SQL'}</span>
+                </Button>
+              </Show>
             </div>
           </div>
 
@@ -430,31 +442,34 @@ export const Settings: Component = () => {
           </Show>
 
           {/* Add Alias Form */}
-          <form class="rounded-lg border bg-muted/20 p-4 space-y-4" onSubmit={handleAddAlias}>
-            <div class="grid gap-4 sm:grid-cols-3">
-              <TextField value={aliasInput()} onChange={setAliasInput}>
-                <TextFieldLabel class="text-xs font-semibold">Variant Name (Alias)</TextFieldLabel>
-                <TextFieldInput placeholder="e.g. PKU Muhammadiyah..." class="h-9" />
-              </TextField>
+          <Show when={isAdmin()}>
+            {/* Add Alias Form */}
+            <form class="rounded-lg border bg-muted/20 p-4 space-y-4" onSubmit={handleAddAlias}>
+              <div class="grid gap-4 sm:grid-cols-3">
+                <TextField value={aliasInput()} onChange={setAliasInput}>
+                  <TextFieldLabel class="text-xs font-semibold">Variant Name (Alias)</TextFieldLabel>
+                  <TextFieldInput placeholder="e.g. PKU Muhammadiyah..." class="h-9" />
+                </TextField>
 
-              <TextField value={canonicalInput()} onChange={setCanonicalInput}>
-                <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
-                <TextFieldInput placeholder="e.g. RS PKU Muhammadiyah..." class="h-9" />
-              </TextField>
+                <TextField value={canonicalInput()} onChange={setCanonicalInput}>
+                  <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
+                  <TextFieldInput placeholder="e.g. RS PKU Muhammadiyah..." class="h-9" />
+                </TextField>
 
-              <TextField value={areaInput()} onChange={setAreaInput}>
-                <TextFieldLabel class="text-xs font-semibold">Linked Area (Optional)</TextFieldLabel>
-                <TextFieldInput placeholder="e.g. Lombok Barat..." class="h-9" />
-              </TextField>
-            </div>
+                <TextField value={areaInput()} onChange={setAreaInput}>
+                  <TextFieldLabel class="text-xs font-semibold">Linked Area (Optional)</TextFieldLabel>
+                  <TextFieldInput placeholder="e.g. Lombok Barat..." class="h-9" />
+                </TextField>
+              </div>
 
-            <div class="flex justify-end">
-              <Button type="submit" size="sm" class="gap-1.5 h-9" disabled={isAdding()}>
-                <IconPlus class="size-4" />
-                <span>{isAdding() ? 'Adding...' : 'Add Mapping'}</span>
-              </Button>
-            </div>
-          </form>
+              <div class="flex justify-end">
+                <Button type="submit" size="sm" class="gap-1.5 h-9" disabled={isAdding()}>
+                  <IconPlus class="size-4" />
+                  <span>{isAdding() ? 'Adding...' : 'Add Mapping'}</span>
+                </Button>
+              </div>
+            </form>
+          </Show>
 
           <Show when={aliasError()}>
             <Alert variant="destructive">
@@ -498,15 +513,17 @@ export const Settings: Component = () => {
                           {(al) => (
                             <span class="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-xs bg-muted text-foreground border border-border">
                               <span>{al}</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                class="h-5 w-5 p-0 hover:text-destructive"
-                                title={`Delete alias ${al}`}
-                                onClick={() => setAliasToDelete(al)}
-                              >
-                                <IconTrash class="size-3" />
-                              </Button>
+                              <Show when={isAdmin()}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  class="h-5 w-5 p-0 hover:text-destructive"
+                                  title={`Delete alias ${al}`}
+                                  onClick={() => setAliasToDelete(al)}
+                                >
+                                  <IconTrash class="size-3" />
+                                </Button>
+                              </Show>
                             </span>
                           )}
                         </For>
@@ -554,17 +571,29 @@ export const Settings: Component = () => {
             </div>
           </Show>
 
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border border-destructive/20 bg-destructive/5">
-            <div>
-              <h4 class="text-sm font-semibold text-destructive">Clear Local Storage Database</h4>
-              <p class="text-xs text-muted-foreground mt-1">
-                Destructive operation: removes all orders, items, and sync history. Disabled in production.
-              </p>
+          <Show when={isAdmin()}>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border border-destructive/20 bg-destructive/5">
+              <div>
+                <h4 class="text-sm font-semibold text-destructive">Clear Local Storage Database</h4>
+                <p class="text-xs text-muted-foreground mt-1">
+                  Destructive operation: removes all orders, items, and sync history. Customer aliases and users are preserved.
+                </p>
+                <Show when={clearDbMsg()}>
+                  <p class="text-xs font-medium text-emerald-600 dark:text-emerald-400 mt-2">
+                    {clearDbMsg()}
+                  </p>
+                </Show>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={isClearingDb()}
+                onClick={() => setShowClearDbDialog(true)}
+              >
+                Clear Database
+              </Button>
             </div>
-            <Button variant="destructive" size="sm" disabled class="opacity-50 cursor-not-allowed">
-              Clear Database
-            </Button>
-          </div>
+          </Show>
         </CardContent>
       </Card>
 
@@ -669,6 +698,47 @@ export const Settings: Component = () => {
               onClick={handleConfirmImport}
             >
               {isImporting() ? 'Importing...' : `Confirm ${importMode() === 'replace' ? 'Replace' : 'Merge'}`}
+            </Button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Clear Database Alert Dialog */}
+      <AlertDialog
+        open={showClearDbDialog()}
+        onOpenChange={(open) => {
+          if (!open) setShowClearDbDialog(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Clear Local Database</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to clear all synced orders, items, deliveries, and sync history?
+            This action cannot be undone. Customer aliases and users will be preserved.
+          </AlertDialogDescription>
+          <div class="flex justify-end gap-2 mt-4">
+            <Button variant="outline" size="sm" onClick={() => setShowClearDbDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isClearingDb()}
+              onClick={async () => {
+                setIsClearingDb(true);
+                setClearDbMsg(null);
+                try {
+                  await clearDatabase();
+                  setClearDbMsg('Database cleared successfully.');
+                  setShowClearDbDialog(false);
+                  refetchStatus();
+                } catch (err: any) {
+                  setAliasError(err?.message || 'Failed to clear database');
+                } finally {
+                  setIsClearingDb(false);
+                }
+              }}
+            >
+              {isClearingDb() ? 'Clearing...' : 'Clear All Data'}
             </Button>
           </div>
         </AlertDialogContent>

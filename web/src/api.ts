@@ -14,6 +14,7 @@ import type {
   SyncEvent,
   CustomerAliasesResponse,
   PaginatedDeliveries,
+  UsersResponse,
 } from './types';
 
 function qs(params?: Record<string, string | number | boolean | undefined>): string {
@@ -174,3 +175,22 @@ export const getDeliveries = (params?: {
   const query = qs(params);
   return apiFetch<PaginatedDeliveries>(`/api/v1/deliveries${query ? '?' + query : ''}`);
 };
+
+export const getUsers = () => apiFetch<UsersResponse>('/api/v1/admin/users');
+
+export const setUserRole = (email: string, role: string) =>
+  apiFetch<{ status: string }>(`/api/v1/admin/users/${encodeURIComponent(email)}/role`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+
+export const deleteUser = (email: string) =>
+  apiFetch<{ status: string }>(`/api/v1/admin/users/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+  });
+
+export const clearDatabase = () =>
+  apiFetch<{ status: string; message: string }>('/api/v1/admin/clear-database', {
+    method: 'POST',
+  });

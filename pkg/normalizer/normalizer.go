@@ -23,12 +23,12 @@ type DeliveryEntry struct {
 	Quantity string `json:"quantity"`
 }
 
-
 // ParseDate parses supported sheet date strings (DD/MM/YYYY and ISO YYYY-MM-DD)
 // as calendar dates at UTC midnight without timezone shift. Blank/invalid input becomes zero time.
 func ParseDate(raw string) time.Time {
 	return model.ParseDate(raw)
 }
+
 var deliveryEntryRegex = regexp.MustCompile(`(\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2})\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*[^)]*\)`)
 
 // ParseDeliveryEntries parses comma-separated, space-separated, or formatted shipment dates and quantities.
@@ -72,24 +72,24 @@ func ParseDeliveryEntries(raw string) []DeliveryEntry {
 // canonicalAreas maps lowercase variations and abbreviations of regional areas to canonical names.
 var canonicalAreas = map[string]string{
 	"lombok timur":            "Lombok Timur",
-	"kab. lombok timur":        "Lombok Timur",
-	"kab lombok timur":         "Lombok Timur",
-	"kabupaten lombok timur":   "Lombok Timur",
+	"kab. lombok timur":       "Lombok Timur",
+	"kab lombok timur":        "Lombok Timur",
+	"kabupaten lombok timur":  "Lombok Timur",
 	"lotim":                   "Lombok Timur",
 	"lombok barat":            "Lombok Barat",
-	"kab. lombok barat":        "Lombok Barat",
-	"kab lombok barat":         "Lombok Barat",
-	"kabupaten lombok barat":   "Lombok Barat",
+	"kab. lombok barat":       "Lombok Barat",
+	"kab lombok barat":        "Lombok Barat",
+	"kabupaten lombok barat":  "Lombok Barat",
 	"lobar":                   "Lombok Barat",
 	"lombok tengah":           "Lombok Tengah",
-	"kab. lombok tengah":       "Lombok Tengah",
-	"kab lombok tengah":        "Lombok Tengah",
-	"kabupaten lombok tengah":  "Lombok Tengah",
+	"kab. lombok tengah":      "Lombok Tengah",
+	"kab lombok tengah":       "Lombok Tengah",
+	"kabupaten lombok tengah": "Lombok Tengah",
 	"loteng":                  "Lombok Tengah",
 	"lombok utara":            "Lombok Utara",
-	"kab. lombok utara":        "Lombok Utara",
-	"kab lombok utara":         "Lombok Utara",
-	"kabupaten lombok utara":   "Lombok Utara",
+	"kab. lombok utara":       "Lombok Utara",
+	"kab lombok utara":        "Lombok Utara",
+	"kabupaten lombok utara":  "Lombok Utara",
 	"lotara":                  "Lombok Utara",
 	"kota mataram":            "Kota Mataram",
 	"mataram":                 "Mataram",
@@ -158,7 +158,7 @@ func titleCaseWord(w string) string {
 				if firstLetter {
 					runes[j] = unicode.ToUpper(r)
 					firstLetter = false
- 				}
+				}
 			} else {
 				firstLetter = true
 			}
@@ -420,7 +420,6 @@ func GroupOrders(items []model.NormalizedItem) []model.Order {
 			}
 		}
 	}
-
 
 	return orders
 }
