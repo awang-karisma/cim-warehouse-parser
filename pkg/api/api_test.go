@@ -1201,6 +1201,9 @@ func TestDeliveriesAPI(t *testing.T) {
 		if d0.Item.NamaBarang != "Needle 23G" || d0.Item.Customer != "RSUD Provinsi NTB" {
 			t.Errorf("unexpected d0 item: %+v", d0.Item)
 		}
+		if d0.Item.OrderID != "ORD-SPLIT-1" {
+			t.Errorf("expected d0 item order_id ORD-SPLIT-1, got %q", d0.Item.OrderID)
+		}
 	})
 
 	t.Run("GET /api/v1/deliveries filter by customer", func(t *testing.T) {
@@ -1273,6 +1276,9 @@ func TestDeliveriesAPI(t *testing.T) {
 		_ = json.NewDecoder(resp.Body).Decode(&res)
 		if res.Total != 2 || len(res.Items) != 2 {
 			t.Fatalf("expected 2 items, got total=%d len=%d", res.Total, len(res.Items))
+		}
+		if res.Items[0].OrderID != "ORD-SPLIT-1" {
+			t.Errorf("expected item order_id ORD-SPLIT-1, got %q", res.Items[0].OrderID)
 		}
 		if res.Items[0].TanggalPengiriman != "07/01/2026 (3), 03/02/2026 (1)" {
 			t.Errorf("items endpoint changed raw tanggal_pengiriman: %s", res.Items[0].TanggalPengiriman)

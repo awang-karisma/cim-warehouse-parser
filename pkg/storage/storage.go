@@ -1748,7 +1748,7 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 	}
 
 	selectQuery := `
-		SELECT row_index, order_number, ecatalog_number, tanggal, customer, area, nama_barang, jumlah, satuan,
+		SELECT row_index, COALESCE(order_id, ''), order_number, ecatalog_number, tanggal, customer, area, nama_barang, jumlah, satuan,
 		       tanggal_pengiriman, lead_time_pengiriman, jumlah_terkirim, belum_terkirim,
 		       status_order, status_barang, keterangan, catatan
 		FROM items
@@ -1779,7 +1779,7 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 		var itemOrderNum, itemEcatNum sql.NullString
 		var tanggalVal any
 		if err := rows.Scan(
-			&it.RowIndex, &itemOrderNum, &itemEcatNum, &tanggalVal, &it.Customer, &it.Area, &it.NamaBarang,
+			&it.RowIndex, &it.OrderID, &itemOrderNum, &itemEcatNum, &tanggalVal, &it.Customer, &it.Area, &it.NamaBarang,
 			&it.Jumlah, &it.Satuan, &it.TanggalPengiriman, &it.LeadTimePengiriman,
 			&it.JumlahTerkirim, &it.BelumTerkirim, &it.StatusOrder, &it.StatusBarang,
 			&it.Keterangan, &it.Catatan,
@@ -1912,6 +1912,7 @@ func (s *Storage) GetDeliveries(ctx context.Context, filter DeliveryFilter) ([]D
 			return nil, 0, fmt.Errorf("failed to scan delivery row: %w", err)
 		}
 		di.Item.Tanggal = parseStoredDate(tanggalVal)
+		di.Item.OrderID = ordID
 		deliveries = append(deliveries, di)
 	}
 	if err := rows.Err(); err != nil {

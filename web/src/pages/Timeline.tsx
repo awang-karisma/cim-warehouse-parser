@@ -1,4 +1,5 @@
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+import { A, useNavigate } from '@solidjs/router';
 import {
   IconTruckDelivery,
   IconCircleCheck,
@@ -74,6 +75,7 @@ const formatDeliveryDate = (dateStr?: string): string => {
 const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
 
 export const Timeline: Component = () => {
+  const navigate = useNavigate();
   const filters = createUrlFilter({
     status: {
       key: 'status',
@@ -327,7 +329,16 @@ export const Timeline: Component = () => {
                   >
                     <For each={deliveriesList()}>
                       {(del) => (
-                        <TableRow>
+                        <TableRow
+                          class={del.item.order_id ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
+                          onClick={() => {
+                            const selection = window.getSelection();
+                            if (selection && selection.toString().length > 0) return;
+                            if (del.item.order_id) {
+                              navigate(`/orders/${del.item.order_id}`);
+                            }
+                          }}
+                        >
                           <TableCell class="font-medium text-xs font-mono">
                             {formatDeliveryDate(del.delivery_date)}
                           </TableCell>
@@ -340,7 +351,23 @@ export const Timeline: Component = () => {
                           </TableCell>
                           <TableCell class="font-medium text-xs">{del.item.customer}</TableCell>
                           <TableCell class="text-xs text-muted-foreground">{del.item.area}</TableCell>
-                          <TableCell class="text-xs font-medium">{del.item.nama_barang}</TableCell>
+                          <TableCell class="text-xs font-medium">
+                            <Show when={del.item.order_id} fallback={del.item.nama_barang}>
+                              <A
+                                href={`/orders/${del.item.order_id}`}
+                                class="text-primary hover:underline hover:text-primary/80 transition-colors font-medium inline-block"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {del.item.nama_barang}
+                              </A>
+                              <span class="block text-[10px] font-mono text-muted-foreground mt-0.5">
+                                {del.item.order_id}
+                                {del.item.order_number && del.item.order_number !== del.item.order_id
+                                  ? ` • ${del.item.order_number}`
+                                  : ''}
+                              </span>
+                            </Show>
+                          </TableCell>
                           <TableCell class="text-right text-xs">
                             {del.item.jumlah} {del.item.satuan}
                           </TableCell>

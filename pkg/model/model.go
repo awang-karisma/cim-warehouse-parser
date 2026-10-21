@@ -32,6 +32,7 @@ type RawOrderRow struct {
 // Customer, and Area, along with the 1-based sheet row number.
 type NormalizedItem struct {
 	RowIndex           int       `json:"row_index"`
+	OrderID            string    `json:"order_id,omitempty"`
 	OrderNumber        string    `json:"order_number,omitempty"`
 	EcatalogNumber     string    `json:"ecatalog_number,omitempty"`
 	Tanggal            time.Time `json:"tanggal" format:"date"`
