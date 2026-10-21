@@ -263,7 +263,8 @@ go run ./cmd/warehouse-parser \
 | `/api/v1/orders/{id}` | `GET` | `user` | Retrieve order details and items. |
 | `/api/v1/items` | `GET` | `user` | List normalized items with filters. |
 | `/api/v1/items/export` | `GET` | `user` | Export filtered items to CSV. |
-| `/api/v1/deliveries` | `GET` | `user` | List parsed delivery shipments. |
+| `/api/v1/deliveries` | `GET` | `user` | List parsed delivery shipments (supports sort, order, pagination; default date DESC). |
+| `/api/v1/deliveries/stats` | `GET` | `user` | Aggregated delivery KPI metrics (total, completed, pending, avg lead time). |
 | `/api/v1/customers` | `GET` | `user` | List customer summaries. |
 | `/api/v1/areas` | `GET` | `user` | Area order aggregations. |
 | `/api/v1/search` | `GET` | `user` | Global search across orders, items, and customers. |

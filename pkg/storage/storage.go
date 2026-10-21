@@ -80,8 +80,18 @@ type DeliveryFilter struct {
 	Tanggal        string `json:"tanggal"`
 	OrderNumber    string `json:"order_number"`
 	EcatalogNumber string `json:"ecatalog_number"`
+	Sort           string `json:"sort"`
+	Order          string `json:"order"`
 	Limit          int    `json:"limit"`
 	Offset         int    `json:"offset"`
+}
+
+// DeliveryStats contains aggregated delivery shipment metrics.
+type DeliveryStats struct {
+	TotalScheduled int     `json:"total_scheduled"`
+	Completed      int     `json:"completed"`
+	Pending        int     `json:"pending"`
+	AvgLeadTime    float64 `json:"avg_lead_time"`
 }
 
 // Stats contains aggregated metrics about stored orders and items.
@@ -1322,6 +1332,8 @@ const (
 	orderStatusRankSubquery = `COALESCE((
 		SELECT CASE UPPER(TRIM(status_order))
 			WHEN 'BELUM SELESAI' THEN 0
+			WHEN '-' THEN 0
+			WHEN '' THEN 0
 			WHEN 'PROSES' THEN 1
 			WHEN 'PENDING' THEN 2
 			ELSE 3
@@ -1331,6 +1343,8 @@ const (
 		ORDER BY
 			CASE UPPER(TRIM(status_order))
 				WHEN 'BELUM SELESAI' THEN 0
+				WHEN '-' THEN 0
+				WHEN '' THEN 0
 				WHEN 'PROSES' THEN 1
 				WHEN 'PENDING' THEN 2
 				ELSE 3
@@ -1340,12 +1354,14 @@ const (
 	), 4)`
 
 	orderStatusNameSubquery = `COALESCE((
-		SELECT LOWER(status_order)
+		SELECT CASE WHEN UPPER(TRIM(status_order)) IN ('-', '') THEN 'belum selesai' ELSE LOWER(status_order) END
 		FROM items
 		WHERE items.order_id = orders.id
 		ORDER BY
 			CASE UPPER(TRIM(status_order))
 				WHEN 'BELUM SELESAI' THEN 0
+				WHEN '-' THEN 0
+				WHEN '' THEN 0
 				WHEN 'PROSES' THEN 1
 				WHEN 'PENDING' THEN 2
 				ELSE 3
@@ -1356,6 +1372,8 @@ const (
 
 	itemStatusRankExpr = `(CASE UPPER(TRIM(status_order))
 		WHEN 'BELUM SELESAI' THEN 0
+		WHEN '-' THEN 0
+		WHEN '' THEN 0
 		WHEN 'PROSES' THEN 1
 		WHEN 'PENDING' THEN 2
 		ELSE 3
@@ -1415,6 +1433,23 @@ func itemSortSQL(sortField, direction string) string {
 		return fmt.Sprintf("tanggal DESC, %s ASC, LOWER(status_order) ASC, id ASC", itemStatusRankExpr)
 	}
 }
+func deliverySortSQL(sortField, direction string) string {
+	dir := normalizedSortDirection(direction)
+	dateExpr := `CASE
+		WHEN length(d.delivery_date) = 10 AND substr(d.delivery_date, 3, 1) = '/' AND substr(d.delivery_date, 6, 1) = '/'
+		THEN substr(d.delivery_date, 7, 4) || '-' || substr(d.delivery_date, 4, 2) || '-' || substr(d.delivery_date, 1, 2)
+		ELSE d.delivery_date
+	END`
+	cleanField := strings.ToLower(strings.TrimSpace(sortField))
+	switch cleanField {
+	case "customer":
+		return fmt.Sprintf("i.customer COLLATE NOCASE %s, %s DESC, d.id DESC", dir, dateExpr)
+	case "status", "status_order":
+		return fmt.Sprintf("i.status_order COLLATE NOCASE %s, %s DESC, d.id DESC", dir, dateExpr)
+	default:
+		return fmt.Sprintf("%s %s, d.id %s", dateExpr, dir, dir)
+	}
+}
 
 // GetOrders retrieves orders matching the filter criteria with pagination support.
 // Returns matched orders slice, total count before pagination, and any error.
@@ -1470,8 +1505,8 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		args = append(args, orderNum)
 	}
 	if filter.Status != "" {
-		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(status_order)) = UPPER(TRIM(?)))")
-		args = append(args, filter.Status)
+		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(status_order)) = UPPER(TRIM(?)) OR (UPPER(TRIM(?)) = 'BELUM SELESAI' AND TRIM(status_order) IN ('-', '')))")
+		args = append(args, filter.Status, filter.Status)
 	}
 
 	whereClause := ""
@@ -1841,11 +1876,7 @@ func (s *Storage) GetDeliveries(ctx context.Context, filter DeliveryFilter) ([]D
 		       COALESCE(i.keterangan, ''), COALESCE(i.catatan, '')
 		FROM deliveries d
 		JOIN items i ON d.item_id = i.id
-	` + whereClause + ` ORDER BY CASE
-		WHEN length(d.delivery_date) = 10 AND substr(d.delivery_date, 3, 1) = '/' AND substr(d.delivery_date, 6, 1) = '/'
-		THEN substr(d.delivery_date, 7, 4) || '-' || substr(d.delivery_date, 4, 2) || '-' || substr(d.delivery_date, 1, 2)
-		ELSE d.delivery_date
-	END ASC, d.id ASC`
+	` + whereClause + " ORDER BY " + deliverySortSQL(filter.Sort, filter.Order)
 
 	queryArgs := append([]any{}, args...)
 	if filter.Limit > 0 {
@@ -1888,6 +1919,31 @@ func (s *Storage) GetDeliveries(ctx context.Context, filter DeliveryFilter) ([]D
 	}
 
 	return deliveries, total, nil
+}
+
+// GetDeliveryStats returns aggregated shipment KPI metrics across all deliveries.
+func (s *Storage) GetDeliveryStats(ctx context.Context) (*DeliveryStats, error) {
+	stats := &DeliveryStats{}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(d.id),
+			COALESCE(SUM(CASE WHEN UPPER(TRIM(i.status_order)) IN ('SELESAI', 'COMPLETED')
+				AND (TRIM(i.belum_terkirim) = '0' OR TRIM(i.belum_terkirim) = '')
+				THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN UPPER(TRIM(i.status_order)) NOT IN ('SELESAI', 'COMPLETED')
+				OR (TRIM(i.belum_terkirim) != '0' AND TRIM(i.belum_terkirim) != '')
+				THEN 1 ELSE 0 END), 0),
+			COALESCE(AVG(CASE
+				WHEN TRIM(i.lead_time_pengiriman) != '' AND CAST(i.lead_time_pengiriman AS REAL) >= 0
+				THEN CAST(i.lead_time_pengiriman AS REAL)
+			END), 0)
+		FROM deliveries d
+		JOIN items i ON d.item_id = i.id
+	`).Scan(&stats.TotalScheduled, &stats.Completed, &stats.Pending, &stats.AvgLeadTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get delivery stats: %w", err)
+	}
+	return stats, nil
 }
 
 // GetStats returns aggregated statistics including order count, item count,

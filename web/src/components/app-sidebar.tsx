@@ -1,4 +1,6 @@
-import { type Component, For, createMemo } from 'solid-js';
+import { type Component, For, createMemo, createSignal, onMount, onCleanup, createResource } from 'solid-js';
+import { getStatus, getConfig } from '~/api';
+import { cn } from '~/lib/utils';
 import { A, useLocation } from '@solidjs/router';
 import { useAuth } from '~/auth';
 import {
@@ -35,6 +37,148 @@ interface NavItem {
   icon: Component<IconProps>;
   exact?: boolean;
 }
+
+function parseDuration(s?: string): number {
+  if (!s) return 15 * 60 * 1000;
+  let ms = 0;
+  const matches = s.matchAll(/(\d+)(h|m|s|ms)/g);
+  let matched = false;
+  for (const match of matches) {
+    matched = true;
+    const val = parseInt(match[1], 10);
+    switch (match[2]) {
+      case 'h': ms += val * 3600 * 1000; break;
+      case 'm': ms += val * 60 * 1000; break;
+      case 's': ms += val * 1000; break;
+      case 'ms': ms += val; break;
+    }
+  }
+  return matched ? ms : 15 * 60 * 1000;
+}
+
+function formatRelativeTime(date: Date, now: number): string {
+  const diffSec = Math.floor((now - date.getTime()) / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay}d ago`;
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return '00:00';
+  const totalSec = Math.floor(ms / 1000);
+  const sec = totalSec % 60;
+  const min = Math.floor(totalSec / 60) % 60;
+  const hour = Math.floor(totalSec / 3600);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  if (hour > 0) {
+    return `${hour}:${pad(min)}:${pad(sec)}`;
+  }
+  return `${pad(min)}:${pad(sec)}`;
+}
+
+const SyncStatusFooter: Component = () => {
+  const [status, { refetch: refetchStatus }] = createResource(getStatus);
+  const [config] = createResource(getConfig);
+  const [now, setNow] = createSignal(Date.now());
+
+  onMount(() => {
+    const pollTimer = setInterval(() => {
+      refetchStatus();
+    }, 30000);
+    const tickTimer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    onCleanup(() => {
+      clearInterval(pollTimer);
+      clearInterval(tickTimer);
+    });
+  });
+
+  const parsedInterval = createMemo(() => parseDuration(config()?.sync_interval));
+
+  const lastSyncDate = createMemo(() => {
+    const ls = status()?.last_sync;
+    return ls ? new Date(ls) : null;
+  });
+
+  const dotColorClass = createMemo(() => {
+    const date = lastSyncDate();
+    if (!date || isNaN(date.getTime())) return 'bg-red-500';
+    const diff = now() - date.getTime();
+    if (diff <= parsedInterval()) return 'bg-emerald-500';
+    if (diff < 6 * 3600 * 1000) return 'bg-yellow-500';
+    return 'bg-red-500';
+  });
+
+  const line1 = createMemo(() => {
+    const date = lastSyncDate();
+    if (!date || isNaN(date.getTime())) return 'Never synced';
+    return `Synced ${formatRelativeTime(date, now())}`;
+  });
+
+  const line2 = createMemo(() => {
+    const s = status();
+    if (s?.status === 'syncing' || s?.status === 'running') {
+      return 'Sync in progress...';
+    }
+    if (s?.is_inside_work_hours === false) {
+      return 'Outside work hours';
+    }
+    if (s?.next_sync) {
+      const nextTime = new Date(s.next_sync).getTime();
+      const diff = nextTime - now();
+      if (diff > 0) {
+        return `Next in ${formatCountdown(diff)}`;
+      }
+      return 'Sync overdue';
+    }
+    return 'Idle';
+  });
+
+  const tooltipTitle = createMemo(() => {
+    const parts: string[] = [];
+    const ls = lastSyncDate();
+    if (ls && !isNaN(ls.getTime())) {
+      parts.push(`Last sync: ${ls.toLocaleString()}`);
+    } else {
+      parts.push('Never synced');
+    }
+    if (status()?.next_sync) {
+      parts.push(`Next sync: ${new Date(status()!.next_sync!).toLocaleString()}`);
+    }
+    if (status()?.is_inside_work_hours === false) {
+      parts.push('Outside active work hours');
+    }
+    return parts.join('\n');
+  });
+
+  const isSyncing = () => status()?.status === 'syncing' || status()?.status === 'running';
+
+  return (
+    <SidebarFooter class="p-3 text-xs text-muted-foreground">
+      <div
+        class="flex items-center gap-2 px-2 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+        title={tooltipTitle()}
+      >
+        <span
+          class={cn(
+            'size-2 shrink-0 rounded-full',
+            dotColorClass(),
+            isSyncing() ? 'animate-ping' : 'animate-pulse'
+          )}
+        />
+        <div class="flex flex-col min-w-0 group-data-[collapsible=icon]:hidden leading-tight">
+          <span class="truncate font-medium text-foreground/80">{line1()}</span>
+          <span class="truncate text-[10px] text-muted-foreground">{line2()}</span>
+        </div>
+      </div>
+    </SidebarFooter>
+  );
+};
 
 const navItems: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: IconLayoutDashboard, exact: true },
@@ -120,12 +264,7 @@ export const AppSidebar: Component = () => {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter class="p-3 text-xs text-muted-foreground">
-        <div class="flex items-center gap-2 px-2 py-1">
-          <span class="size-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span class="truncate">System Connected</span>
-        </div>
-      </SidebarFooter>
+      <SyncStatusFooter />
       <SidebarRail />
     </Sidebar>
   );

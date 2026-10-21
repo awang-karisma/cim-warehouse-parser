@@ -456,6 +456,11 @@ type ListDeliveriesInput struct {
 	Tanggal        string `query:"tanggal" doc:"Filter by date alias"`
 	OrderNumber    string `query:"order_number" doc:"Filter by order number"`
 	EcatalogNumber string `query:"ecatalog_number" doc:"Filter by e-katalog number"`
+	Sort           string `query:"sort" doc:"Sort field (date, customer, status)"`
+	OrderBy        string `query:"order_by" doc:"Alias for sort field"`
+	Order          string `query:"order" doc:"Sort direction (asc/desc) or sort field"`
+	Dir            string `query:"dir" doc:"Sort direction (asc/desc)"`
+	Direction      string `query:"direction" doc:"Alias for sort direction"`
 	Limit          int    `query:"limit" default:"25" doc:"Max records to return"`
 	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
 }
@@ -501,6 +506,7 @@ func (s *Server) handleListDeliveries(ctx context.Context, input *ListDeliveries
 		offset = 0
 	}
 
+	sortField, sortOrder := resolveSortAndOrder(input.Sort, input.OrderBy, input.Order, input.Dir, input.Direction)
 	deliveries, total, err := s.store.GetDeliveries(ctx, storage.DeliveryFilter{
 		Customer:       customer,
 		NamaBarang:     namaBarang,
@@ -509,6 +515,8 @@ func (s *Server) handleListDeliveries(ctx context.Context, input *ListDeliveries
 		Tanggal:        date,
 		OrderNumber:    orderNumber,
 		EcatalogNumber: orderNumber,
+		Sort:           sortField,
+		Order:          sortOrder,
 		Limit:          limit,
 		Offset:         offset,
 	})
@@ -528,6 +536,21 @@ func (s *Server) handleListDeliveries(ctx context.Context, input *ListDeliveries
 			Deliveries: deliveries,
 		},
 	}, nil
+}
+
+type DeliveryStatsOutput struct {
+	Body storage.DeliveryStats
+}
+
+func (s *Server) handleGetDeliveryStats(ctx context.Context, input *struct{}) (*DeliveryStatsOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	stats, err := s.store.GetDeliveryStats(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+	return &DeliveryStatsOutput{Body: *stats}, nil
 }
 
 func (s *Server) handleGetStats(ctx context.Context, input *struct{}) (*StatsOutput, error) {

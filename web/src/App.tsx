@@ -90,41 +90,43 @@ export const App: Component<RouteSectionProps> = (props) => {
                 <div class="flex items-center gap-3">
                   <ModeToggle />
                   <Show when={currentUser() && currentUser()?.email}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger class="rounded-full ring-offset-background transition-opacity hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                        <Avatar class="h-8 w-8 cursor-pointer border border-border">
-                          <AvatarImage src={currentUser()?.picture} alt={currentUser()?.name} />
-                          <AvatarFallback class="text-xs font-semibold bg-primary/10 text-primary">
-                            {(currentUser()?.name || currentUser()?.email || 'U')
-                              .charAt(0)
-                              .toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent class="w-56 p-2">
-                        <div class="flex flex-col space-y-1 p-2">
-                          <p class="text-sm font-medium leading-none text-foreground truncate">
-                            {currentUser()?.name || 'User'}
-                          </p>
-                          <p class="text-xs leading-none text-muted-foreground font-mono truncate">
-                            {currentUser()?.email}
-                          </p>
-                          <div class="pt-1.5">
-                            <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono uppercase bg-muted text-muted-foreground font-semibold">
-                              {currentUser()?.role}
-                            </span>
+                    <div class="flex items-center gap-2">
+                      <div class="hidden sm:flex flex-col items-end text-right">
+                        <span class="text-sm font-medium leading-tight truncate max-w-[140px]">
+                          {currentUser()?.name || 'User'}
+                        </span>
+                        <span class="text-[10px] font-mono uppercase text-muted-foreground">
+                          {currentUser()?.role}
+                        </span>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger class="rounded-full ring-offset-background transition-opacity hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                          <Avatar class="h-8 w-8 cursor-pointer border border-border">
+                            <AvatarImage src={currentUser()?.picture} alt={currentUser()?.name} />
+                            <AvatarFallback class="text-xs font-semibold bg-primary/10 text-primary">
+                              {(currentUser()?.name || currentUser()?.email || 'U')
+                                .charAt(0)
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent class="w-56 p-2">
+                          <div class="flex flex-col space-y-1 p-2">
+                            <p class="text-xs leading-none text-muted-foreground font-mono truncate">
+                              {currentUser()?.email}
+                            </p>
                           </div>
-                        </div>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          class="cursor-pointer gap-2 text-destructive focus:text-destructive"
-                          onSelect={() => auth.logout()}
-                        >
-                          <IconLogout class="h-4 w-4" />
-                          <span>Sign Out</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            class="cursor-pointer gap-2 text-destructive focus:text-destructive"
+                            onSelect={() => auth.logout()}
+                          >
+                            <IconLogout class="h-4 w-4" />
+                            <span>Sign Out</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </Show>
                 </div>
               </header>

@@ -5,7 +5,7 @@ import {
   IconClockHour4,
   IconTimeline,
 } from '@tabler/icons-solidjs';
-import { getDeliveries } from '../api';
+import { getDeliveries, getDeliveryStats } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
   Table,
@@ -28,6 +28,8 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { TableSkeleton } from '~/components/TableSkeleton';
 import { Badge } from '../components/Badge';
 import { Badge as UiBadge } from '~/components/ui/badge';
+import { SortableTableHead } from '~/components/SortableTableHead';
+import { DataTablePagination } from '../components/data-table-pagination';
 import { createUrlFilter } from '../utils/tableFilters';
 
 const DeliveryProgress: Component<{ terkirim: string | number; total: string | number }> = (props) => {
@@ -86,46 +88,67 @@ export const Timeline: Component = () => {
       serialize: (v) => v || null,
       debounceMs: 300,
     },
+    sort: {
+      key: 'sort',
+      defaultValue: 'date',
+      parse: (v) => v ?? 'date',
+      serialize: (v) => (v === 'date' ? null : v),
+    },
+    order: {
+      key: 'order',
+      defaultValue: 'desc' as 'asc' | 'desc',
+      parse: (v) => (v === 'asc' ? 'asc' : 'desc'),
+      serialize: (v) => (v === 'desc' ? null : v),
+    },
+    limit: {
+      key: 'limit',
+      defaultValue: 10,
+      parse: (v) => {
+        const n = parseInt(v ?? '10', 10);
+        return isNaN(n) || n <= 0 ? 10 : n;
+      },
+      serialize: (v) => (v === 10 ? null : String(v)),
+    },
+    offset: {
+      key: 'offset',
+      defaultValue: 0,
+      parse: (v) => {
+        const n = parseInt(v ?? '0', 10);
+        return isNaN(n) || n < 0 ? 0 : n;
+      },
+      serialize: (v) => (v === 0 ? null : String(v)),
+    },
   });
 
-  // Fetch individual deliveries with limit 100 for timeline analysis
-  const [deliveriesData] = createResource(
-    () => ({ status_order: filters.values.status(), date: filters.debouncedValues.date() }),
-    (params) => getDeliveries({ limit: 100, ...params })
-  );
+  const [statsData] = createResource(getDeliveryStats);
+
+  const queryParams = createMemo(() => ({
+    limit: filters.values.limit(),
+    offset: filters.values.offset(),
+    status_order: filters.values.status() || undefined,
+    date: filters.debouncedValues.date() || undefined,
+    sort: filters.values.sort(),
+    order: filters.values.order(),
+  }));
+
+  const [deliveriesData] = createResource(queryParams, getDeliveries);
   const deliveriesList = createMemo(() => deliveriesData()?.deliveries || []);
 
-  const summary = createMemo(() => {
-    const list = deliveriesList();
-    let completed = 0;
-    let pending = 0;
-    let totalLead = 0;
-    let leadCount = 0;
-
-    for (const del of list) {
-      const belum = parseFloat(del.item.belum_terkirim) || 0;
-      if (belum === 0 && del.item.status_order?.toUpperCase() === 'SELESAI') {
-        completed++;
-      } else {
-        pending++;
-      }
-
-      const lt = parseFloat(del.item.lead_time_pengiriman);
-      if (!isNaN(lt) && lt >= 0) {
-        totalLead += lt;
-        leadCount++;
-      }
+  const handleSort = (field: string) => {
+    const currentSort = filters.values.sort();
+    const currentOrder = filters.values.order();
+    if (currentSort === field) {
+      filters.setters.order(currentOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      filters.setters.sort(field);
+      filters.setters.order(field === 'date' ? 'desc' : 'asc');
     }
+  };
 
-    const avgLead = leadCount > 0 ? (totalLead / leadCount).toFixed(1) : '0';
-    return {
-      total: list.length,
-      completed,
-      pending,
-      avgLead,
-    };
-  });
-
+  const handleLimitChange = (newLimit: number) => {
+    filters.setters.limit(newLimit);
+    filters.setters.offset(0);
+  };
   return (
     <div class="flex flex-1 flex-col gap-6">
       {/* KPI Summary Cards */}
@@ -138,8 +161,8 @@ export const Timeline: Component = () => {
             <IconTruckDelivery class="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
-              <div class="text-2xl font-bold">{summary().total}</div>
+            <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold">{statsData()?.total_scheduled ?? 0}</div>
               <p class="text-xs text-muted-foreground mt-1">Logged delivery dispatches</p>
             </Show>
           </CardContent>
@@ -153,8 +176,8 @@ export const Timeline: Component = () => {
             <IconCircleCheck class="size-4 text-status-selesai" />
           </CardHeader>
           <CardContent>
-            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
-              <div class="text-2xl font-bold text-status-selesai">{summary().completed}</div>
+            <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold text-status-selesai">{statsData()?.completed ?? 0}</div>
               <p class="text-xs text-muted-foreground mt-1">100% fulfilled shipments</p>
             </Show>
           </CardContent>
@@ -168,8 +191,8 @@ export const Timeline: Component = () => {
             <IconClockHour4 class="size-4 text-status-proses" />
           </CardHeader>
           <CardContent>
-            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
-              <div class="text-2xl font-bold text-status-proses">{summary().pending}</div>
+            <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold text-status-proses">{statsData()?.pending ?? 0}</div>
               <p class="text-xs text-muted-foreground mt-1">Partial or pending orders</p>
             </Show>
           </CardContent>
@@ -183,8 +206,8 @@ export const Timeline: Component = () => {
             <IconTimeline class="size-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <Show when={!deliveriesData.loading} fallback={<Skeleton class="h-8 w-20" />}>
-              <div class="text-2xl font-bold">{summary().avgLead} Days</div>
+            <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
+              <div class="text-2xl font-bold">{(statsData()?.avg_lead_time ?? 0).toFixed(1)} Days</div>
               <p class="text-xs text-muted-foreground mt-1">Order to dispatch duration</p>
             </Show>
           </CardContent>
@@ -200,7 +223,10 @@ export const Timeline: Component = () => {
               <Select<string>
                 options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
                 value={filters.values.status() || 'All Statuses'}
-                onChange={(val) => filters.setters.status(!val || val === 'All Statuses' ? '' : val)}
+                onChange={(val) => {
+                  filters.setters.status(!val || val === 'All Statuses' ? '' : val);
+                  filters.setters.offset(0);
+                }}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
@@ -213,7 +239,13 @@ export const Timeline: Component = () => {
             </div>
 
             <div class="min-w-[160px]">
-              <TextField value={filters.values.date()} onChange={filters.setters.date}>
+              <TextField
+                value={filters.values.date()}
+                onChange={(val) => {
+                  filters.setters.date(val);
+                  filters.setters.offset(0);
+                }}
+              >
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Delivery Date
                 </TextFieldLabel>
@@ -240,25 +272,40 @@ export const Timeline: Component = () => {
           <div>
             <CardTitle class="text-base font-semibold">Delivery Shipments & Schedule</CardTitle>
             <CardDescription>
-              {deliveriesList().length} tracked shipments across logistics operations
+              {deliveriesData()?.total ?? 0} tracked shipments across logistics operations
             </CardDescription>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent class="p-4 md:p-6 space-y-4">
           <div class="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Delivery Date</TableHead>
+                  <SortableTableHead
+                    field="date"
+                    label="Delivery Date"
+                    direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
                   <TableHead>Shipment Qty</TableHead>
-                  <TableHead>Customer</TableHead>
+                  <SortableTableHead
+                    field="customer"
+                    label="Customer"
+                    direction={filters.values.sort() === 'customer' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
                   <TableHead>Area</TableHead>
                   <TableHead>Item Name</TableHead>
                   <TableHead class="text-right">Order Qty</TableHead>
                   <TableHead>Lead Time</TableHead>
                   <TableHead class="min-w-[120px]">Delivery Progress</TableHead>
                   <TableHead>Remaining</TableHead>
-                  <TableHead>Status</TableHead>
+                  <SortableTableHead
+                    field="status"
+                    label="Status"
+                    direction={filters.values.sort() === 'status' ? filters.values.order() : undefined}
+                    onSort={handleSort}
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -336,6 +383,16 @@ export const Timeline: Component = () => {
               </TableBody>
             </Table>
           </div>
+
+          <Show when={deliveriesData() && deliveriesData()!.total > 0}>
+            <DataTablePagination
+              total={deliveriesData()!.total}
+              limit={filters.values.limit()}
+              offset={filters.values.offset()}
+              onPageChange={filters.setters.offset}
+              onLimitChange={handleLimitChange}
+            />
+          </Show>
         </CardContent>
       </Card>
     </div>

@@ -199,6 +199,13 @@ export interface PaginatedDeliveries {
   offset: number;
   deliveries: DeliveryItem[];
 }
+export interface DeliveryStats {
+  total_scheduled: number;
+  completed: number;
+  pending: number;
+  avg_lead_time: number;
+}
+
 
 export interface User {
   id: number;

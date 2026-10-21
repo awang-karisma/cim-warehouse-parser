@@ -1171,7 +1171,7 @@ func TestDeliveriesAPI(t *testing.T) {
 	}
 
 	t.Run("GET /api/v1/deliveries lists split shipments", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/api/v1/deliveries", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/deliveries?sort=date&order=asc", nil)
 		resp, err := srv.App().Test(req)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			t.Fatalf("request failed: status=%d err=%v", resp.StatusCode, err)
@@ -1218,6 +1218,46 @@ func TestDeliveriesAPI(t *testing.T) {
 			t.Errorf("expected 3 deliveries for RSUD Provinsi, got %d", res.Total)
 		}
 	})
+	t.Run("GET /api/v1/deliveries default sort is date DESC", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/deliveries", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("request failed: status=%d err=%v", resp.StatusCode, err)
+		}
+		defer resp.Body.Close()
+		var res struct {
+			Deliveries []storage.DeliveryItem `json:"deliveries"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&res)
+		if len(res.Deliveries) != 3 {
+			t.Fatalf("expected 3 deliveries, got %d", len(res.Deliveries))
+		}
+		if res.Deliveries[0].DeliveryDate != "2026-02-03" {
+			t.Errorf("expected first delivery to be newest (2026-02-03), got %s", res.Deliveries[0].DeliveryDate)
+		}
+	})
+
+	t.Run("GET /api/v1/deliveries/stats returns aggregated metrics", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/deliveries/stats", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("request failed: status=%d err=%v", resp.StatusCode, err)
+		}
+		defer resp.Body.Close()
+		var stats storage.DeliveryStats
+		if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+			t.Fatalf("failed to decode stats: %v", err)
+		}
+		if stats.TotalScheduled != 3 {
+			t.Errorf("expected 3 total scheduled, got %d", stats.TotalScheduled)
+		}
+		if stats.Completed != 3 {
+			t.Errorf("expected 3 completed, got %d", stats.Completed)
+		}
+		if stats.Pending != 0 {
+			t.Errorf("expected 0 pending, got %d", stats.Pending)
+		}
+	})
 
 	t.Run("GET /api/v1/items remains unchanged with raw date strings", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/items", nil)
@@ -1239,6 +1279,50 @@ func TestDeliveriesAPI(t *testing.T) {
 		}
 	})
 }
+func TestOrdersAPI_StatusNormalizationHyphen(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+
+	item := model.NormalizedItem{
+		RowIndex:    1,
+		Tanggal:     model.ParseDate("10/01/2026"),
+		Customer:    "RS Hyphen",
+		Area:        "Mataram",
+		NamaBarang:  "Hyphen Item",
+		Jumlah:      "5",
+		StatusOrder: "-",
+	}
+	order := model.Order{
+		ID:       "ORD-HYPHEN-API",
+		Tanggal:  model.ParseDate("10/01/2026"),
+		Customer: "RS Hyphen",
+		Area:     "Mataram",
+		Items: []model.OrderItem{
+			{RowIndex: 1, NamaBarang: "Hyphen Item", Jumlah: "5"},
+		},
+	}
+	if err := store.SyncMirror(context.Background(), []model.NormalizedItem{item}, []model.Order{order}); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	req, _ := http.NewRequest("GET", "/api/v1/orders?status=BELUM%20SELESAI", nil)
+	resp, err := srv.App().Test(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("request failed: status=%d err=%v", resp.StatusCode, err)
+	}
+	defer resp.Body.Close()
+
+	var res struct {
+		Total  int           `json:"total"`
+		Orders []model.Order `json:"orders"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode orders: %v", err)
+	}
+	if res.Total != 1 || len(res.Orders) != 1 || res.Orders[0].ID != "ORD-HYPHEN-API" {
+		t.Errorf("expected ORD-HYPHEN-API when querying BELUM SELESAI, got total=%d len=%d res=%+v", res.Total, len(res.Orders), res)
+	}
+}
+
 func TestCustomerAliasExportImport(t *testing.T) {
 	srv, store, _ := setupTestServer(t)
 	ctx := context.Background()

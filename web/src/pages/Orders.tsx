@@ -30,7 +30,10 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
 
 export function getDominantOrderStatus(items?: { status_order?: string }[]): string {
   if (!items || items.length === 0) return 'PENDING';
-  const upperList = items.map((it) => it.status_order?.trim().toUpperCase() || '');
+  const upperList = items.map((it) => {
+    const s = it.status_order?.trim().toUpperCase() || '';
+    return s === '-' || s === '' ? 'BELUM SELESAI' : s;
+  });
   if (upperList.includes('BELUM SELESAI')) return 'BELUM SELESAI';
   if (upperList.includes('PROSES')) return 'PROSES';
   if (upperList.includes('PENDING')) return 'PENDING';

@@ -14,6 +14,7 @@ import type {
   SyncEvent,
   CustomerAliasesResponse,
   PaginatedDeliveries,
+  DeliveryStats,
   UsersResponse,
 } from './types';
 
@@ -169,12 +170,16 @@ export const getDeliveries = (params?: {
   tanggal?: string;
   order_number?: string;
   ecatalog_number?: string;
+  sort?: string;
+  order?: string;
   limit?: number;
   offset?: number;
 }) => {
   const query = qs(params);
   return apiFetch<PaginatedDeliveries>(`/api/v1/deliveries${query ? '?' + query : ''}`);
 };
+export const getDeliveryStats = () => apiFetch<DeliveryStats>('/api/v1/deliveries/stats');
+
 
 export const getUsers = () => apiFetch<UsersResponse>('/api/v1/admin/users');
 

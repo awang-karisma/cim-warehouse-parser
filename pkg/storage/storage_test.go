@@ -1246,7 +1246,7 @@ func TestStorage_DeliveriesSyncAndQuery(t *testing.T) {
 	}
 
 	// Verify deliveries: split item produced 2 rows, single date produced 1 row, blank produced 0. Total = 3
-	deliveries, totalDel, err := store.GetDeliveries(ctx, storage.DeliveryFilter{})
+	deliveries, totalDel, err := store.GetDeliveries(ctx, storage.DeliveryFilter{Sort: "date", Order: "asc"})
 	if err != nil {
 		t.Fatalf("GetDeliveries failed: %v", err)
 	}
@@ -1317,7 +1317,7 @@ func TestStorage_DeliveriesMigrationBackfill(t *testing.T) {
 	}
 	defer store2.Close()
 
-	dels, total, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{})
+	dels, total, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{Sort: "date", Order: "asc"})
 	if err != nil || total != 2 {
 		t.Fatalf("expected 2 backfilled deliveries, got total=%d err=%v", total, err)
 	}
@@ -1365,7 +1365,7 @@ func TestStorage_DeliveriesMigrationRepair(t *testing.T) {
 	}
 	defer store2.Close()
 
-	dels, total, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{})
+	dels, total, err := store2.GetDeliveries(context.Background(), storage.DeliveryFilter{Sort: "date", Order: "asc"})
 	if err != nil {
 		t.Fatalf("GetDeliveries failed: %v", err)
 	}
@@ -1437,7 +1437,7 @@ func TestStorage_DeliveriesSyncMirrorRawBlobs(t *testing.T) {
 		t.Fatalf("SyncMirror failed: %v", err)
 	}
 
-	dels, total, err := store.GetDeliveries(ctx, storage.DeliveryFilter{})
+	dels, total, err := store.GetDeliveries(ctx, storage.DeliveryFilter{Sort: "date", Order: "asc"})
 	if err != nil {
 		t.Fatalf("GetDeliveries failed: %v", err)
 	}
@@ -2403,5 +2403,203 @@ func TestClearData(t *testing.T) {
 	aliases, err := store.GetCustomerAliases(ctx)
 	if err != nil || len(aliases) == 0 {
 		t.Errorf("expected aliases to be preserved after ClearData, got %v, err=%v", aliases, err)
+	}
+}
+
+func TestStorage_StatusNormalizationHyphenAndEmpty(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	defer store.Close()
+
+	items := []model.NormalizedItem{
+		{
+			RowIndex:    1,
+			Tanggal:     model.ParseDate("10/01/2026"),
+			Customer:    "RS Alpha",
+			Area:        "Lombok Barat",
+			NamaBarang:  "Item 1",
+			Jumlah:      "5",
+			StatusOrder: "-",
+		},
+		{
+			RowIndex:    2,
+			Tanggal:     model.ParseDate("11/01/2026"),
+			Customer:    "RS Beta",
+			Area:        "Mataram",
+			NamaBarang:  "Item 2",
+			Jumlah:      "10",
+			StatusOrder: "SELESAI",
+		},
+		{
+			RowIndex:    3,
+			Tanggal:     model.ParseDate("12/01/2026"),
+			Customer:    "RS Gamma",
+			Area:        "Mataram",
+			NamaBarang:  "Item 3",
+			Jumlah:      "15",
+			StatusOrder: "PENDING",
+		},
+	}
+	orders := []model.Order{
+		{
+			ID:       "ORD-HYPHEN-1",
+			Tanggal:  model.ParseDate("10/01/2026"),
+			Customer: "RS Alpha",
+			Area:     "Lombok Barat",
+			Items: []model.OrderItem{
+				{RowIndex: 1, NamaBarang: "Item 1", Jumlah: "5"},
+			},
+		},
+		{
+			ID:       "ORD-DONE-2",
+			Tanggal:  model.ParseDate("11/01/2026"),
+			Customer: "RS Beta",
+			Area:     "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 2, NamaBarang: "Item 2", Jumlah: "10"},
+			},
+		},
+		{
+			ID:       "ORD-PENDING-3",
+			Tanggal:  model.ParseDate("12/01/2026"),
+			Customer: "RS Gamma",
+			Area:     "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 3, NamaBarang: "Item 3", Jumlah: "15"},
+			},
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// 1. Filter by BELUM SELESAI should return ORD-HYPHEN-1
+	res, total, err := store.GetOrders(ctx, storage.OrderFilter{Status: "BELUM SELESAI"})
+	if err != nil {
+		t.Fatalf("GetOrders with BELUM SELESAI failed: %v", err)
+	}
+	if total != 1 || len(res) != 1 || res[0].ID != "ORD-HYPHEN-1" {
+		t.Errorf("expected ORD-HYPHEN-1 when filtering by BELUM SELESAI, got total=%d len=%d res=%+v", total, len(res), res)
+	}
+
+	// 2. Sort by status ASC: rank 0 (BELUM SELESAI / hyphen) must come first before rank 2 (PENDING) and rank 3 (SELESAI)
+	resSorted, _, err := store.GetOrders(ctx, storage.OrderFilter{Sort: "status", Order: "asc"})
+	if err != nil {
+		t.Fatalf("GetOrders sorted by status failed: %v", err)
+	}
+	if len(resSorted) != 3 {
+		t.Fatalf("expected 3 orders, got %d", len(resSorted))
+	}
+	if resSorted[0].ID != "ORD-HYPHEN-1" {
+		t.Errorf("expected first order to be ORD-HYPHEN-1 (rank 0), got %s", resSorted[0].ID)
+	}
+	if resSorted[1].ID != "ORD-PENDING-3" {
+		t.Errorf("expected second order to be ORD-PENDING-3 (rank 2), got %s", resSorted[1].ID)
+	}
+	if resSorted[2].ID != "ORD-DONE-2" {
+		t.Errorf("expected third order to be ORD-DONE-2 (rank 3), got %s", resSorted[2].ID)
+	}
+}
+
+func TestStorage_DeliveryStatsAndSorting(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	defer store.Close()
+
+	items := []model.NormalizedItem{
+		{
+			RowIndex:           1,
+			Tanggal:            model.ParseDate("01/02/2026"),
+			Customer:           "Zebra Clinic",
+			NamaBarang:         "Item A",
+			Jumlah:             "10",
+			TanggalPengiriman:  "10/02/2026 (10)",
+			LeadTimePengiriman: "5",
+			JumlahTerkirim:     "10",
+			BelumTerkirim:      "0",
+			StatusOrder:        "SELESAI",
+		},
+		{
+			RowIndex:           2,
+			Tanggal:            model.ParseDate("02/02/2026"),
+			Customer:           "Alpha Hospital",
+			NamaBarang:         "Item B",
+			Jumlah:             "20",
+			TanggalPengiriman:  "20/02/2026 (10), 25/02/2026 (10)",
+			LeadTimePengiriman: "7",
+			JumlahTerkirim:     "10",
+			BelumTerkirim:      "10",
+			StatusOrder:        "PROSES",
+		},
+	}
+	orders := []model.Order{
+		{
+			ID:       "ORD-DEL-1",
+			Tanggal:  model.ParseDate("01/02/2026"),
+			Customer: "Zebra Clinic",
+			Items: []model.OrderItem{
+				{RowIndex: 1, NamaBarang: "Item A", Jumlah: "10", TanggalPengiriman: "10/02/2026 (10)"},
+			},
+		},
+		{
+			ID:       "ORD-DEL-2",
+			Tanggal:  model.ParseDate("02/02/2026"),
+			Customer: "Alpha Hospital",
+			Items: []model.OrderItem{
+				{RowIndex: 2, NamaBarang: "Item B", Jumlah: "20", TanggalPengiriman: "20/02/2026 (10), 25/02/2026 (10)"},
+			},
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// 1. Check Delivery Stats
+	stats, err := store.GetDeliveryStats(ctx)
+	if err != nil {
+		t.Fatalf("GetDeliveryStats failed: %v", err)
+	}
+	if stats.TotalScheduled != 3 {
+		t.Errorf("expected 3 total scheduled deliveries, got %d", stats.TotalScheduled)
+	}
+	if stats.Completed != 1 {
+		t.Errorf("expected 1 completed delivery, got %d", stats.Completed)
+	}
+	if stats.Pending != 2 {
+		t.Errorf("expected 2 pending deliveries, got %d", stats.Pending)
+	}
+	if stats.AvgLeadTime < 6.3 || stats.AvgLeadTime > 6.4 {
+		t.Errorf("expected avg lead time ~6.33, got %f", stats.AvgLeadTime)
+	}
+
+	// 2. Check Default Delivery Sorting (Date DESC)
+	delsDesc, _, err := store.GetDeliveries(ctx, storage.DeliveryFilter{})
+	if err != nil {
+		t.Fatalf("GetDeliveries default failed: %v", err)
+	}
+	if len(delsDesc) != 3 {
+		t.Fatalf("expected 3 deliveries, got %d", len(delsDesc))
+	}
+	if delsDesc[0].DeliveryDate != "2026-02-25" || delsDesc[1].DeliveryDate != "2026-02-20" || delsDesc[2].DeliveryDate != "2026-02-10" {
+		t.Errorf("expected deliveries in date DESC order, got: %s, %s, %s",
+			delsDesc[0].DeliveryDate, delsDesc[1].DeliveryDate, delsDesc[2].DeliveryDate)
+	}
+
+	// 3. Check Delivery Sorting (Customer ASC)
+	delsCust, _, err := store.GetDeliveries(ctx, storage.DeliveryFilter{Sort: "customer", Order: "asc"})
+	if err != nil {
+		t.Fatalf("GetDeliveries customer asc failed: %v", err)
+	}
+	if delsCust[0].Item.Customer != "Alpha Hospital" || delsCust[2].Item.Customer != "Zebra Clinic" {
+		t.Errorf("expected Alpha Hospital first and Zebra Clinic last, got first=%s last=%s",
+			delsCust[0].Item.Customer, delsCust[2].Item.Customer)
 	}
 }

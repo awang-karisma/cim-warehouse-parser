@@ -261,6 +261,14 @@ func (s *Server) registerOperations() {
 		Description: "Timeline shipment feed returning individual delivery shipments joined to source items",
 		Tags:        []string{"deliveries"},
 	}, s.handleListDeliveries)
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-delivery-stats",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/deliveries/stats",
+		Summary:     "Get delivery stats",
+		Description: "Get aggregated delivery KPI metrics (total, completed, pending, avg lead time)",
+		Tags:        []string{"deliveries"},
+	}, s.handleGetDeliveryStats)
 
 	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "get-stats",
