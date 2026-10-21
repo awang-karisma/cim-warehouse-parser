@@ -16,6 +16,8 @@ import { SyncManager } from './pages/SyncManager';
 import { Search } from './pages/Search';
 import { Settings } from './pages/Settings';
 import { UserManagement } from './pages/UserManagement';
+import { Privacy } from './pages/Privacy';
+import { Terms } from './pages/Terms';
 const storageManager = createLocalStorageManager('warehouse-ui-theme');
 
 const root = document.getElementById('root');
@@ -39,6 +41,8 @@ if (root) {
               <Route path="/search" component={Search} />
               <Route path="/settings" component={Settings} />
               <Route path="/admin/users" component={UserManagement} />
+              <Route path="/privacy" component={Privacy} />
+              <Route path="/terms" component={Terms} />
             </Router>
           </AuthProvider>
         </ColorModeProvider>

@@ -40,6 +40,8 @@ export const App: Component<RouteSectionProps> = (props) => {
     if (path.startsWith('/search')) return 'Search';
     if (path.startsWith('/settings')) return 'Settings';
     if (path.startsWith('/admin/users')) return 'User Management';
+    if (path.startsWith('/privacy')) return 'Privacy Policy';
+    if (path.startsWith('/terms')) return 'Terms of Service';
     return 'Console';
   });
 
@@ -47,6 +49,10 @@ export const App: Component<RouteSectionProps> = (props) => {
   const currentUser = () => auth.user();
 
   return (
+    <Show
+      when={location.pathname !== '/privacy' && location.pathname !== '/terms'}
+      fallback={props.children}
+    >
     <Show
       when={!auth.loading() || currentUser() !== undefined}
       fallback={
@@ -127,6 +133,7 @@ export const App: Component<RouteSectionProps> = (props) => {
           </SidebarProvider>
         </Show>
       </Show>
+    </Show>
     </Show>
   );
 };

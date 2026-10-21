@@ -34,3 +34,5 @@ web/dist/
 
 # Embedded frontend build staging
 cmd/warehouse-server/dist/
+
+AGENTS.md

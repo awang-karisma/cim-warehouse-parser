@@ -1,4 +1,5 @@
 import { type Component, createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
+import { A } from '@solidjs/router';
 import { useAuth } from '~/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { IconPackage, IconAlertCircle } from '@tabler/icons-solidjs';
@@ -132,6 +133,11 @@ export const Login: Component = () => {
             </p>
           </Show>
         </CardContent>
+        <div class="px-6 pb-6 pt-0 flex items-center justify-center gap-3 text-xs text-muted-foreground">
+          <A href="/privacy" class="underline hover:text-foreground transition-colors">Privacy Policy</A>
+          <span>·</span>
+          <A href="/terms" class="underline hover:text-foreground transition-colors">Terms of Service</A>
+        </div>
       </Card>
     </div>
   );
