@@ -17,7 +17,7 @@ Automated order ingestion, normalization, and visualization system.
 
 - **Customer Alias Engine**:
   - Resolves variant customer names to canonical targets (e.g., `RSUD Narmada` $\rightarrow$ `RS Narmada`).
-  - Grouped and flat alias management with area association.
+- Grouped and flat alias management with in-place canonical name and linked area editing, plus area suggestions with freeform custom input.
   - Transactional SQL dump export and parse-verified SQL import (merge or replace mode).
 
 - **Embedded SQLite Mirror**:

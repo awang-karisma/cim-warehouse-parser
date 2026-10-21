@@ -14,6 +14,8 @@ import {
   IconDownload,
   IconUpload,
   IconCheck,
+  IconEdit,
+  IconLoader2,
 } from '@tabler/icons-solidjs';
 import { useColorMode } from '@kobalte/core';
 import { useAuth } from '~/auth';
@@ -28,8 +30,10 @@ import {
   getCustomerAliasesExportUrl,
   importCustomerAliasesFile,
   clearDatabase,
+  getAreas,
   type AliasImportResult,
 } from '../api';
+import type { CustomerAliasGroup } from '~/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
   Table,
@@ -47,7 +51,16 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
 } from '~/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '~/components/ui/dialog';
 import { Button } from '~/components/ui/button';
+import { AreaCombobox } from '~/components/AreaCombobox';
 import { Separator } from '~/components/ui/separator';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
@@ -59,6 +72,22 @@ export const Settings: Component = () => {
   const [config] = createResource(getConfig);
   const [status, { refetch: refetchStatus }] = createResource(getStatus);
   const [aliasesData, { refetch: refetchAliases }] = createResource(getCustomerAliases);
+  const [areasData] = createResource(getAreas);
+
+  const [editGroup, setEditGroup] = createSignal<CustomerAliasGroup | null>(null);
+  const [editCanonical, setEditCanonical] = createSignal('');
+  const [editArea, setEditArea] = createSignal('');
+  const [isEditingGroup, setIsEditingGroup] = createSignal(false);
+  const [showEditGroupDialog, setShowEditGroupDialog] = createSignal(false);
+  const [editGroupError, setEditGroupError] = createSignal('');
+
+  const [editAliasOriginal, setEditAliasOriginal] = createSignal('');
+  const [editAliasSpelling, setEditAliasSpelling] = createSignal('');
+  const [editAliasCanonical, setEditAliasCanonical] = createSignal('');
+  const [editAliasArea, setEditAliasArea] = createSignal('');
+  const [showEditAliasDialog, setShowEditAliasDialog] = createSignal(false);
+  const [isEditingAlias, setIsEditingAlias] = createSignal(false);
+  const [editAliasError, setEditAliasError] = createSignal('');
 
   const [aliasInput, setAliasInput] = createSignal('');
   const [canonicalInput, setCanonicalInput] = createSignal('');
@@ -148,6 +177,87 @@ export const Settings: Component = () => {
       refetchAliases();
     } catch (err: unknown) {
       setAliasError(err instanceof Error ? err.message : 'Failed to delete alias');
+    }
+  };
+  const openEditGroupModal = (grp: CustomerAliasGroup) => {
+    setEditGroup(grp);
+    setEditCanonical(grp.canonical);
+    setEditArea(grp.area || '');
+    setEditGroupError('');
+    setIsEditingGroup(false);
+    setShowEditGroupDialog(true);
+  };
+
+  const handleSaveGroup = async (e: Event) => {
+    e.preventDefault();
+    const grp = editGroup();
+    if (!grp) return;
+    const newCanonical = editCanonical().trim();
+    const newArea = editArea().trim() || undefined;
+    if (!newCanonical) {
+      setEditGroupError('Canonical name cannot be empty');
+      return;
+    }
+    for (const alias of grp.aliases) {
+      if (alias.toLowerCase() === newCanonical.toLowerCase()) {
+        setEditGroupError(`Alias "${alias}" cannot be identical to canonical name "${newCanonical}"`);
+        return;
+      }
+    }
+    setIsEditingGroup(true);
+    setEditGroupError('');
+    try {
+      for (const alias of grp.aliases) {
+        await setCustomerAlias(alias, newCanonical, newArea);
+      }
+      setShowEditGroupDialog(false);
+      refetchAliases();
+    } catch (err: unknown) {
+      setEditGroupError(err instanceof Error ? err.message : 'Failed to update alias group');
+    } finally {
+      setIsEditingGroup(false);
+    }
+  };
+
+  const openEditAliasModal = (alias: string, grp: CustomerAliasGroup) => {
+    setEditAliasOriginal(alias);
+    setEditAliasSpelling(alias);
+    setEditAliasCanonical(grp.canonical);
+    setEditAliasArea(grp.area || '');
+    setEditAliasError('');
+    setIsEditingAlias(false);
+    setShowEditAliasDialog(true);
+  };
+
+  const handleSaveSingleAlias = async (e: Event) => {
+    e.preventDefault();
+    const original = editAliasOriginal();
+    const spelling = editAliasSpelling().trim();
+    const canonical = editAliasCanonical().trim();
+    const area = editAliasArea().trim() || undefined;
+
+    if (!spelling || !canonical) {
+      setEditAliasError('Both Variant Name (alias) and Canonical Name are required');
+      return;
+    }
+    if (spelling.toLowerCase() === canonical.toLowerCase()) {
+      setEditAliasError('Alias cannot be equal to canonical name');
+      return;
+    }
+
+    setIsEditingAlias(true);
+    setEditAliasError('');
+    try {
+      if (spelling !== original) {
+        await deleteCustomerAlias(original);
+      }
+      await setCustomerAlias(spelling, canonical, area);
+      setShowEditAliasDialog(false);
+      refetchAliases();
+    } catch (err: unknown) {
+      setEditAliasError(err instanceof Error ? err.message : 'Failed to update alias');
+    } finally {
+      setIsEditingAlias(false);
     }
   };
 
@@ -471,10 +581,15 @@ export const Settings: Component = () => {
                   <TextFieldInput placeholder="e.g. RS PKU Muhammadiyah..." class="h-9" />
                 </TextField>
 
-                <TextField value={areaInput()} onChange={setAreaInput}>
-                  <TextFieldLabel class="text-xs font-semibold">Linked Area (Optional)</TextFieldLabel>
-                  <TextFieldInput placeholder="e.g. Lombok Barat..." class="h-9" />
-                </TextField>
+                <div class="space-y-1 flex flex-col">
+                  <label class="text-xs font-semibold">Linked Area (Optional)</label>
+                  <AreaCombobox
+                    value={areaInput()}
+                    onChange={setAreaInput}
+                    areas={() => areasData()?.areas}
+                    placeholder="e.g. Lombok Barat..."
+                  />
+                </div>
               </div>
 
               <div class="flex justify-end">
@@ -527,9 +642,22 @@ export const Settings: Component = () => {
                           </span>
                         </Show>
                       </div>
-                      <span class="text-xs text-muted-foreground">
-                        {grp.aliases.length} alias{grp.aliases.length === 1 ? '' : 'es'}
-                      </span>
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs text-muted-foreground">
+                          {grp.aliases.length} alias{grp.aliases.length === 1 ? '' : 'es'}
+                        </span>
+                        <Show when={isAdmin()}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            class="h-7 w-7 p-0 hover:text-primary"
+                            title={`Edit group ${grp.canonical}`}
+                            onClick={() => openEditGroupModal(grp)}
+                          >
+                            <IconEdit class="size-3.5" />
+                          </Button>
+                        </Show>
+                      </div>
                     </CardHeader>
                     <CardContent class="px-4 pb-3">
                       <div class="flex flex-wrap gap-2">
@@ -538,15 +666,26 @@ export const Settings: Component = () => {
                             <span class="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-xs bg-muted text-foreground border border-border">
                               <span>{al}</span>
                               <Show when={isAdmin()}>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  class="h-5 w-5 p-0 hover:text-destructive"
-                                  title={`Delete alias ${al}`}
-                                  onClick={() => setAliasToDelete(al)}
-                                >
-                                  <IconTrash class="size-3" />
-                                </Button>
+                                <div class="flex items-center">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    class="h-5 w-5 p-0 hover:text-primary"
+                                    title={`Edit alias ${al}`}
+                                    onClick={() => openEditAliasModal(al, grp)}
+                                  >
+                                    <IconEdit class="size-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    class="h-5 w-5 p-0 hover:text-destructive"
+                                    title={`Delete alias ${al}`}
+                                    onClick={() => setAliasToDelete(al)}
+                                  >
+                                    <IconTrash class="size-3" />
+                                  </Button>
+                                </div>
                               </Show>
                             </span>
                           )}
@@ -768,6 +907,126 @@ export const Settings: Component = () => {
           </div>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Edit Alias Group Dialog */}
+      <Dialog open={showEditGroupDialog()} onOpenChange={setShowEditGroupDialog}>
+        <DialogContent class="sm:max-w-md">
+          <form onSubmit={handleSaveGroup} class="space-y-4">
+            <DialogHeader>
+              <DialogTitle>Edit Alias Group</DialogTitle>
+              <DialogDescription>
+                Update canonical name and linked area for all aliases in this group.
+              </DialogDescription>
+            </DialogHeader>
+
+            <Show when={editGroupError()}>
+              <Alert variant="destructive">
+                <IconAlertCircle class="size-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{editGroupError()}</AlertDescription>
+              </Alert>
+            </Show>
+
+            <div class="space-y-3">
+              <TextField value={editCanonical()} onChange={setEditCanonical}>
+                <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
+                <TextFieldInput placeholder="Official canonical customer name..." class="h-9" />
+              </TextField>
+
+              <div class="space-y-1 flex flex-col">
+                <label class="text-xs font-semibold">Linked Area (Optional)</label>
+                <AreaCombobox
+                  value={editArea()}
+                  onChange={setEditArea}
+                  areas={() => areasData()?.areas}
+                  placeholder="e.g. Lombok Barat, Denpasar..."
+                />
+              </div>
+            </div>
+
+            <DialogFooter class="flex gap-2 justify-end pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowEditGroupDialog(false)}
+                disabled={isEditingGroup()}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={isEditingGroup()}>
+                <Show when={isEditingGroup()} fallback="Save Group">
+                  <span class="flex items-center gap-1.5">
+                    <IconLoader2 class="size-3.5 animate-spin" /> Saving...
+                  </span>
+                </Show>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Single Alias Dialog */}
+      <Dialog open={showEditAliasDialog()} onOpenChange={setShowEditAliasDialog}>
+        <DialogContent class="sm:max-w-md">
+          <form onSubmit={handleSaveSingleAlias} class="space-y-4">
+            <DialogHeader>
+              <DialogTitle>Edit Customer Alias</DialogTitle>
+              <DialogDescription>
+                Modify alias variant spelling, canonical name, or assigned area.
+              </DialogDescription>
+            </DialogHeader>
+
+            <Show when={editAliasError()}>
+              <Alert variant="destructive">
+                <IconAlertCircle class="size-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{editAliasError()}</AlertDescription>
+              </Alert>
+            </Show>
+
+            <div class="space-y-3">
+              <TextField value={editAliasSpelling()} onChange={setEditAliasSpelling}>
+                <TextFieldLabel class="text-xs font-semibold">Variant Name (Alias)</TextFieldLabel>
+                <TextFieldInput placeholder="Source alias spelling..." class="h-9" />
+              </TextField>
+
+              <TextField value={editAliasCanonical()} onChange={setEditAliasCanonical}>
+                <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
+                <TextFieldInput placeholder="Official customer name..." class="h-9" />
+              </TextField>
+
+              <div class="space-y-1 flex flex-col">
+                <label class="text-xs font-semibold">Linked Area (Optional)</label>
+                <AreaCombobox
+                  value={editAliasArea()}
+                  onChange={setEditAliasArea}
+                  areas={() => areasData()?.areas}
+                  placeholder="e.g. Lombok Barat, Denpasar..."
+                />
+              </div>
+            </div>
+
+            <DialogFooter class="flex gap-2 justify-end pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowEditAliasDialog(false)}
+                disabled={isEditingAlias()}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={isEditingAlias()}>
+                <Show when={isEditingAlias()} fallback="Save Alias">
+                  <span class="flex items-center gap-1.5">
+                    <IconLoader2 class="size-3.5 animate-spin" /> Saving...
+                  </span>
+                </Show>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

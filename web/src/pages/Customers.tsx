@@ -18,8 +18,9 @@ import {
   IconLoader2,
   IconAlertCircle,
 } from '@tabler/icons-solidjs';
-import { getCustomers, getCustomerAliases, setCustomerAlias } from '../api';
+import { getCustomers, getCustomerAliases, setCustomerAlias, getAreas } from '../api';
 import type { CustomerSummary } from '../types';
+import { AreaCombobox } from '~/components/AreaCombobox';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '~/components/ui/card';
 import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
 import { Button } from '~/components/ui/button';
@@ -247,6 +248,7 @@ export const Customers: Component = () => {
   };
 
   const [aliasesData, { refetch: refetchAliases }] = createResource(getCustomerAliases);
+  const [areasData] = createResource(getAreas);
 
   // Modal state
   const [modalOpen, setModalOpen] = createSignal(false);
@@ -589,10 +591,15 @@ export const Customers: Component = () => {
                 </TextField>
               </Show>
 
-              <TextField value={aliasArea()} onChange={setAliasArea}>
-                <TextFieldLabel class="text-xs font-semibold">Assigned Area (Optional)</TextFieldLabel>
-                <TextFieldInput placeholder="e.g. Denpasar, Badung..." class="h-9" />
-              </TextField>
+              <div class="space-y-1 flex flex-col">
+                <label class="text-xs font-semibold">Assigned Area (Optional)</label>
+                <AreaCombobox
+                  value={aliasArea()}
+                  onChange={setAliasArea}
+                  areas={() => areasData()?.areas}
+                  placeholder="e.g. Denpasar, Badung..."
+                />
+              </div>
             </div>
 
             <DialogFooter class="flex gap-2 justify-end pt-2">
