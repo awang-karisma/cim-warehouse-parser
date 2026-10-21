@@ -3,6 +3,7 @@ import { A } from '@solidjs/router';
 import { useAuth } from '~/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { IconPackage, IconAlertCircle } from '@tabler/icons-solidjs';
+import { Spinner } from '~/components/Spinner';
 
 declare global {
   interface Window {
@@ -117,7 +118,7 @@ export const Login: Component = () => {
 
           <Show when={auth.loading()}>
             <div class="flex items-center gap-2 text-sm text-muted-foreground py-2">
-              <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <Spinner size="sm" />
               <span>Signing in...</span>
             </div>
           </Show>

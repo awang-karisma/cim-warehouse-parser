@@ -25,6 +25,7 @@ import {
 import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
+import { TableSkeleton } from '~/components/TableSkeleton';
 import { Badge } from '../components/Badge';
 import { Badge as UiBadge } from '~/components/ui/badge';
 import { createUrlFilter } from '../utils/tableFilters';
@@ -264,11 +265,7 @@ export const Timeline: Component = () => {
                 <Show
                   when={!deliveriesData.loading}
                   fallback={
-                    <TableRow>
-                      <TableCell colspan={10} class="h-28 text-center text-muted-foreground">
-                        <Skeleton class="h-6 w-1/2 mx-auto" />
-                      </TableCell>
-                    </TableRow>
+                    <TableSkeleton columns={10} rows={5} />
                   }
                 >
                   <Show

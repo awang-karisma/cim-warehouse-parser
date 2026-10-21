@@ -15,6 +15,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
+import { TableSkeleton } from '~/components/TableSkeleton';
 
 const MiniStatusBreakdown: Component<{ counts?: Record<string, number> }> = (props) => {
   const segments = createMemo(() => {
@@ -157,13 +158,7 @@ export const Areas: Component = () => {
               <TableBody>
                 <Show
                   when={!areasData.loading}
-                  fallback={
-                    <TableRow>
-                      <TableCell colspan={6} class="h-24 text-center text-muted-foreground">
-                        <Skeleton class="h-6 w-3/4 mx-auto" />
-                      </TableCell>
-                    </TableRow>
-                  }
+                  fallback={<TableSkeleton columns={6} rows={3} />}
                 >
                   <For each={areasData()?.areas}>
                     {(area) => {
@@ -244,17 +239,19 @@ export const Areas: Component = () => {
                 </TableHeader>
                 <TableBody>
                   <Show
-                    when={areaCustomers()?.customers && areaCustomers()!.customers.length > 0}
-                    fallback={
-                      <TableRow>
-                        <TableCell colspan={5} class="h-20 text-center text-muted-foreground">
-                          <Show when={areaCustomers.loading} fallback={`No customers found for ${currentArea()}`}>
-                            <Skeleton class="h-5 w-1/2 mx-auto" />
-                          </Show>
-                        </TableCell>
-                      </TableRow>
-                    }
+                    when={!areaCustomers.loading}
+                    fallback={<TableSkeleton columns={5} rows={3} />}
                   >
+                    <Show
+                      when={areaCustomers()?.customers && areaCustomers()!.customers.length > 0}
+                      fallback={
+                        <TableRow>
+                          <TableCell colspan={5} class="h-20 text-center text-muted-foreground">
+                            No customers found for {currentArea()}
+                          </TableCell>
+                        </TableRow>
+                      }
+                    >
                     <For each={areaCustomers()?.customers}>
                       {(cust) => (
                         <TableRow>
@@ -279,6 +276,7 @@ export const Areas: Component = () => {
                       )}
                     </For>
                   </Show>
+                </Show>
                 </TableBody>
               </Table>
             </div>

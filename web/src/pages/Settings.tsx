@@ -51,6 +51,7 @@ import { Button } from '~/components/ui/button';
 import { Separator } from '~/components/ui/separator';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
+import { TableSkeleton } from '~/components/TableSkeleton';
 
 export const Settings: Component = () => {
   const { colorMode, setColorMode } = useColorMode();
@@ -232,29 +233,39 @@ export const Settings: Component = () => {
             <CardContent class="space-y-3">
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Application Version</span>
-                <span class="font-semibold">{system()?.version || 'v1.0.0'}</span>
+                <Show when={!system.loading} fallback={<Skeleton class="h-5 w-20" />}>
+                  <span class="font-semibold">{system()?.version || 'v1.0.0'}</span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Go Runtime Version</span>
-                <span class="font-semibold">{system()?.go_version || '-'}</span>
+                <Show when={!system.loading} fallback={<Skeleton class="h-5 w-24" />}>
+                  <span class="font-semibold">{system()?.go_version || '-'}</span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">HTTP Server Port</span>
-                <span class="font-semibold">:{system()?.port || '8080'}</span>
+                <Show when={!system.loading} fallback={<Skeleton class="h-5 w-16" />}>
+                  <span class="font-semibold">:{system()?.port || '8080'}</span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">SQLite Database Path</span>
-                <span class="font-mono text-xs font-semibold">
-                  {system()?.db_path || 'data/warehouse.db'}
-                </span>
+                <Show when={!system.loading} fallback={<Skeleton class="h-5 w-32" />}>
+                  <span class="font-mono text-xs font-semibold">
+                    {system()?.db_path || 'data/warehouse.db'}
+                  </span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Server Uptime</span>
-                <span class="font-semibold">{formatUptime(system()?.uptime_seconds)}</span>
+                <Show when={!system.loading} fallback={<Skeleton class="h-5 w-20" />}>
+                  <span class="font-semibold">{formatUptime(system()?.uptime_seconds)}</span>
+                </Show>
               </div>
             </CardContent>
           </div>
@@ -273,33 +284,43 @@ export const Settings: Component = () => {
             <CardContent class="space-y-3">
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Sync Interval</span>
-                <span class="font-semibold">{config()?.sync_interval || '15m'}</span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-16" />}>
+                  <span class="font-semibold">{config()?.sync_interval || '15m'}</span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Working Hours Window</span>
-                <span class="font-semibold">
-                  {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
-                </span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-28" />}>
+                  <span class="font-semibold">
+                    {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
+                  </span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Timezone</span>
-                <span class="font-semibold">{config()?.timezone || 'Asia/Makassar'}</span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-28" />}>
+                  <span class="font-semibold">{config()?.timezone || 'Asia/Makassar'}</span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Active Work Days</span>
-                <span class="font-semibold">
-                  {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
-                </span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-32" />}>
+                  <span class="font-semibold">
+                    {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
+                  </span>
+                </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">Worker Status</span>
-                <span>
-                  <Badge status={status()?.status || 'IDLE'} />
-                </span>
+                <Show when={!status.loading} fallback={<Skeleton class="h-5 w-20" />}>
+                  <span>
+                    <Badge status={status()?.status || 'IDLE'} />
+                  </span>
+                </Show>
               </div>
             </CardContent>
           </div>
@@ -329,13 +350,7 @@ export const Settings: Component = () => {
               <TableBody>
                 <Show
                   when={system()?.tables}
-                  fallback={
-                    <TableRow>
-                      <TableCell colspan={4} class="h-24 text-center text-muted-foreground">
-                        <Skeleton class="h-6 w-1/2 mx-auto" />
-                      </TableCell>
-                    </TableRow>
-                  }
+                  fallback={<TableSkeleton columns={4} rows={4} />}
                 >
                   <For each={Object.entries(system()!.tables)}>
                     {([tableName, stat]) => (
@@ -482,13 +497,22 @@ export const Settings: Component = () => {
           {/* Grouped Aliases Display */}
           <div class="space-y-3">
             <Show
-              when={aliasesData()?.groups && aliasesData()!.groups.length > 0}
+              when={!aliasesData.loading}
               fallback={
-                <div class="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">
-                  No customer aliases configured yet. Add your first variant mapping above.
+                <div class="space-y-3">
+                  <Skeleton class="h-20 w-full rounded-lg" />
+                  <Skeleton class="h-20 w-full rounded-lg" />
                 </div>
               }
             >
+              <Show
+                when={aliasesData()?.groups && aliasesData()!.groups.length > 0}
+                fallback={
+                  <div class="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">
+                    No customer aliases configured yet. Add your first variant mapping above.
+                  </div>
+                }
+              >
               <For each={aliasesData()?.groups}>
                 {(grp) => (
                   <Card class="bg-card">
@@ -532,6 +556,7 @@ export const Settings: Component = () => {
                   </Card>
                 )}
               </For>
+            </Show>
             </Show>
           </div>
         </CardContent>

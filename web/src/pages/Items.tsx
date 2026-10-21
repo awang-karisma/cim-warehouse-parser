@@ -22,6 +22,7 @@ import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
+import { TableSkeleton } from '~/components/TableSkeleton';
 import { DataTablePagination } from '../components/data-table-pagination';
 import { SortableTableHead } from '~/components/SortableTableHead';
 import { createUrlFilter } from '../utils/tableFilters';
@@ -338,11 +339,7 @@ export const Items: Component = () => {
                 <Show
                   when={!data.loading}
                   fallback={
-                    <TableRow>
-                      <TableCell colspan={11} class="h-32 text-center text-muted-foreground">
-                        <Skeleton class="h-8 w-1/2 mx-auto" />
-                      </TableCell>
-                    </TableRow>
+                    <TableSkeleton columns={11} rows={5} />
                   }
                 >
                   <Show

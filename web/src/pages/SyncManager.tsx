@@ -25,6 +25,7 @@ import {
 import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
+import { TableSkeleton } from '~/components/TableSkeleton';
 import { Badge } from '../components/Badge';
 
 export const SyncManager: Component = () => {
@@ -283,11 +284,7 @@ export const SyncManager: Component = () => {
                 <Show
                   when={!history.loading}
                   fallback={
-                    <TableRow>
-                      <TableCell colspan={7} class="h-24 text-center text-muted-foreground">
-                        <Skeleton class="h-6 w-3/4 mx-auto" />
-                      </TableCell>
-                    </TableRow>
+                    <TableSkeleton columns={7} rows={3} />
                   }
                 >
                   <Show

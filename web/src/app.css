@@ -1,3 +1,4 @@
+@config "../tailwind.config.cjs";
 @import "tailwindcss";
 
 @custom-variant dark (&:where([data-kb-theme="dark"], [data-kb-theme="dark"] *, .dark, .dark *));
@@ -124,4 +125,34 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   min-height: 100vh;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

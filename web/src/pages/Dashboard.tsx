@@ -22,6 +22,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
+import { TableSkeleton } from '~/components/TableSkeleton';
 import { getDominantOrderStatus } from './Orders';
 
 export const Dashboard: Component = () => {
@@ -85,7 +86,7 @@ export const Dashboard: Component = () => {
     <div class="flex flex-1 flex-col gap-6">
       {/* 4 KPI Cards (Solid-UI Dashboard Example) */}
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "0ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Total Orders
@@ -100,7 +101,7 @@ export const Dashboard: Component = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "75ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Total Line Items
@@ -115,7 +116,7 @@ export const Dashboard: Component = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "150ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Unique Customers
@@ -130,7 +131,7 @@ export const Dashboard: Component = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "225ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Coverage Areas
@@ -249,17 +250,19 @@ export const Dashboard: Component = () => {
                 </TableHeader>
                 <TableBody>
                   <Show
-                    when={syncHistory()?.records && syncHistory()!.records.length > 0}
-                    fallback={
-                      <TableRow>
-                        <TableCell colspan={4} class="h-24 text-center text-muted-foreground">
-                          <Show when={syncHistory.loading} fallback="No sync records yet">
-                            <Skeleton class="h-6 w-3/4 mx-auto" />
-                          </Show>
-                        </TableCell>
-                      </TableRow>
-                    }
+                    when={!syncHistory.loading}
+                    fallback={<TableSkeleton columns={4} rows={3} />}
                   >
+                    <Show
+                      when={syncHistory()?.records && syncHistory()!.records.length > 0}
+                      fallback={
+                        <TableRow>
+                          <TableCell colspan={4} class="h-24 text-center text-muted-foreground">
+                            No sync records yet
+                          </TableCell>
+                        </TableRow>
+                      }
+                    >
                     <For each={syncHistory()?.records}>
                       {(rec) => (
                         <TableRow>
@@ -276,6 +279,7 @@ export const Dashboard: Component = () => {
                         </TableRow>
                       )}
                     </For>
+                    </Show>
                   </Show>
                 </TableBody>
               </Table>
@@ -311,17 +315,19 @@ export const Dashboard: Component = () => {
               </TableHeader>
               <TableBody>
                 <Show
-                  when={recentOrders()?.orders && recentOrders()!.orders.length > 0}
-                  fallback={
-                    <TableRow>
-                      <TableCell colspan={7} class="h-24 text-center text-muted-foreground">
-                        <Show when={recentOrders.loading} fallback="No orders found">
-                          <Skeleton class="h-6 w-3/4 mx-auto" />
-                        </Show>
-                      </TableCell>
-                    </TableRow>
-                  }
+                  when={!recentOrders.loading}
+                  fallback={<TableSkeleton columns={7} rows={3} />}
                 >
+                  <Show
+                    when={recentOrders()?.orders && recentOrders()!.orders.length > 0}
+                    fallback={
+                      <TableRow>
+                        <TableCell colspan={7} class="h-24 text-center text-muted-foreground">
+                          No orders found
+                        </TableCell>
+                      </TableRow>
+                    }
+                  >
                   <For each={recentOrders()?.orders}>
                     {(order) => {
                       const firstStatus = getDominantOrderStatus(order.items);
@@ -351,6 +357,7 @@ export const Dashboard: Component = () => {
                       );
                     }}
                   </For>
+                </Show>
                 </Show>
               </TableBody>
             </Table>

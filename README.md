@@ -43,6 +43,7 @@ Automated order ingestion, normalization, and visualization system.
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
+  - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.
 
 ---

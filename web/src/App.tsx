@@ -24,6 +24,8 @@ import {
 } from '~/components/ui/dropdown-menu';
 import { Avatar, AvatarImage, AvatarFallback } from '~/components/ui/avatar';
 import { IconLogout } from '@tabler/icons-solidjs';
+import { PageTransition } from '~/components/PageTransition';
+import { Spinner } from '~/components/Spinner';
 export const App: Component<RouteSectionProps> = (props) => {
   const location = useLocation();
 
@@ -51,14 +53,14 @@ export const App: Component<RouteSectionProps> = (props) => {
   return (
     <Show
       when={location.pathname !== '/privacy' && location.pathname !== '/terms'}
-      fallback={props.children}
+      fallback={<PageTransition>{props.children}</PageTransition>}
     >
     <Show
       when={!auth.loading() || currentUser() !== undefined}
       fallback={
         <div class="min-h-screen w-full flex items-center justify-center bg-background">
           <div class="flex flex-col items-center gap-3">
-            <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <Spinner size="lg" />
             <span class="text-sm text-muted-foreground font-medium">Loading session...</span>
           </div>
         </div>
@@ -127,7 +129,7 @@ export const App: Component<RouteSectionProps> = (props) => {
                 </div>
               </header>
               <main class="flex flex-1 flex-col gap-4 p-4 md:p-6 min-w-0 bg-background">
-                {props.children}
+                <PageTransition>{props.children}</PageTransition>
               </main>
             </SidebarInset>
           </SidebarProvider>

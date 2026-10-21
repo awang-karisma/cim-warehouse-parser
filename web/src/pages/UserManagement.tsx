@@ -11,6 +11,7 @@ import {
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { TableSkeleton } from '~/components/TableSkeleton';
 import { Button } from '~/components/ui/button';
 import { Badge } from '~/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '~/components/ui/avatar';
@@ -189,11 +190,7 @@ export const UserManagement: Component = () => {
                 <Show
                   when={!data.loading}
                   fallback={
-                    <TableRow>
-                      <TableCell colSpan={4} class="h-32 text-center text-sm text-muted-foreground">
-                        Loading users...
-                      </TableCell>
-                    </TableRow>
+                    <TableSkeleton columns={4} rows={3} />
                   }
                 >
                   <Show
