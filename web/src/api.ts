@@ -154,14 +154,6 @@ export const importCustomerAliasesFile = (file: File, mode: 'merge' | 'replace' 
     body: fd,
   });
 };
-
-export const importCustomerAliasesSqlText = (sql: string, mode: 'merge' | 'replace' = 'merge') =>
-  apiFetch<AliasImportResult>(`/api/v1/customer-aliases/import?mode=${mode}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/sql' },
-    body: sql,
-  });
-
 export const getDeliveries = (params?: {
   customer?: string;
   nama_barang?: string;

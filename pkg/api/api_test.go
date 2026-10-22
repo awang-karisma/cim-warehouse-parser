@@ -1341,7 +1341,7 @@ func TestCustomerAliasExportImport(t *testing.T) {
 		t.Fatalf("SetCustomerAlias failed: %v", err)
 	}
 
-	t.Run("GET export returns valid SQL with headers", func(t *testing.T) {
+	t.Run("GET export returns valid JSON with headers", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/customer-aliases/export", nil)
 		resp, err := srv.App().Test(req)
 		if err != nil {
@@ -1353,32 +1353,34 @@ func TestCustomerAliasExportImport(t *testing.T) {
 			t.Fatalf("expected 200, got %d", resp.StatusCode)
 		}
 		ct := resp.Header.Get("Content-Type")
-		if !strings.Contains(ct, "application/sql") {
-			t.Errorf("expected application/sql Content-Type, got %s", ct)
+		if !strings.Contains(ct, "application/json") {
+			t.Errorf("expected application/json Content-Type, got %s", ct)
 		}
 		cd := resp.Header.Get("Content-Disposition")
-		if !strings.Contains(cd, "customer-aliases.sql") {
-			t.Errorf("expected Content-Disposition to contain customer-aliases.sql, got %s", cd)
+		if !strings.Contains(cd, "customer-aliases.json") {
+			t.Errorf("expected Content-Disposition to contain customer-aliases.json, got %s", cd)
+		}
+		cc := resp.Header.Get("Cache-Control")
+		if cc != "no-store" {
+			t.Errorf("expected Cache-Control: no-store, got %s", cc)
 		}
 
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		body := string(bodyBytes)
-		if !strings.Contains(body, "BEGIN TRANSACTION;") || !strings.Contains(body, "COMMIT;") {
-			t.Errorf("expected transaction in SQL export, got: %s", body)
+		var doc storage.CustomerAliasesDocument
+		if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+			t.Fatalf("failed to decode JSON export: %v", err)
 		}
-		if !strings.Contains(body, "O''Brien Clinic") {
-			t.Errorf("expected escaped quotes in SQL export, got: %s", body)
+		if doc.Version != 1 {
+			t.Errorf("expected version 1, got %d", doc.Version)
+		}
+		if len(doc.Aliases) != 2 {
+			t.Fatalf("expected 2 aliases in export, got %d", len(doc.Aliases))
 		}
 	})
 
-	t.Run("POST import with application/sql body merge", func(t *testing.T) {
-		sqlBody := `
-BEGIN TRANSACTION;
-INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Alias Two', 'Canonical Two', 'Area Two');
-COMMIT;
-`
-		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(sqlBody))
-		req.Header.Set("Content-Type", "application/sql")
+	t.Run("POST import with application/json body merge", func(t *testing.T) {
+		jsonBody := `{"version":1,"aliases":[{"alias":"Alias Two","canonical":"Canonical Two","area":"Area Two"}]}`
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := srv.App().Test(req)
 		if err != nil {
@@ -1415,18 +1417,14 @@ COMMIT;
 	})
 
 	t.Run("POST import with multipart form file replace", func(t *testing.T) {
-		sqlContent := `
-BEGIN TRANSACTION;
-INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Replaced Alias', 'Replaced Canonical', 'Replaced Area');
-COMMIT;
-`
+		jsonContent := `{"version":1,"aliases":[{"alias":"Replaced Alias","canonical":"Replaced Canonical","area":"Replaced Area"}]}`
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
-		part, err := w.CreateFormFile("file", "backup.sql")
+		part, err := w.CreateFormFile("file", "backup.json")
 		if err != nil {
 			t.Fatalf("CreateFormFile failed: %v", err)
 		}
-		if _, err := part.Write([]byte(sqlContent)); err != nil {
+		if _, err := part.Write([]byte(jsonContent)); err != nil {
 			t.Fatalf("write to part failed: %v", err)
 		}
 		w.Close()
@@ -1465,8 +1463,8 @@ COMMIT;
 	})
 
 	t.Run("POST import invalid mode returns 400", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=invalid_mode", strings.NewReader("INSERT INTO customer_aliases VALUES ('a','b','c');"))
-		req.Header.Set("Content-Type", "application/sql")
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=invalid_mode", strings.NewReader(`{"version":1,"aliases":[]}`))
+		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := srv.App().Test(req)
 		if err != nil {
@@ -1481,7 +1479,7 @@ COMMIT;
 
 	t.Run("POST import empty body returns 400", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader("   "))
-		req.Header.Set("Content-Type", "application/sql")
+		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := srv.App().Test(req)
 		if err != nil {
@@ -1494,8 +1492,23 @@ COMMIT;
 		}
 	})
 
-	t.Run("POST import application/json returns 400", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(`[{"alias":"a","canonical":"b"}]`))
+	t.Run("POST import non-JSON SQL body returns 400", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader("INSERT INTO customer_aliases VALUES ('a','b','c');"))
+		req.Header.Set("Content-Type", "application/sql")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for SQL body, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST import malformed JSON returns 400", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(`{invalid json`))
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := srv.App().Test(req)
@@ -1505,13 +1518,13 @@ COMMIT;
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("expected 400 for json content type, got %d", resp.StatusCode)
+			t.Errorf("expected 400 for malformed json, got %d", resp.StatusCode)
 		}
 	})
 
-	t.Run("POST import non-SQL body returns 400", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader("Just some random text without sql"))
-		req.Header.Set("Content-Type", "text/plain")
+	t.Run("POST import unsupported version returns 400", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(`{"version":99,"aliases":[]}`))
+		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := srv.App().Test(req)
 		if err != nil {
@@ -1520,14 +1533,30 @@ COMMIT;
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("expected 400 for non-SQL body, got %d", resp.StatusCode)
+			t.Errorf("expected 400 for unsupported version, got %d", resp.StatusCode)
 		}
 	})
 
-	t.Run("POST import row with alias equal to canonical counts as skipped", func(t *testing.T) {
-		sqlBody := `INSERT INTO customer_aliases (alias, canonical, area) VALUES ('Same Name', 'Same Name', '');`
-		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(sqlBody))
-		req.Header.Set("Content-Type", "application/sql")
+	t.Run("POST import row with alias equal to canonical returns 400", func(t *testing.T) {
+		jsonBody := `{"version":1,"aliases":[{"alias":"Same Name","canonical":"Same Name","area":""}]}`
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST import empty aliases array returns 200", func(t *testing.T) {
+		jsonBody := `{"version":1,"aliases":[]}`
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", strings.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := srv.App().Test(req)
 		if err != nil {
@@ -1538,24 +1567,47 @@ COMMIT;
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d", resp.StatusCode)
 		}
-
 		var res struct {
-			Status   string   `json:"status"`
-			Imported int      `json:"imported"`
-			Skipped  int      `json:"skipped"`
-			Errors   []string `json:"errors"`
+			Status   string `json:"status"`
+			Imported int    `json:"imported"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&res)
-		if res.Imported != 0 || res.Skipped != 1 || len(res.Errors) != 1 {
-			t.Errorf("expected 0 imported, 1 skipped, got %+v", res)
+		if res.Imported != 0 {
+			t.Errorf("expected 0 imported on empty aliases, got %d", res.Imported)
+		}
+	})
+
+	t.Run("POST import atomicity in replace mode", func(t *testing.T) {
+		// Existing store has 1 alias ("Replaced Alias")
+		// Attempt replace with 1 valid alias + 1 self alias
+		jsonBody := `{"version":1,"aliases":[{"alias":"Valid","canonical":"Target"},{"alias":"Self","canonical":"Self"}]}`
+		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=replace", strings.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", resp.StatusCode)
+		}
+
+		// Preexisting alias must not be deleted
+		flat, err := store.GetCustomerAliasesFlat(ctx)
+		if err != nil {
+			t.Fatalf("GetCustomerAliasesFlat failed: %v", err)
+		}
+		if len(flat) != 1 || flat[0].Alias != "Replaced Alias" {
+			t.Fatalf("atomicity violated: expected preexisting alias retained, got %+v", flat)
 		}
 	})
 
 	t.Run("POST import payload too large returns 413", func(t *testing.T) {
-		// Create a body > 5MB
 		largeBody := make([]byte, (5<<20)+1024)
 		req, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=merge", bytes.NewReader(largeBody))
-		req.Header.Set("Content-Type", "application/sql")
+		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := srv.App().Test(req)
 		if err != nil {
@@ -1582,7 +1634,7 @@ COMMIT;
 
 		// 2. Import replace into srvFresh
 		reqImport, _ := http.NewRequest("POST", "/api/v1/customer-aliases/import?mode=replace", bytes.NewReader(dumpData))
-		reqImport.Header.Set("Content-Type", "application/sql")
+		reqImport.Header.Set("Content-Type", "application/json")
 		respImport, err := srvFresh.App().Test(reqImport)
 		if err != nil || respImport.StatusCode != http.StatusOK {
 			t.Fatalf("import failed: %v", err)

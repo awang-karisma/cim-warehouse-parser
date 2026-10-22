@@ -110,10 +110,10 @@ export const Settings: Component = () => {
   const [pendingFile, setPendingFile] = createSignal<File | null>(null);
   let fileInputRef: HTMLInputElement | undefined;
 
-  const handleExportSQL = () => {
+  const handleExportJSON = () => {
     const a = document.createElement('a');
     a.href = getCustomerAliasesExportUrl();
-    a.download = 'customer-aliases.sql';
+    a.download = 'customer-aliases.json';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -493,10 +493,10 @@ export const Settings: Component = () => {
           </div>
         </CardHeader>
         <CardContent class="space-y-4">
-          {/* Export / Import SQL Actions */}
+          {/* Export / Import JSON Actions */}
           <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
             <span class="text-xs text-muted-foreground">
-              Backup or restore customer aliases as raw SQL dump.
+              Backup or restore customer aliases as JSON.
             </span>
             <div class="flex items-center gap-2">
               <Button
@@ -505,15 +505,15 @@ export const Settings: Component = () => {
                 size="sm"
                 class="gap-1.5 h-8 text-xs"
                 disabled={aliasesData.loading}
-                onClick={handleExportSQL}
+                onClick={handleExportJSON}
               >
                 <IconDownload class="size-3.5" />
-                <span>Export SQL</span>
+                <span>Export JSON</span>
               </Button>
               <Show when={isAdmin()}>
                 <input
                   type="file"
-                  accept=".sql,.txt,application/sql"
+                  accept=".json,application/json"
                   ref={fileInputRef}
                   class="hidden"
                   onChange={(e) => {
@@ -535,7 +535,7 @@ export const Settings: Component = () => {
                   onClick={() => fileInputRef?.click()}
                 >
                   <IconUpload class="size-3.5" />
-                  <span>{isImporting() ? 'Importing...' : 'Import SQL'}</span>
+                  <span>{isImporting() ? 'Importing...' : 'Import JSON'}</span>
                 </Button>
               </Show>
             </div>
@@ -548,19 +548,8 @@ export const Settings: Component = () => {
                 <AlertTitle class="text-primary font-semibold">Import Complete</AlertTitle>
                 <AlertDescription class="space-y-1">
                   <div>
-                    Successfully imported <strong>{res().imported}</strong> alias{res().imported === 1 ? '' : 'es'}
-                    <Show when={res().skipped > 0}>
-                      <span>, skipped <strong>{res().skipped}</strong> invalid row{res().skipped === 1 ? '' : 's'}</span>
-                    </Show>.
+                    Successfully imported <strong>{res().imported}</strong> alias{res().imported === 1 ? '' : 'es'}.
                   </div>
-                  <Show when={res().errors && res().errors!.length > 0}>
-                    <details class="text-xs text-muted-foreground cursor-pointer pt-1">
-                      <summary class="font-medium hover:underline">View details ({res().errors!.length})</summary>
-                      <ul class="list-disc pl-4 mt-1 space-y-0.5">
-                        <For each={res().errors}>{(err) => <li>{err}</li>}</For>
-                      </ul>
-                    </details>
-                  </Show>
                 </AlertDescription>
               </Alert>
             )}

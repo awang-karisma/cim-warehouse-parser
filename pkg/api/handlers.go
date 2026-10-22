@@ -799,16 +799,16 @@ func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
 		return c.Status(fiber.StatusServiceUnavailable).SendString("storage service not available")
 	}
 
-	sqlDump, err := s.store.DumpCustomerAliasesSQL(c.Context())
+	jsonData, err := s.store.ExportCustomerAliasesJSON(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
 
-	c.Set("Content-Type", "application/sql; charset=utf-8")
-	c.Set("Content-Disposition", `attachment; filename="customer-aliases.sql"`)
+	c.Set("Content-Type", "application/json; charset=utf-8")
+	c.Set("Content-Disposition", `attachment; filename="customer-aliases.json"`)
 	c.Set("Cache-Control", "no-store")
 
-	return c.SendString(sqlDump)
+	return c.Send(jsonData)
 }
 
 func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
@@ -830,7 +830,7 @@ func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
 
 	const maxImportSize = 5 << 20 // 5MB
 
-	var rawSQL string
+	var data []byte
 	ct := c.Get("Content-Type")
 
 	if strings.HasPrefix(ct, "multipart/form-data") {
@@ -847,45 +847,39 @@ func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
 		}
 		defer f.Close()
 
-		data, err := io.ReadAll(io.LimitReader(f, maxImportSize+1))
+		data, err = io.ReadAll(io.LimitReader(f, maxImportSize+1))
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read uploaded file"})
 		}
 		if int64(len(data)) > maxImportSize {
 			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "import file too large (max 5MB)"})
 		}
-		rawSQL = string(data)
-	} else if strings.HasPrefix(ct, "application/json") {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "expected SQL file or application/sql body, got JSON"})
 	} else {
 		body := c.Body()
 		if int64(len(body)) > maxImportSize {
 			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "import file too large (max 5MB)"})
 		}
-		rawSQL = string(body)
+		data = body
 	}
 
-	if strings.TrimSpace(rawSQL) == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no aliases found in import payload"})
-	}
-
-	res, err := s.store.ImportCustomerAliasesSQL(c.Context(), rawSQL, normMode)
+	res, err := s.store.ImportCustomerAliasesJSON(c.Context(), data, normMode)
 	if err != nil {
+		if storage.IsValidationError(err) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if res.Imported == 0 && res.Skipped == 0 {
-		if len(res.Errors) > 0 {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": res.Errors[0]})
-		}
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no aliases found in import payload"})
+	errorsList := res.Errors
+	if errorsList == nil {
+		errorsList = []string{}
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"status":   "ok",
 		"imported": res.Imported,
 		"skipped":  res.Skipped,
-		"errors":   res.Errors,
+		"errors":   errorsList,
 	})
 }
 

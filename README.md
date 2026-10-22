@@ -18,8 +18,8 @@ Automated order ingestion, normalization, and visualization system.
 - **Customer Alias Engine**:
   - Resolves variant customer names to canonical targets (e.g., `RSUD Narmada` $\rightarrow$ `RS Narmada`).
 - Grouped and flat alias management with in-place canonical name and linked area editing, plus area suggestions with freeform custom input.
-  - Transactional SQL dump export and parse-verified SQL import (merge or replace mode).
-
+  - Versioned JSON document export and atomic parse-verified JSON import (`mode=merge` or `mode=replace`).
+  - Standard JSON schema: `{"version": 1, "aliases": [{"alias": "Alias", "canonical": "Canonical", "area": "Area"}]}` (`area` is optional and defaults to `""`).
 - **Embedded SQLite Mirror**:
   - Pure Go SQLite driver (`modernc.org/sqlite`, `CGO_ENABLED=0`) with Write-Ahead Logging (WAL).
   - Atomic transactions via `SyncMirror()` (cleans and recreates order state without data tearing).
@@ -270,11 +270,11 @@ go run ./cmd/warehouse-parser \
 | `/api/v1/search` | `GET` | `user` | Global search across orders, items, and customers. |
 | `/api/v1/sync/events` | `GET` | `user` | Real-time SSE worker events stream. |
 | `/api/v1/customer-aliases` | `GET` | `user` | List grouped customer name aliases. |
-| `/api/v1/customer-aliases/export` | `GET` | `user` | Export customer aliases as SQL. |
+| `/api/v1/customer-aliases/export` | `GET` | `user` | Export customer aliases as JSON document (`customer-aliases.json`). |
 | `/api/v1/sync` | `POST` | `admin` | Trigger immediate manual synchronization. |
 | `/api/v1/customer-aliases` | `PUT` | `admin` | Create or update customer alias. |
 | `/api/v1/customer-aliases/{alias}`| `DELETE` | `admin` | Remove customer alias mapping. |
-| `/api/v1/customer-aliases/import` | `POST` | `admin` | Import customer aliases SQL. |
+| `/api/v1/customer-aliases/import` | `POST` | `admin` | Import customer aliases JSON (supports `mode=merge` or `mode=replace`). |
 | `/api/v1/admin/clear-database` | `POST` | `admin` | Reset order, item, and sync tables. |
 | `/api/v1/admin/users` | `GET` | `admin` | List registered users and roles. |
 | `/api/v1/admin/users/{email}/role` | `PUT` | `admin` / `superadmin` | Approve `guest`→`user` (admin); assign `user` or `admin` (superadmin). |
