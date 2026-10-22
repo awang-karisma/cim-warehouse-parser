@@ -877,3 +877,95 @@ func TestGroupOrders_InheritCustomerAreaAcrossOrders(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeStatusOrder(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"empty", "", "BELUM SELESAI"},
+		{"whitespace only", "   ", "BELUM SELESAI"},
+		{"hyphen", "-", "BELUM SELESAI"},
+		{"hyphen with spaces", "  -  ", "BELUM SELESAI"},
+		{"multiple hyphens", "--", "BELUM SELESAI"},
+		{"selesai", "SELESAI", "SELESAI"},
+		{"selesai mixed case", "Selesai", "Selesai"},
+		{"proses", "PROSES", "PROSES"},
+		{"pending", "PENDING", "PENDING"},
+		{"batal", "BATAL", "BATAL"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizer.NormalizeStatusOrder(tc.input)
+			if got != tc.expected {
+				t.Errorf("NormalizeStatusOrder(%q) = %q, expected %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeRows_StatusOrderNormalization(t *testing.T) {
+	rawRows := []model.RawOrderRow{
+		{
+			Tanggal:     "02/01/2026",
+			Customer:    "RS Narmada",
+			NamaBarang:  "Item 1",
+			StatusOrder: "",
+		},
+		{
+			Tanggal:     "02/01/2026",
+			Customer:    "RS Narmada",
+			NamaBarang:  "Item 2",
+			StatusOrder: "-",
+		},
+		{
+			Tanggal:     "02/01/2026",
+			Customer:    "RS Narmada",
+			NamaBarang:  "Item 3",
+			StatusOrder: "  -  ",
+		},
+		{
+			Tanggal:     "02/01/2026",
+			Customer:    "RS Narmada",
+			NamaBarang:  "Item 4",
+			StatusOrder: "SELESAI",
+		},
+	}
+
+	items := normalizer.NormalizeRows(rawRows)
+	if len(items) != 4 {
+		t.Fatalf("expected 4 normalized items, got %d", len(items))
+	}
+
+	if items[0].StatusOrder != "BELUM SELESAI" {
+		t.Errorf("item 0 status order expected 'BELUM SELESAI', got %q", items[0].StatusOrder)
+	}
+	if items[1].StatusOrder != "BELUM SELESAI" {
+		t.Errorf("item 1 status order expected 'BELUM SELESAI', got %q", items[1].StatusOrder)
+	}
+	if items[2].StatusOrder != "BELUM SELESAI" {
+		t.Errorf("item 2 status order expected 'BELUM SELESAI', got %q", items[2].StatusOrder)
+	}
+	if items[3].StatusOrder != "SELESAI" {
+		t.Errorf("item 3 status order expected 'SELESAI', got %q", items[3].StatusOrder)
+	}
+
+	orders := normalizer.GroupOrders(items)
+	if len(orders) != 1 {
+		t.Fatalf("expected 1 grouped order, got %d", len(orders))
+	}
+	if orders[0].Items[0].StatusOrder != "BELUM SELESAI" {
+		t.Errorf("order item 0 status order expected 'BELUM SELESAI', got %q", orders[0].Items[0].StatusOrder)
+	}
+	if orders[0].Items[1].StatusOrder != "BELUM SELESAI" {
+		t.Errorf("order item 1 status order expected 'BELUM SELESAI', got %q", orders[0].Items[1].StatusOrder)
+	}
+	if orders[0].Items[2].StatusOrder != "BELUM SELESAI" {
+		t.Errorf("order item 2 status order expected 'BELUM SELESAI', got %q", orders[0].Items[2].StatusOrder)
+	}
+	if orders[0].Items[3].StatusOrder != "SELESAI" {
+		t.Errorf("order item 3 status order expected 'SELESAI', got %q", orders[0].Items[3].StatusOrder)
+	}
+}

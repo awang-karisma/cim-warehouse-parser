@@ -142,6 +142,16 @@ func NormalizeArea(raw string) string {
 	return strings.Join(words, " ")
 }
 
+// NormalizeStatusOrder normalizes a raw status_order string.
+// Empty strings, "-", whitespace-only, or dash-only inputs are normalized to "BELUM SELESAI".
+func NormalizeStatusOrder(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "-" || strings.Trim(trimmed, "- ") == "" {
+		return "BELUM SELESAI"
+	}
+	return trimmed
+}
+
 func titleCaseWord(w string) string {
 	parts := strings.Split(w, "-")
 	for i, p := range parts {
@@ -302,7 +312,7 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 			LeadTimePengiriman: strings.TrimSpace(raw.LeadTimePengiriman),
 			JumlahTerkirim:     strings.TrimSpace(raw.JumlahTerkirim),
 			BelumTerkirim:      strings.TrimSpace(raw.BelumTerkirim),
-			StatusOrder:        strings.TrimSpace(raw.StatusOrder),
+			StatusOrder:        NormalizeStatusOrder(raw.StatusOrder),
 			StatusBarang:       strings.TrimSpace(raw.StatusBarang),
 			Keterangan:         strings.TrimSpace(raw.Keterangan),
 			Catatan:            strings.TrimSpace(raw.Catatan),
@@ -481,7 +491,7 @@ func toOrderItem(item model.NormalizedItem) model.OrderItem {
 		LeadTimePengiriman: item.LeadTimePengiriman,
 		JumlahTerkirim:     item.JumlahTerkirim,
 		BelumTerkirim:      item.BelumTerkirim,
-		StatusOrder:        item.StatusOrder,
+		StatusOrder:        NormalizeStatusOrder(item.StatusOrder),
 		StatusBarang:       item.StatusBarang,
 		Keterangan:         item.Keterangan,
 		Catatan:            item.Catatan,

@@ -345,6 +345,8 @@ func (s *Storage) migrate() error {
 	if err := s.migrateTanggal(); err != nil {
 		return fmt.Errorf("failed to migrate tanggal: %w", err)
 	}
+	// Normalize any legacy empty or '-' status_order in items table
+	_, _ = s.db.Exec(`UPDATE items SET status_order = 'BELUM SELESAI' WHERE TRIM(status_order) IN ('-', '') OR status_order IS NULL;`)
 
 	// Backfill deliveries from existing items that have no deliveries recorded yet
 	bRows, err := s.db.Query(`
@@ -812,7 +814,7 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 				it.RowIndex, ordID, orderNum, ecatNum, tanggalStr, it.Customer, cleanArea,
 				it.NamaBarang, it.Jumlah, it.Satuan, it.TanggalPengiriman,
 				it.LeadTimePengiriman, it.JumlahTerkirim, it.BelumTerkirim,
-				it.StatusOrder, it.StatusBarang, it.Keterangan, it.Catatan,
+				normalizer.NormalizeStatusOrder(it.StatusOrder), it.StatusBarang, it.Keterangan, it.Catatan,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert item (row %d): %w", it.RowIndex, err)
@@ -859,7 +861,7 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 					oi.RowIndex, ord.ID, orderNum, ecatNum, tanggalStr, ord.Customer, cleanArea,
 					oi.NamaBarang, oi.Jumlah, oi.Satuan, oi.TanggalPengiriman,
 					oi.LeadTimePengiriman, oi.JumlahTerkirim, oi.BelumTerkirim,
-					oi.StatusOrder, oi.StatusBarang, oi.Keterangan, oi.Catatan,
+					normalizer.NormalizeStatusOrder(oi.StatusOrder), oi.StatusBarang, oi.Keterangan, oi.Catatan,
 				)
 				if err != nil {
 					return fmt.Errorf("failed to insert order item (order %s, row %d): %w", ord.ID, oi.RowIndex, err)
@@ -1319,8 +1321,6 @@ const (
 	orderStatusRankSubquery = `COALESCE((
 		SELECT CASE UPPER(TRIM(status_order))
 			WHEN 'BELUM SELESAI' THEN 0
-			WHEN '-' THEN 0
-			WHEN '' THEN 0
 			WHEN 'PROSES' THEN 1
 			WHEN 'PENDING' THEN 2
 			ELSE 3
@@ -1330,8 +1330,6 @@ const (
 		ORDER BY
 			CASE UPPER(TRIM(status_order))
 				WHEN 'BELUM SELESAI' THEN 0
-				WHEN '-' THEN 0
-				WHEN '' THEN 0
 				WHEN 'PROSES' THEN 1
 				WHEN 'PENDING' THEN 2
 				ELSE 3
@@ -1341,14 +1339,12 @@ const (
 	), 4)`
 
 	orderStatusNameSubquery = `COALESCE((
-		SELECT CASE WHEN UPPER(TRIM(status_order)) IN ('-', '') THEN 'belum selesai' ELSE LOWER(status_order) END
+		SELECT LOWER(status_order)
 		FROM items
 		WHERE items.order_id = orders.id
 		ORDER BY
 			CASE UPPER(TRIM(status_order))
 				WHEN 'BELUM SELESAI' THEN 0
-				WHEN '-' THEN 0
-				WHEN '' THEN 0
 				WHEN 'PROSES' THEN 1
 				WHEN 'PENDING' THEN 2
 				ELSE 3
@@ -1359,8 +1355,6 @@ const (
 
 	itemStatusRankExpr = `(CASE UPPER(TRIM(status_order))
 		WHEN 'BELUM SELESAI' THEN 0
-		WHEN '-' THEN 0
-		WHEN '' THEN 0
 		WHEN 'PROSES' THEN 1
 		WHEN 'PENDING' THEN 2
 		ELSE 3
@@ -1492,8 +1486,8 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		args = append(args, orderNum)
 	}
 	if filter.Status != "" {
-		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(status_order)) = UPPER(TRIM(?)) OR (UPPER(TRIM(?)) = 'BELUM SELESAI' AND TRIM(status_order) IN ('-', '')))")
-		args = append(args, filter.Status, filter.Status)
+		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(status_order)) = UPPER(TRIM(?)))")
+		args = append(args, filter.Status)
 	}
 
 	whereClause := ""
