@@ -15,13 +15,13 @@ import { getStatus, getSyncHistory, getConfig, triggerSync, subscribeSyncEvents 
 import type { SyncEvent } from '../types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert';
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
@@ -267,8 +267,7 @@ export const SyncManager: Component = () => {
           </Button>
         </CardHeader>
         <CardContent>
-          <div class="rounded-md border overflow-x-auto">
-            <Table>
+          <DataTable>
               <TableHeader>
                 <TableRow>
                   <TableHead class="w-16">ID</TableHead>
@@ -327,8 +326,7 @@ export const SyncManager: Component = () => {
                   </Show>
                 </Show>
               </TableBody>
-            </Table>
-          </div>
+          </DataTable>
         </CardContent>
       </Card>
     </div>

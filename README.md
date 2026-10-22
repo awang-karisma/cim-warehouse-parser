@@ -45,6 +45,7 @@ Automated order ingestion, normalization, and visualization system.
   - Light, Dark, and System color themes with uniform status palettes.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, and multi-column client-side sorting.
+  - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.
 ---
 

@@ -11,13 +11,13 @@ import {
 import { getStats, getOrders, getSyncHistory, getStatus } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
@@ -190,8 +190,7 @@ export const Dashboard: Component = () => {
                 </TooltipContent>
               </Tooltip>
 
-              <div class="rounded-md border">
-                <Table>
+              <DataTable>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Status</TableHead>
@@ -216,8 +215,7 @@ export const Dashboard: Component = () => {
                       }}
                     </For>
                   </TableBody>
-                </Table>
-              </div>
+              </DataTable>
             </Show>
           </CardContent>
         </Card>
@@ -238,8 +236,7 @@ export const Dashboard: Component = () => {
             </Button>
           </CardHeader>
           <CardContent class="flex-1">
-            <div class="rounded-md border">
-              <Table>
+            <DataTable>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Time</TableHead>
@@ -282,8 +279,7 @@ export const Dashboard: Component = () => {
                     </Show>
                   </Show>
                 </TableBody>
-              </Table>
-            </div>
+            </DataTable>
           </CardContent>
         </Card>
       </div>
@@ -300,8 +296,7 @@ export const Dashboard: Component = () => {
           </Button>
         </CardHeader>
         <CardContent>
-          <div class="rounded-md border overflow-x-auto">
-            <Table>
+          <DataTable>
               <TableHeader>
                 <TableRow>
                   <TableHead>Order ID</TableHead>
@@ -360,8 +355,7 @@ export const Dashboard: Component = () => {
                 </Show>
                 </Show>
               </TableBody>
-            </Table>
-          </div>
+          </DataTable>
         </CardContent>
       </Card>
     </div>

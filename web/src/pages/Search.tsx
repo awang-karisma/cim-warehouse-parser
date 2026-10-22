@@ -10,13 +10,13 @@ import {
 import { search } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '~/components/ui/tabs';
 import { TextField, TextFieldInput } from '~/components/ui/text-field';
 import { Button } from '~/components/ui/button';
@@ -214,8 +214,7 @@ export const Search: Component = () => {
               </Button>
             </CardHeader>
             <CardContent>
-              <div class="rounded-md border overflow-x-auto">
-                <Table>
+              <DataTable>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Order ID</TableHead>
@@ -267,8 +266,7 @@ export const Search: Component = () => {
                       )}
                     </For>
                   </TableBody>
-                </Table>
-              </div>
+              </DataTable>
             </CardContent>
           </Card>
         </Show>
@@ -301,8 +299,7 @@ export const Search: Component = () => {
               </Button>
             </CardHeader>
             <CardContent>
-              <div class="rounded-md border overflow-x-auto">
-                <Table>
+              <DataTable>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Customer</TableHead>
@@ -343,8 +340,7 @@ export const Search: Component = () => {
                       )}
                     </For>
                   </TableBody>
-                </Table>
-              </div>
+              </DataTable>
             </CardContent>
           </Card>
         </Show>

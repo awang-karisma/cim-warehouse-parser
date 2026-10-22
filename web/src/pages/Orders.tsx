@@ -3,13 +3,13 @@ import { type Component, createResource, Show, For, createMemo } from 'solid-js'
  import { getOrders, getAreas } from '../api';
 import { Card, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import {
   Select,
   SelectValue,
@@ -219,8 +219,7 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
       {/* Orders Table & Pagination Card */}
       <Card>
         <CardContent class="p-4 md:p-6 space-y-4">
-          <div class="rounded-md border overflow-x-auto">
-            <Table>
+          <DataTable>
               <TableHeader>
                 <TableRow>
                   <SortableTableHead
@@ -329,8 +328,7 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                   </Show>
                 </Show>
               </TableBody>
-            </Table>
-          </div>
+          </DataTable>
 
           <Show when={data() && data()!.total > 0}>
             <DataTablePagination

@@ -36,13 +36,13 @@ import {
 import type { CustomerAliasGroup } from '~/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
 import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert';
 import {
@@ -447,8 +447,7 @@ export const Settings: Component = () => {
           </div>
         </CardHeader>
         <CardContent>
-          <div class="rounded-md border overflow-x-auto">
-            <Table>
+          <DataTable>
               <TableHeader>
                 <TableRow>
                   <TableHead>Table Name</TableHead>
@@ -476,8 +475,7 @@ export const Settings: Component = () => {
                   </For>
                 </Show>
               </TableBody>
-            </Table>
-          </div>
+          </DataTable>
         </CardContent>
       </Card>
 

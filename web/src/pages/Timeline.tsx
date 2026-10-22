@@ -9,13 +9,13 @@ import {
 import { getDeliveries, getDeliveryStats } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import {
   Select,
   SelectValue,
@@ -279,8 +279,7 @@ export const Timeline: Component = () => {
           </div>
         </CardHeader>
         <CardContent class="p-4 md:p-6 space-y-4">
-          <div class="rounded-md border overflow-x-auto">
-            <Table>
+          <DataTable>
               <TableHeader>
                 <TableRow>
                   <SortableTableHead
@@ -408,8 +407,7 @@ export const Timeline: Component = () => {
                   </Show>
                 </Show>
               </TableBody>
-            </Table>
-          </div>
+          </DataTable>
 
           <Show when={deliveriesData() && deliveriesData()!.total > 0}>
             <DataTablePagination

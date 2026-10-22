@@ -4,13 +4,13 @@ import { IconMapPin, IconArrowRight } from '@tabler/icons-solidjs';
 import { getAreas, getCustomers } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
@@ -143,8 +143,7 @@ export const Areas: Component = () => {
           </div>
         </CardHeader>
         <CardContent>
-          <div class="rounded-md border overflow-x-auto">
-            <Table>
+          <DataTable>
               <TableHeader>
                 <TableRow>
                   <TableHead>Area Name</TableHead>
@@ -199,8 +198,7 @@ export const Areas: Component = () => {
                   </For>
                 </Show>
               </TableBody>
-            </Table>
-          </div>
+          </DataTable>
         </CardContent>
       </Card>
 
@@ -226,8 +224,7 @@ export const Areas: Component = () => {
             </Button>
           </CardHeader>
           <CardContent>
-            <div class="rounded-md border overflow-x-auto">
-              <Table>
+            <DataTable>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Customer Name</TableHead>
@@ -278,8 +275,7 @@ export const Areas: Component = () => {
                   </Show>
                 </Show>
                 </TableBody>
-              </Table>
-            </div>
+            </DataTable>
           </CardContent>
         </Card>
       </Show>

@@ -4,13 +4,13 @@ import { getUsers, setUserRole, deleteUser } from '~/api';
 import type { User } from '~/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import { TableSkeleton } from '~/components/TableSkeleton';
 import { Button } from '~/components/ui/button';
 import { Badge } from '~/components/ui/badge';
@@ -176,8 +176,7 @@ export const UserManagement: Component = () => {
           </div>
         </CardHeader>
         <CardContent class="p-0">
-          <div class="overflow-x-auto">
-            <Table>
+          <DataTable>
               <TableHeader>
                 <TableRow class="hover:bg-transparent">
                   <TableHead class="w-[300px]">User</TableHead>
@@ -306,8 +305,7 @@ export const UserManagement: Component = () => {
                   </Show>
                 </Show>
               </TableBody>
-            </Table>
-          </div>
+          </DataTable>
         </CardContent>
       </Card>
 

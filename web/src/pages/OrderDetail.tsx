@@ -11,13 +11,13 @@ import {
 import { getOrderById, getConfig } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
-  Table,
   TableHeader,
   TableBody,
   TableHead,
   TableRow,
   TableCell,
 } from '~/components/ui/table';
+import { DataTable } from '~/components/DataTable';
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
@@ -205,8 +205,7 @@ export const OrderDetail: Component = () => {
               </Show>
             </CardHeader>
             <CardContent>
-              <div class="rounded-md border overflow-x-auto">
-                <Table>
+              <DataTable>
                   <TableHeader>
                     <TableRow>
                       <SortableTableHead
@@ -306,8 +305,7 @@ export const OrderDetail: Component = () => {
                       )}
                     </For>
                   </TableBody>
-                </Table>
-              </div>
+              </DataTable>
             </CardContent>
           </Card>
         </Show>

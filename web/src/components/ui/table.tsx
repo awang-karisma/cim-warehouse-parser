@@ -5,11 +5,7 @@ import { cn } from "~/lib/utils"
 
 const Table: Component<ComponentProps<"table">> = (props) => {
   const [local, others] = splitProps(props, ["class"])
-  return (
-    <div class="relative w-full overflow-auto">
-      <table class={cn("w-full caption-bottom text-sm", local.class)} {...others} />
-    </div>
-  )
+  return <table class={cn("w-full caption-bottom text-sm", local.class)} {...others} />
 }
 
 const TableHeader: Component<ComponentProps<"thead">> = (props) => {
@@ -47,7 +43,7 @@ const TableHead: Component<ComponentProps<"th">> = (props) => {
   return (
     <th
       class={cn(
-        "h-10 px-2 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+        "h-11 px-3 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
         local.class
       )}
       {...others}
@@ -58,10 +54,9 @@ const TableHead: Component<ComponentProps<"th">> = (props) => {
 const TableCell: Component<ComponentProps<"td">> = (props) => {
   const [local, others] = splitProps(props, ["class"])
   return (
-    <td class={cn("p-2 align-middle [&:has([role=checkbox])]:pr-0", local.class)} {...others} />
+    <td class={cn("px-3 py-3 align-middle [&:has([role=checkbox])]:pr-0", local.class)} {...others} />
   )
 }
-
 const TableCaption: Component<ComponentProps<"caption">> = (props) => {
   const [local, others] = splitProps(props, ["class"])
   return <caption class={cn("mt-4 text-sm text-muted-foreground", local.class)} {...others} />
