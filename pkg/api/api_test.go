@@ -1892,9 +1892,9 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 	})
 
-	// 6. User management endpoints require superadmin
-	// user -> 403, superadmin -> 200
-	t.Run("GET /api/v1/admin/users user gets 403", func(t *testing.T) {
+	// 6. User management endpoints require at least admin
+	// user -> 403 (with no users array in response), admin -> 200, superadmin -> 200
+	t.Run("GET /api/v1/admin/users user gets 403 with no users array", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/admin/users", nil)
 		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
 		resp, err := srv.App().Test(req)
@@ -1903,6 +1903,34 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("expected 403 for user on admin/users, got %d", resp.StatusCode)
+		}
+		var rawBody map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&rawBody); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if _, exists := rawBody["users"]; exists {
+			t.Errorf("unauthorized response must not contain users array")
+		}
+	})
+
+	t.Run("GET /api/v1/admin/users admin gets 200 with users list", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/admin/users", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin on admin/users, got %d", resp.StatusCode)
+		}
+		var body struct {
+			Users []model.User `json:"users"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(body.Users) == 0 {
+			t.Errorf("expected non-empty users list")
 		}
 	})
 
@@ -1917,7 +1945,6 @@ func TestAuthAndRBAC(t *testing.T) {
 			t.Errorf("expected 200 for superadmin on admin/users, got %d", resp.StatusCode)
 		}
 	})
-
 	// 7. GET /auth/me
 	t.Run("GET /auth/me returns current user info", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/auth/me", nil)
@@ -1968,6 +1995,315 @@ func TestAuthAndRBAC(t *testing.T) {
 		respAdmin, _ := srv.App().Test(reqAdmin)
 		if respAdmin.StatusCode != http.StatusOK {
 			t.Errorf("expected 200 for admin on clear-database, got %d", respAdmin.StatusCode)
+		}
+	})
+
+	// 10. Database-backed role change applies immediately to existing session
+	t.Run("database-backed role change applies immediately to existing session", func(t *testing.T) {
+		// Demote admin to user in database
+		if err := store.SetUserRole(ctx, "admin@example.com", "user"); err != nil {
+			t.Fatalf("failed to demote admin: %v", err)
+		}
+
+		// /auth/me should immediately report "user"
+		reqMe, _ := http.NewRequest("GET", "/auth/me", nil)
+		reqMe.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respMe, err := srv.App().Test(reqMe)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respMe.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", respMe.StatusCode)
+		}
+		var meBody struct {
+			User struct {
+				Role string `json:"role"`
+			} `json:"user"`
+		}
+		_ = json.NewDecoder(respMe.Body).Decode(&meBody)
+		if meBody.User.Role != "user" {
+			t.Errorf("expected role user after demotion, got %s", meBody.User.Role)
+		}
+
+		// Admin-only endpoint (POST /api/v1/sync) now returns 403
+		reqSync, _ := http.NewRequest("POST", "/api/v1/sync", nil)
+		reqSync.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respSync, _ := srv.App().Test(reqSync)
+		if respSync.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for demoted admin on sync, got %d", respSync.StatusCode)
+		}
+
+		// User-level endpoint (GET /api/v1/orders) still succeeds 200
+		reqOrders, _ := http.NewRequest("GET", "/api/v1/orders", nil)
+		reqOrders.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respOrders, _ := srv.App().Test(reqOrders)
+		if respOrders.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for demoted admin on orders, got %d", respOrders.StatusCode)
+		}
+
+		// Restore admin role in DB
+		if err := store.SetUserRole(ctx, "admin@example.com", "admin"); err != nil {
+			t.Fatalf("failed to restore admin: %v", err)
+		}
+
+		// Promote user to admin in database
+		if err := store.SetUserRole(ctx, "user@example.com", "admin"); err != nil {
+			t.Fatalf("failed to promote user: %v", err)
+		}
+
+		// /auth/me should immediately report "admin"
+		reqMePromoted, _ := http.NewRequest("GET", "/auth/me", nil)
+		reqMePromoted.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respMePromoted, _ := srv.App().Test(reqMePromoted)
+		if respMePromoted.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", respMePromoted.StatusCode)
+		}
+		_ = json.NewDecoder(respMePromoted.Body).Decode(&meBody)
+		if meBody.User.Role != "admin" {
+			t.Errorf("expected role admin after promotion, got %s", meBody.User.Role)
+		}
+
+		// Admin-only endpoint now succeeds 200 for newly promoted user
+		reqSyncPromoted, _ := http.NewRequest("POST", "/api/v1/sync", nil)
+		reqSyncPromoted.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respSyncPromoted, _ := srv.App().Test(reqSyncPromoted)
+		if respSyncPromoted.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for promoted user on sync, got %d", respSyncPromoted.StatusCode)
+		}
+
+		// Revert user role back to "user"
+		_ = store.SetUserRole(ctx, "user@example.com", "user")
+	})
+
+	// 11. Profile update in database immediately reflected in /auth/me
+	t.Run("profile update in database immediately reflected in /auth/me", func(t *testing.T) {
+		_, err := store.UpsertUser(ctx, "user@example.com", "Updated Normal User", "https://example.com/avatar-updated.png")
+		if err != nil {
+			t.Fatalf("failed to update user profile: %v", err)
+		}
+
+		req, _ := http.NewRequest("GET", "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var meBody struct {
+			User struct {
+				Name    string `json:"name"`
+				Picture string `json:"picture"`
+			} `json:"user"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&meBody)
+		if meBody.User.Name != "Updated Normal User" {
+			t.Errorf("expected updated name, got %s", meBody.User.Name)
+		}
+		if meBody.User.Picture != "https://example.com/avatar-updated.png" {
+			t.Errorf("expected updated picture, got %s", meBody.User.Picture)
+		}
+	})
+
+	// 12. Deleted user row invalidates session and expires cookie
+	t.Run("deleted user row invalidates session and expires cookie", func(t *testing.T) {
+		tempUser, err := store.UpsertUser(ctx, "tempuser@example.com", "Temp User", "")
+		if err != nil {
+			t.Fatalf("failed to create temp user: %v", err)
+		}
+		_ = store.SetUserRole(ctx, "tempuser@example.com", "user")
+		tempUser.Role = "user"
+		tempToken, _ := auth.GenerateToken(jwtSecret, tempUser, superEmails)
+
+		// Valid before deletion
+		reqPre, _ := http.NewRequest("GET", "/auth/me", nil)
+		reqPre.AddCookie(&http.Cookie{Name: "warehouse_session", Value: tempToken})
+		respPre, _ := srv.App().Test(reqPre)
+		if respPre.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 before deletion, got %d", respPre.StatusCode)
+		}
+
+		// Delete user row from database
+		if err := store.DeleteUser(ctx, "tempuser@example.com"); err != nil {
+			t.Fatalf("failed to delete temp user: %v", err)
+		}
+
+		// /auth/me returns 401 and expires cookie
+		reqMe, _ := http.NewRequest("GET", "/auth/me", nil)
+		reqMe.AddCookie(&http.Cookie{Name: "warehouse_session", Value: tempToken})
+		respMe, err := srv.App().Test(reqMe)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respMe.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401 for deleted user on /auth/me, got %d", respMe.StatusCode)
+		}
+		setCookieMe := strings.ToLower(respMe.Header.Get("Set-Cookie"))
+		if !strings.Contains(setCookieMe, "warehouse_session=") || (!strings.Contains(setCookieMe, "max-age=0") && !strings.Contains(setCookieMe, "expires=")) {
+			t.Errorf("expected Set-Cookie to expire warehouse_session, got: %s", respMe.Header.Get("Set-Cookie"))
+		}
+		// Protected API route (GET /api/v1/orders) returns 401 and expires cookie
+		reqOrders, _ := http.NewRequest("GET", "/api/v1/orders", nil)
+		reqOrders.AddCookie(&http.Cookie{Name: "warehouse_session", Value: tempToken})
+		respOrders, err := srv.App().Test(reqOrders)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respOrders.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401 for deleted user on protected API route, got %d", respOrders.StatusCode)
+		}
+		setCookieOrders := strings.ToLower(respOrders.Header.Get("Set-Cookie"))
+		if !strings.Contains(setCookieOrders, "warehouse_session=") || (!strings.Contains(setCookieOrders, "max-age=0") && !strings.Contains(setCookieOrders, "expires=")) {
+			t.Errorf("expected Set-Cookie to expire warehouse_session on API route, got: %s", respOrders.Header.Get("Set-Cookie"))
+		}
+	})
+	// 13. Admin and superadmin user management permissions
+	t.Run("admin and superadmin user management permissions", func(t *testing.T) {
+		// Admin can approve guest -> user
+		_, err := store.UpsertUser(ctx, "guesttarget@example.com", "Guest Target", "")
+		if err != nil {
+			t.Fatalf("failed to create guest target: %v", err)
+		}
+
+		approveBody := strings.NewReader(`{"role": "user"}`)
+		reqApprove, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget@example.com/role", approveBody)
+		reqApprove.Header.Set("Content-Type", "application/json")
+		reqApprove.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respApprove, err := srv.App().Test(reqApprove)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respApprove.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin approving guest -> user, got %d", respApprove.StatusCode)
+		}
+		u, _ := store.GetUserByEmail(ctx, "guesttarget@example.com")
+		if u == nil || u.Role != "user" {
+			t.Errorf("expected guesttarget role to be user, got %v", u)
+		}
+
+		// Admin cannot approve guest -> admin (only guest -> user is allowed)
+		_, _ = store.UpsertUser(ctx, "guesttarget2@example.com", "Guest Target 2", "")
+		reqApproveAdmin, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget2@example.com/role", strings.NewReader(`{"role": "admin"}`))
+		reqApproveAdmin.Header.Set("Content-Type", "application/json")
+		reqApproveAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respApproveAdmin, _ := srv.App().Test(reqApproveAdmin)
+		if respApproveAdmin.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for admin assigning admin role to guest, got %d", respApproveAdmin.StatusCode)
+		}
+
+		// Admin cannot change an existing user's role
+		reqChangeUser, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget@example.com/role", strings.NewReader(`{"role": "admin"}`))
+		reqChangeUser.Header.Set("Content-Type", "application/json")
+		reqChangeUser.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respChangeUser, _ := srv.App().Test(reqChangeUser)
+		if respChangeUser.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for admin changing user role, got %d", respChangeUser.StatusCode)
+		}
+
+		// Admin can delete guest target
+		_, _ = store.UpsertUser(ctx, "guestdel@example.com", "Guest Del", "")
+		reqDelGuest, _ := http.NewRequest("DELETE", "/api/v1/admin/users/guestdel@example.com", nil)
+		reqDelGuest.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respDelGuest, _ := srv.App().Test(reqDelGuest)
+		if respDelGuest.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin deleting guest, got %d", respDelGuest.StatusCode)
+		}
+		delCheck, _ := store.GetUserByEmail(ctx, "guestdel@example.com")
+		if delCheck != nil {
+			t.Errorf("expected guestdel to be deleted from DB")
+		}
+
+		// Admin can delete user target
+		reqDelUser, _ := http.NewRequest("DELETE", "/api/v1/admin/users/guesttarget@example.com", nil)
+		reqDelUser.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respDelUser, _ := srv.App().Test(reqDelUser)
+		if respDelUser.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin deleting user, got %d", respDelUser.StatusCode)
+		}
+
+		// Admin cannot delete an admin target
+		_, _ = store.UpsertUser(ctx, "otheradmin@example.com", "Other Admin", "")
+		_ = store.SetUserRole(ctx, "otheradmin@example.com", "admin")
+		reqDelOtherAdmin, _ := http.NewRequest("DELETE", "/api/v1/admin/users/otheradmin@example.com", nil)
+		reqDelOtherAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respDelOtherAdmin, _ := srv.App().Test(reqDelOtherAdmin)
+		if respDelOtherAdmin.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for admin deleting other admin, got %d", respDelOtherAdmin.StatusCode)
+		}
+
+		// Admin cannot delete self
+		reqDelSelf, _ := http.NewRequest("DELETE", "/api/v1/admin/users/admin@example.com", nil)
+		reqDelSelf.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respDelSelf, _ := srv.App().Test(reqDelSelf)
+		if respDelSelf.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for admin deleting self, got %d", respDelSelf.StatusCode)
+		}
+
+		// Admin cannot delete configured superadmin
+		reqDelSuper, _ := http.NewRequest("DELETE", "/api/v1/admin/users/superadmin@example.com", nil)
+		reqDelSuper.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		respDelSuper, _ := srv.App().Test(reqDelSuper)
+		if respDelSuper.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for deleting superadmin, got %d", respDelSuper.StatusCode)
+		}
+
+		// Superadmin CAN delete other admin
+		reqSuperDelAdmin, _ := http.NewRequest("DELETE", "/api/v1/admin/users/otheradmin@example.com", nil)
+		reqSuperDelAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: superToken})
+		respSuperDelAdmin, _ := srv.App().Test(reqSuperDelAdmin)
+		if respSuperDelAdmin.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for superadmin deleting admin, got %d", respSuperDelAdmin.StatusCode)
+		}
+
+		// Superadmin can assign user and admin roles to non-superadmin targets
+		_, _ = store.UpsertUser(ctx, "supertestuser@example.com", "Super Test", "")
+		_ = store.SetUserRole(ctx, "supertestuser@example.com", "user")
+
+		reqSuperPromote, _ := http.NewRequest("PUT", "/api/v1/admin/users/supertestuser@example.com/role", strings.NewReader(`{"role": "admin"}`))
+		reqSuperPromote.Header.Set("Content-Type", "application/json")
+		reqSuperPromote.AddCookie(&http.Cookie{Name: "warehouse_session", Value: superToken})
+		respSuperPromote, _ := srv.App().Test(reqSuperPromote)
+		if respSuperPromote.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for superadmin promoting user to admin, got %d", respSuperPromote.StatusCode)
+		}
+
+		// Target not found returns 404 for role update and delete
+		reqNotFoundRole, _ := http.NewRequest("PUT", "/api/v1/admin/users/notfound@example.com/role", strings.NewReader(`{"role": "user"}`))
+		reqNotFoundRole.Header.Set("Content-Type", "application/json")
+		reqNotFoundRole.AddCookie(&http.Cookie{Name: "warehouse_session", Value: superToken})
+		respNotFoundRole, _ := srv.App().Test(reqNotFoundRole)
+		if respNotFoundRole.StatusCode != http.StatusNotFound {
+			t.Errorf("expected 404 for non-existent user role update, got %d", respNotFoundRole.StatusCode)
+		}
+
+		reqNotFoundDel, _ := http.NewRequest("DELETE", "/api/v1/admin/users/notfound@example.com", nil)
+		reqNotFoundDel.AddCookie(&http.Cookie{Name: "warehouse_session", Value: superToken})
+		respNotFoundDel, _ := srv.App().Test(reqNotFoundDel)
+		if respNotFoundDel.StatusCode != http.StatusNotFound {
+			t.Errorf("expected 404 for non-existent user delete, got %d", respNotFoundDel.StatusCode)
+		}
+	})
+
+	// 14. Storage unavailable returns 503
+	t.Run("storage unavailable returns 503", func(t *testing.T) {
+		srvNoStore := api.New(api.Config{
+			Store:     nil,
+			AppConfig: cfg,
+		})
+
+		reqMe, _ := http.NewRequest("GET", "/auth/me", nil)
+		reqMe.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respMe, _ := srvNoStore.App().Test(reqMe)
+		if respMe.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("expected 503 for auth/me when store is nil, got %d", respMe.StatusCode)
+		}
+
+		reqApi, _ := http.NewRequest("GET", "/api/v1/orders", nil)
+		reqApi.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respApi, _ := srvNoStore.App().Test(reqApi)
+		if respApi.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("expected 503 for api when store is nil, got %d", respApi.StatusCode)
 		}
 	})
 }

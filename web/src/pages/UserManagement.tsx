@@ -207,8 +207,7 @@ export const UserManagement: Component = () => {
                       {(u) => {
                         const isSelf = currentUser()?.email.toLowerCase() === u.email.toLowerCase();
                         const isTargetSuper = u.role === 'superadmin';
-                        const isUpdating = updatingEmail() === u.email;
-
+                        const isUpdating = () => updatingEmail() === u.email;
                         return (
                           <TableRow>
                             <TableCell>
@@ -254,7 +253,7 @@ export const UserManagement: Component = () => {
                                   <Button
                                     size="sm"
                                     class="h-8 gap-1 text-xs"
-                                    disabled={isUpdating}
+                                    disabled={isUpdating()}
                                     onClick={() => handleApprove(u)}
                                   >
                                     <IconUserCheck class="h-3.5 w-3.5" />
@@ -262,12 +261,12 @@ export const UserManagement: Component = () => {
                                   </Button>
                                 </Show>
 
-                                {/* Role dropdown for active non-superadmin users */}
-                                <Show when={!isTargetSuper && !isSelf}>
+                                {/* Role dropdown for active non-superadmin users (superadmin only) */}
+                                <Show when={isSuperadmin() && !isTargetSuper && !isSelf}>
                                   <select
                                     class="h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
                                     value={u.role}
-                                    disabled={isUpdating}
+                                    disabled={isUpdating()}
                                     onChange={(e) => handleRoleChange(u, e.currentTarget.value)}
                                   >
                                     <Show when={u.role === 'guest'}>
@@ -280,13 +279,13 @@ export const UserManagement: Component = () => {
                                   </select>
                                 </Show>
 
-                                {/* Delete button for superadmin */}
-                                <Show when={isSuperadmin() && !isTargetSuper && !isSelf}>
+                                {/* Delete button: superadmins can delete any non-superadmin target; admins can delete guest/user targets */}
+                                <Show when={!isSelf && !isTargetSuper && (isSuperadmin() || u.role === 'guest' || u.role === 'user')}>
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     class="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                                    disabled={isUpdating}
+                                    disabled={isUpdating()}
                                     onClick={() => setUserToDelete(u)}
                                   >
                                     <IconTrash class="h-4 w-4" />

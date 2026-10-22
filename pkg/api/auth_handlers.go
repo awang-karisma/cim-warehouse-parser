@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/auth"
 	"github.com/gofiber/fiber/v3"
@@ -101,33 +100,38 @@ func (s *Server) handleAuthMe(c fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "not authenticated"})
 	}
 
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
+	}
+
+	refreshedClaims, found, err := s.resolveCurrentUser(c.Context(), claims)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("failed to resolve user: %v", err)})
+	}
+	if !found {
+		clearSessionCookie(c)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "not authenticated"})
+	}
+
 	return c.JSON(fiber.Map{
 		"user": fiber.Map{
-			"email":   claims.Email,
-			"name":    claims.Name,
-			"picture": claims.Picture,
-			"role":    claims.Role,
+			"email":   refreshedClaims.Email,
+			"name":    refreshedClaims.Name,
+			"picture": refreshedClaims.Picture,
+			"role":    refreshedClaims.Role,
 		},
 	})
 }
 
 // handleLogout clears the session cookie.
 func (s *Server) handleLogout(c fiber.Ctx) error {
-	c.Cookie(&fiber.Cookie{
-		Name:     "warehouse_session",
-		Value:    "",
-		Path:     "/",
-		HTTPOnly: true,
-		SameSite: "Lax",
-		MaxAge:   -1,
-		Expires:  time.Now().Add(-1 * time.Hour),
-	})
+	clearSessionCookie(c)
 	return c.JSON(fiber.Map{"status": "ok"})
 }
 
 // handleListUsers returns all users in the system.
 func (s *Server) handleListUsers(c fiber.Ctx) error {
-	if err := s.requireRole(c, "superadmin"); err != nil {
+	if err := s.requireRole(c, "admin"); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -156,7 +160,7 @@ type setUserRoleReq struct {
 
 // handleSetUserRole changes a user's role to 'user' or 'admin'.
 func (s *Server) handleSetUserRole(c fiber.Ctx) error {
-	if err := s.requireRole(c, "superadmin"); err != nil {
+	if err := s.requireRole(c, "admin"); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -176,6 +180,18 @@ func (s *Server) handleSetUserRole(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot change role of superadmin"})
 	}
 
+	targetUser, err := s.store.GetUserByEmail(c.Context(), targetEmail)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if targetUser == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
+	}
+
+	if s.appConfig != nil && s.appConfig.IsSuperadmin(targetUser.Email) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot change role of superadmin"})
+	}
+
 	var req setUserRoleReq
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
@@ -185,7 +201,21 @@ func (s *Server) handleSetUserRole(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "role must be 'user' or 'admin'"})
 	}
 
-	if err := s.store.SetUserRole(c.Context(), targetEmail, req.Role); err != nil {
+	isCallerSuperadmin := false
+	if claims, ok := c.Locals("user").(*auth.Claims); ok && claims != nil {
+		if claims.Role == "superadmin" || (s.appConfig != nil && s.appConfig.IsSuperadmin(claims.Email)) {
+			isCallerSuperadmin = true
+		}
+	}
+
+	if !isCallerSuperadmin {
+		// Admin requests are allowed ONLY for the exact transition guest -> user
+		if targetUser.Role != "guest" || req.Role != "user" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
+		}
+	}
+
+	if err := s.store.SetUserRole(c.Context(), targetUser.Email, req.Role); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
 		}
@@ -197,7 +227,7 @@ func (s *Server) handleSetUserRole(c fiber.Ctx) error {
 
 // handleDeleteUser deletes a user by email.
 func (s *Server) handleDeleteUser(c fiber.Ctx) error {
-	if err := s.requireRole(c, "superadmin"); err != nil {
+	if err := s.requireRole(c, "admin"); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -223,7 +253,33 @@ func (s *Server) handleDeleteUser(c fiber.Ctx) error {
 		}
 	}
 
-	if err := s.store.DeleteUser(c.Context(), targetEmail); err != nil {
+	targetUser, err := s.store.GetUserByEmail(c.Context(), targetEmail)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if targetUser == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
+	}
+
+	if s.appConfig != nil && s.appConfig.IsSuperadmin(targetUser.Email) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot delete superadmin"})
+	}
+
+	isCallerSuperadmin := false
+	if claims, ok := c.Locals("user").(*auth.Claims); ok && claims != nil {
+		if claims.Role == "superadmin" || (s.appConfig != nil && s.appConfig.IsSuperadmin(claims.Email)) {
+			isCallerSuperadmin = true
+		}
+	}
+
+	if !isCallerSuperadmin {
+		// Admin can only delete targets whose current DB role is "guest" or "user"
+		if targetUser.Role != "guest" && targetUser.Role != "user" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
+		}
+	}
+
+	if err := s.store.DeleteUser(c.Context(), targetUser.Email); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 

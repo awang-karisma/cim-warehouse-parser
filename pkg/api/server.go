@@ -2,13 +2,8 @@ package api
 
 import (
 	"context"
-	"io/fs"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
-
+	"errors"
+	"fmt"
 	"github.com/awang-karisma/warehouse-parser/pkg/auth"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
@@ -21,6 +16,12 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/static"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 type contextKey string
@@ -64,7 +65,7 @@ func requireRole(c fiber.Ctx, minRole string) error {
 		return nil
 	}
 	if !hasMinRole(claims.Role, minRole) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
+		return fiber.NewError(fiber.StatusForbidden, "insufficient permissions")
 	}
 	return nil
 }
@@ -76,10 +77,10 @@ func (s *Server) requireRole(c fiber.Ctx, minRole string) error {
 	}
 	claims, ok := c.Locals("user").(*auth.Claims)
 	if !ok || claims == nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
 	}
 	if !hasMinRole(claims.Role, minRole) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
+		return fiber.NewError(fiber.StatusForbidden, "insufficient permissions")
 	}
 	return nil
 }
@@ -106,8 +107,15 @@ func New(cfg Config) *Server {
 	app := fiber.New(fiber.Config{
 		AppName:   "Warehouse Order Tracking API",
 		BodyLimit: 10 * 1024 * 1024,
+		ErrorHandler: func(c fiber.Ctx, err error) error {
+			code := fiber.StatusInternalServerError
+			var e *fiber.Error
+			if errors.As(err, &e) {
+				code = e.Code
+			}
+			return c.Status(code).JSON(fiber.Map{"error": err.Error()})
+		},
 	})
-
 	// Middlewares
 	app.Use(recover.New())
 	app.Use(logger.New())
@@ -362,6 +370,50 @@ func (s *Server) registerOperations() {
 	}, s.handleDeleteCustomerAlias)
 }
 
+// clearSessionCookie expires the warehouse_session cookie.
+func clearSessionCookie(c fiber.Ctx) {
+	c.Cookie(&fiber.Cookie{
+		Name:     "warehouse_session",
+		Value:    "",
+		Path:     "/",
+		HTTPOnly: true,
+		Secure:   c.Protocol() == "https",
+		SameSite: "Lax",
+		MaxAge:   -1,
+		Expires:  time.Now().Add(-1 * time.Hour),
+	})
+}
+
+// resolveCurrentUser looks up the user by email in the database and returns a copy of claims
+// with the latest email, name, picture, and effective role.
+func (s *Server) resolveCurrentUser(ctx context.Context, claims *auth.Claims) (*auth.Claims, bool, error) {
+	if claims == nil {
+		return nil, false, nil
+	}
+	if s.store == nil {
+		return nil, false, errors.New("storage service not available")
+	}
+	user, err := s.store.GetUserByEmail(ctx, claims.Email)
+	if err != nil {
+		return nil, false, err
+	}
+	if user == nil {
+		return nil, false, nil
+	}
+
+	refreshed := *claims
+	refreshed.Email = user.Email
+	refreshed.Name = user.Name
+	refreshed.Picture = user.Picture
+	refreshed.Role = user.Role
+
+	if s.appConfig != nil && s.appConfig.IsSuperadmin(user.Email) {
+		refreshed.Role = "superadmin"
+	}
+
+	return &refreshed, true, nil
+}
+
 // authMiddleware verifies the warehouse_session cookie for protected routes.
 func (s *Server) authMiddleware(c fiber.Ctx) error {
 	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
@@ -387,8 +439,21 @@ func (s *Server) authMiddleware(c fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
 	}
 
-	c.Locals("user", claims)
-	c.SetContext(context.WithValue(c.Context(), authClaimsKey, claims))
+	if s.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
+	}
+
+	refreshedClaims, found, err := s.resolveCurrentUser(c.Context(), claims)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("failed to resolve user: %v", err)})
+	}
+	if !found {
+		clearSessionCookie(c)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
+	}
+
+	c.Locals("user", refreshedClaims)
+	c.SetContext(context.WithValue(c.Context(), authClaimsKey, refreshedClaims))
 	return c.Next()
 }
 

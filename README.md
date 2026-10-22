@@ -35,8 +35,8 @@ Automated order ingestion, normalization, and visualization system.
   - Four privilege tiers:
     - `guest`: Newly signed-in accounts; restricted to approval pending view.
     - `user`: Read-only data access (orders, items, deliveries, stats, search).
-    - `admin`: Operational control (manual sync trigger, alias management, database reset).
-    - `superadmin`: User administration (role assignments, user deletion; configured via `SUPERADMIN_EMAILS`).
+    - `admin`: Operational control (manual sync trigger, alias management, database reset, user management: approve guest accounts to `user`, delete guest/user accounts).
+    - `superadmin`: Full administration (role assignments across all roles, deletion of admin accounts; configured via `SUPERADMIN_EMAILS`).
   - Fully backward-compatible: leaving `GOOGLE_CLIENT_ID` empty disables authentication.
   - Public Privacy Policy (`/privacy`) and Terms of Service (`/terms`) pages linked from the sign-in screen to meet Google OAuth verification requirements.
 
@@ -276,9 +276,9 @@ go run ./cmd/warehouse-parser \
 | `/api/v1/customer-aliases/{alias}`| `DELETE` | `admin` | Remove customer alias mapping. |
 | `/api/v1/customer-aliases/import` | `POST` | `admin` | Import customer aliases SQL. |
 | `/api/v1/admin/clear-database` | `POST` | `admin` | Reset order, item, and sync tables. |
-| `/api/v1/admin/users` | `GET` | `superadmin` | List all registered users and roles. |
-| `/api/v1/admin/users/{email}/role` | `PUT` | `superadmin` | Update user role (`user` or `admin`). |
-| `/api/v1/admin/users/{email}` | `DELETE` | `superadmin` | Delete registered user. |
+| `/api/v1/admin/users` | `GET` | `admin` | List registered users and roles. |
+| `/api/v1/admin/users/{email}/role` | `PUT` | `admin` / `superadmin` | Approve `guest`→`user` (admin); assign `user` or `admin` (superadmin). |
+| `/api/v1/admin/users/{email}` | `DELETE` | `admin` / `superadmin` | Delete `guest` or `user` accounts (admin); delete any non-superadmin (superadmin). |
 
 ---
 
