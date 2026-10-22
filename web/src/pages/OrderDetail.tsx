@@ -1,7 +1,14 @@
-import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+import { type Component, createResource, Show, For, createMemo, createSignal } from 'solid-js';
 import { useParams, useNavigate, A } from '@solidjs/router';
-import { IconArrowLeft, IconPackage, IconCalendar, IconBuildingHospital, IconFileText } from '@tabler/icons-solidjs';
-import { getOrderById } from '../api';
+import {
+  IconArrowLeft,
+  IconPackage,
+  IconCalendar,
+  IconBuildingHospital,
+  IconFileText,
+  IconExternalLink,
+} from '@tabler/icons-solidjs';
+import { getOrderById, getConfig } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
   Table,
@@ -14,6 +21,8 @@ import {
 import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
+import { SortableTableHead } from '~/components/SortableTableHead';
+import { sortRows, nextSortState, type SortState } from '~/utils/tableSorting';
 
 const ItemProgress: Component<{ terkirim: string | number; total: string | number }> = (props) => {
   const percent = createMemo(() => {
@@ -47,7 +56,28 @@ export const OrderDetail: Component = () => {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [order] = createResource(() => params.id, (id) => getOrderById(id));
+  const [config] = createResource(getConfig);
 
+  const [sortState, setSortState] = createSignal<SortState>({ field: 'row_index', direction: 'asc' });
+
+  const handleSort = (field: string) => {
+    setSortState((prev) => nextSortState(prev, field));
+  };
+
+  const sortedItems = createMemo(() => {
+    const items = order()?.items;
+    if (!items) return [];
+    return sortRows(items, sortState(), (row, field) => {
+      const record = row as unknown as Record<string, unknown>;
+      if (field === 'jumlah' || field === 'row_index' || field === 'lead_time_pengiriman') {
+        const v = record[field];
+        if (v == null || v === '') return null;
+        const n = parseFloat(String(v));
+        return Number.isNaN(n) ? v : n;
+      }
+      return record[field];
+    });
+  });
   const handleBack = () => {
     if (window.history.length > 1) {
       window.history.back();
@@ -152,30 +182,93 @@ export const OrderDetail: Component = () => {
 
           {/* Line Items Table Card */}
           <Card>
-            <CardHeader>
-              <CardTitle class="text-base font-semibold">
-                Order Line Items ({order()!.items?.length || 0})
-              </CardTitle>
-              <CardDescription>Dispatched and pending inventory units</CardDescription>
+            <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
+              <div class="space-y-1">
+                <CardTitle class="text-base font-semibold">
+                  Order Line Items ({order()!.items?.length || 0})
+                </CardTitle>
+                <CardDescription>Dispatched and pending inventory units</CardDescription>
+              </div>
+              <Show when={config()?.spreadsheet_id}>
+                <Button
+                  as="a"
+                  href={`https://docs.google.com/spreadsheets/d/${config()?.spreadsheet_id}/edit#gid=0&range=A${order()!.items?.[0]?.row_index || 2}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="outline"
+                  size="sm"
+                  class="gap-1.5 self-start sm:self-auto"
+                >
+                  <IconExternalLink class="size-4" />
+                  <span>Open in Spreadsheet</span>
+                </Button>
+              </Show>
             </CardHeader>
             <CardContent>
               <div class="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead class="w-12">#</TableHead>
-                      <TableHead>Item Name</TableHead>
-                      <TableHead class="text-right">Quantity</TableHead>
-                      <TableHead>Delivery Date</TableHead>
+                      <SortableTableHead
+                        field="row_index"
+                        label="#"
+                        class="w-12"
+                        direction={sortState().field === 'row_index' ? sortState().direction : undefined}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        field="nama_barang"
+                        label="Item Name"
+                        direction={sortState().field === 'nama_barang' ? sortState().direction : undefined}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        field="jumlah"
+                        label="Quantity"
+                        class="text-right"
+                        direction={sortState().field === 'jumlah' ? sortState().direction : undefined}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        field="tanggal_pengiriman"
+                        label="Delivery Date"
+                        direction={sortState().field === 'tanggal_pengiriman' ? sortState().direction : undefined}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        field="lead_time_pengiriman"
+                        label="Lead Time"
+                        direction={sortState().field === 'lead_time_pengiriman' ? sortState().direction : undefined}
+                        onSort={handleSort}
+                      />
                       <TableHead class="min-w-[120px]">Progress</TableHead>
                       <TableHead class="text-right">Sent / Remaining</TableHead>
-                      <TableHead>Status Order</TableHead>
-                      <TableHead>Status Barang</TableHead>
+                      <SortableTableHead
+                        field="status_order"
+                        label="Status Order"
+                        direction={sortState().field === 'status_order' ? sortState().direction : undefined}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        field="status_barang"
+                        label="Status Barang"
+                        direction={sortState().field === 'status_barang' ? sortState().direction : undefined}
+                        onSort={handleSort}
+                      />
                       <TableHead>Notes</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    <For each={order()!.items}>
+                    <For
+                      each={sortedItems()}
+                      fallback={
+                        <TableRow>
+                          <TableCell colSpan={10} class="h-24 text-center text-muted-foreground">
+                            No line items found.
+                          </TableCell>
+                        </TableRow>
+                      }
+                    >
                       {(item, idx) => (
                         <TableRow>
                           <TableCell class="font-mono text-xs text-muted-foreground">
@@ -186,16 +279,10 @@ export const OrderDetail: Component = () => {
                             {item.jumlah} {item.satuan}
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground">
-                            {item.tanggal_pengiriman ? (
-                              <span>
-                                {item.tanggal_pengiriman}
-                                {item.lead_time_pengiriman ? (
-                                  <span class="text-muted-foreground"> ({item.lead_time_pengiriman}d lead)</span>
-                                ) : null}
-                              </span>
-                            ) : (
-                              '-'
-                            )}
+                            {item.tanggal_pengiriman || '-'}
+                          </TableCell>
+                          <TableCell class="text-xs text-muted-foreground">
+                            {item.lead_time_pengiriman ? `${item.lead_time_pengiriman}d` : '-'}
                           </TableCell>
                           <TableCell>
                             <ItemProgress

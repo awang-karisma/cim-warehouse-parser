@@ -44,8 +44,8 @@ Automated order ingestion, normalization, and visualization system.
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
+  - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, and multi-column client-side sorting.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.
-
 ---
 
 ## Architecture Overview
