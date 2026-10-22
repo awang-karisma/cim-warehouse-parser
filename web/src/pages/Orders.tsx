@@ -238,18 +238,6 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                     <span class="sr-only">Expand</span>
                   </TableHead>
                   <SortableTableHead
-                    field="id"
-                    label="Order ID"
-                    direction={filters.values.sort() === 'id' ? filters.values.order() : undefined}
-                    onSort={handleSort}
-                  />
-                  <SortableTableHead
-                    field="order_number"
-                    label="Order / E-Katalog No."
-                    direction={filters.values.sort() === 'order_number' ? filters.values.order() : undefined}
-                    onSort={handleSort}
-                  />
-                  <SortableTableHead
                     field="date"
                     label="Date"
                     direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
@@ -289,14 +277,14 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                   fallback={
                     <>
                       <TableRow>
-                        <TableCell colspan={9} class="py-6 text-center">
+                        <TableCell colspan={7} class="py-6 text-center">
                           <div class="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                             <IconLoader2 class="size-4 animate-spin text-primary" />
                             <span>Loading orders and line items...</span>
                           </div>
                         </TableCell>
                       </TableRow>
-                      <TableSkeleton columns={9} rows={5} />
+                      <TableSkeleton columns={7} rows={5} />
                     </>
                   }
                 >
@@ -304,7 +292,7 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                     when={data()?.orders && data()!.orders.length > 0}
                     fallback={
                       <TableRow>
-                        <TableCell colspan={9} class="h-24 text-center text-muted-foreground">
+                        <TableCell colspan={7} class="h-24 text-center text-muted-foreground">
                           No orders matching current filters
                         </TableCell>
                       </TableRow>
@@ -338,17 +326,6 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                                   </Show>
                                 </button>
                               </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <A
-                                  href={`/orders/${order.id}`}
-                                  class="font-medium text-primary hover:underline"
-                                >
-                                  {order.id}
-                                </A>
-                              </TableCell>
-                              <TableCell class="font-mono text-xs text-muted-foreground">
-                                {order.order_number || order.ecatalog_number || '-'}
-                              </TableCell>
                               <TableCell class="text-xs text-muted-foreground">{order.tanggal}</TableCell>
                               <TableCell class="font-medium">{order.customer}</TableCell>
                               <TableCell class="text-xs text-muted-foreground">{order.area}</TableCell>
@@ -374,7 +351,7 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                             {/* Detail Tray for Line Items */}
                             <Show when={isExpanded()}>
                               <TableRow class="bg-muted/15 border-b border-border/80">
-                                <TableCell colspan={9} class="p-4">
+                                <TableCell colspan={7} class="p-4">
                                   <div class="rounded-lg border border-border bg-background overflow-hidden shadow-xs">
                                     <div class="overflow-x-auto">
                                       <Table class="text-xs">
