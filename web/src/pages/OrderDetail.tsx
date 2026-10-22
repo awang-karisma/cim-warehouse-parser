@@ -141,25 +141,25 @@ export const OrderDetail: Component = () => {
             </CardHeader>
             <CardContent>
               <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconFileText class="size-4 text-primary" />
                     <span>Order ID</span>
                   </div>
-                  <div class="text-sm font-semibold">{order()!.id}</div>
+                  <div class="text-sm font-semibold break-words">{order()!.id}</div>
                 </div>
 
-                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconPackage class="size-4 text-primary" />
                     <span>E-Katalog / Order No.</span>
                   </div>
-                  <div class="text-sm font-semibold font-mono">
+                  <div class="text-sm font-semibold font-mono break-all">
                     {order()!.order_number || order()!.ecatalog_number || 'N/A'}
                   </div>
                 </div>
 
-                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconCalendar class="size-4 text-primary" />
                     <span>Order Date</span>
@@ -167,7 +167,7 @@ export const OrderDetail: Component = () => {
                   <div class="text-sm font-semibold">{order()!.tanggal}</div>
                 </div>
 
-                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
+                <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconBuildingHospital class="size-4 text-primary" />
                     <span>Total Line Items</span>

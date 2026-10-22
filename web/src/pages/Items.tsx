@@ -167,26 +167,26 @@ export const Items: Component = () => {
       {/* Filter Toolbar (Tasks Example Pattern) */}
       <Card>
         <CardContent class="p-4 md:p-6">
-          <form class="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
-            <div class="flex-1 min-w-[180px]">
+          <form class="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end gap-4" onSubmit={applyFilters}>
+            <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[180px]">
               <TextField value={filters.values.customer()} onChange={filters.setters.customer}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Customer Name
                 </TextFieldLabel>
-                <TextFieldInput placeholder="Filter by customer (e.g. RSUD)..." class="h-9" />
+                <TextFieldInput placeholder="Filter by customer (e.g. RSUD)..." class="h-9 w-full" />
               </TextField>
             </div>
 
-            <div class="flex-1 min-w-[180px]">
+            <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[180px]">
               <TextField value={filters.values.nama_barang()} onChange={filters.setters.nama_barang}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Item Name (Nama Barang)
                 </TextFieldLabel>
-                <TextFieldInput placeholder="e.g. Needle, Spuit..." class="h-9" />
+                <TextFieldInput placeholder="e.g. Needle, Spuit..." class="h-9 w-full" />
               </TextField>
             </div>
 
-            <div class="min-w-[150px] flex flex-col gap-1">
+            <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">Status Order</label>
               <Select<string>
                 options={['All Statuses', ...VALID_STATUS_ORDERS]}
@@ -196,14 +196,14 @@ export const Items: Component = () => {
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
-                <SelectTrigger class="h-9">
+                <SelectTrigger class="h-9 w-full">
                   <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
             </div>
 
-            <div class="min-w-[150px] flex flex-col gap-1">
+            <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">Status Barang</label>
               <Select<string>
                 options={STATUS_BARANG_OPTIONS as unknown as string[]}
@@ -213,25 +213,25 @@ export const Items: Component = () => {
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
-                <SelectTrigger class="h-9">
+                <SelectTrigger class="h-9 w-full">
                   <SelectValue<string>>{(state) => state.selectedOption() || 'All'}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
             </div>
 
-            <div class="min-w-[140px]">
+            <div class="w-full lg:w-auto lg:min-w-[140px]">
               <TextField value={filters.values.tanggal()} onChange={filters.setters.tanggal}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">Date</TextFieldLabel>
-                <TextFieldInput type="date" class="h-9" />
+                <TextFieldInput type="date" class="h-9 w-full" />
               </TextField>
             </div>
 
-            <div class="flex items-center gap-2">
-              <Button type="submit" size="sm" class="h-9">
+            <div class="col-span-1 sm:col-span-2 lg:col-auto flex items-center gap-2 w-full lg:w-auto">
+              <Button type="submit" size="sm" class="h-9 flex-1 sm:flex-initial">
                 Apply
               </Button>
-              <Button type="button" variant="outline" size="sm" class="h-9" onClick={filters.reset}>
+              <Button type="button" variant="outline" size="sm" class="h-9 flex-1 sm:flex-initial" onClick={filters.reset}>
                 Reset
               </Button>
             </div>
@@ -241,7 +241,7 @@ export const Items: Component = () => {
 
       {/* Items Table Card */}
       <Card>
-        <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-4">
+        <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0 pb-4">
           <div>
             <CardTitle class="text-base font-semibold">Warehouse Line Items</CardTitle>
             <CardDescription>
@@ -254,7 +254,7 @@ export const Items: Component = () => {
             download="items.csv"
             variant="outline"
             size="sm"
-            class="gap-1.5"
+            class="gap-1.5 self-start sm:self-auto"
           >
             <IconDownload class="size-4" />
             <span>Export CSV</span>

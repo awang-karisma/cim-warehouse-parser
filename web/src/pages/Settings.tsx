@@ -296,11 +296,11 @@ export const Settings: Component = () => {
             <CardTitle class="text-base font-semibold">Theme & Appearance</CardTitle>
             <CardDescription>Select light, dark, or system mode</CardDescription>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button
               variant={colorMode() === 'light' ? 'default' : 'outline'}
               size="sm"
-              class="gap-1.5 text-xs h-8"
+              class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
               onClick={() => setColorMode('light')}
             >
               <IconSun class="size-3.5" />
@@ -309,7 +309,7 @@ export const Settings: Component = () => {
             <Button
               variant={colorMode() === 'dark' ? 'default' : 'outline'}
               size="sm"
-              class="gap-1.5 text-xs h-8"
+              class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
               onClick={() => setColorMode('dark')}
             >
               <IconMoon class="size-3.5" />
@@ -318,7 +318,7 @@ export const Settings: Component = () => {
             <Button
               variant="outline"
               size="sm"
-              class="gap-1.5 text-xs h-8"
+              class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
               onClick={() => setColorMode('system')}
             >
               <IconDeviceDesktop class="size-3.5" />
@@ -617,19 +617,19 @@ export const Settings: Component = () => {
               >
               <For each={aliasesData()?.groups}>
                 {(grp) => (
-                  <Card class="bg-card">
-                    <CardHeader class="pb-2 pt-3 px-4 flex flex-row items-center justify-between space-y-0">
-                      <div class="flex items-center gap-2">
-                        <span class="text-sm font-semibold">
+                  <Card class="bg-card min-w-0">
+                    <CardHeader class="pb-2 pt-3 px-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 space-y-0">
+                      <div class="flex flex-wrap items-center gap-2 min-w-0">
+                        <span class="text-sm font-semibold break-words">
                           Canonical: <strong class="text-primary">{grp.canonical}</strong>
                         </span>
                         <Show when={grp.area}>
-                          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground font-medium">
+                          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground font-medium shrink-0">
                             {grp.area}
                           </span>
                         </Show>
                       </div>
-                      <div class="flex items-center gap-2">
+                      <div class="flex items-center gap-2 self-start sm:self-auto shrink-0">
                         <span class="text-xs text-muted-foreground">
                           {grp.aliases.length} alias{grp.aliases.length === 1 ? '' : 'es'}
                         </span>
@@ -650,10 +650,10 @@ export const Settings: Component = () => {
                       <div class="flex flex-wrap gap-2">
                         <For each={grp.aliases}>
                           {(al) => (
-                            <span class="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-xs bg-muted text-foreground border border-border">
-                              <span>{al}</span>
+                            <span class="inline-flex max-w-full items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-xs bg-muted text-foreground border border-border">
+                              <span class="truncate break-words">{al}</span>
                               <Show when={isAdmin()}>
-                                <div class="flex items-center">
+                                <div class="flex items-center shrink-0">
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -761,7 +761,7 @@ export const Settings: Component = () => {
             Are you sure you want to remove the alias mapping for "{aliasToDelete()}"?
             Future synchronizations will no longer map this spelling to the canonical customer name.
           </AlertDialogDescription>
-          <div class="flex justify-end gap-2 mt-4">
+          <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => setAliasToDelete('')}>
               Cancel
             </Button>
@@ -830,7 +830,7 @@ export const Settings: Component = () => {
               </label>
             </div>
           </AlertDialogDescription>
-          <div class="flex justify-end gap-2 mt-4">
+          <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button
               variant="outline"
               size="sm"
@@ -866,7 +866,7 @@ export const Settings: Component = () => {
             Are you sure you want to clear all synced orders, items, deliveries, and sync history?
             This action cannot be undone. Customer aliases and users will be preserved.
           </AlertDialogDescription>
-          <div class="flex justify-end gap-2 mt-4">
+          <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => setShowClearDbDialog(false)}>
               Cancel
             </Button>
@@ -914,23 +914,24 @@ export const Settings: Component = () => {
             </Show>
 
             <div class="space-y-3">
-              <TextField value={editCanonical()} onChange={setEditCanonical}>
+              <TextField value={editCanonical()} onChange={setEditCanonical} class="w-full">
                 <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
-                <TextFieldInput placeholder="Official canonical customer name..." class="h-9" />
+                <TextFieldInput placeholder="Official canonical customer name..." class="h-9 w-full" />
               </TextField>
 
-              <div class="space-y-1 flex flex-col">
+              <div class="space-y-1 flex flex-col w-full">
                 <label class="text-xs font-semibold">Linked Area (Optional)</label>
                 <AreaCombobox
                   value={editArea()}
                   onChange={setEditArea}
                   areas={() => areasData()?.areas}
                   placeholder="e.g. Lombok Barat, Denpasar..."
+                  class="w-full"
                 />
               </div>
             </div>
 
-            <DialogFooter class="flex gap-2 justify-end pt-2">
+            <DialogFooter class="pt-2">
               <Button
                 type="button"
                 variant="outline"
@@ -972,28 +973,29 @@ export const Settings: Component = () => {
             </Show>
 
             <div class="space-y-3">
-              <TextField value={editAliasSpelling()} onChange={setEditAliasSpelling}>
+              <TextField value={editAliasSpelling()} onChange={setEditAliasSpelling} class="w-full">
                 <TextFieldLabel class="text-xs font-semibold">Variant Name (Alias)</TextFieldLabel>
-                <TextFieldInput placeholder="Source alias spelling..." class="h-9" />
+                <TextFieldInput placeholder="Source alias spelling..." class="h-9 w-full" />
               </TextField>
 
-              <TextField value={editAliasCanonical()} onChange={setEditAliasCanonical}>
+              <TextField value={editAliasCanonical()} onChange={setEditAliasCanonical} class="w-full">
                 <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
-                <TextFieldInput placeholder="Official customer name..." class="h-9" />
+                <TextFieldInput placeholder="Official customer name..." class="h-9 w-full" />
               </TextField>
 
-              <div class="space-y-1 flex flex-col">
+              <div class="space-y-1 flex flex-col w-full">
                 <label class="text-xs font-semibold">Linked Area (Optional)</label>
                 <AreaCombobox
                   value={editAliasArea()}
                   onChange={setEditAliasArea}
                   areas={() => areasData()?.areas}
                   placeholder="e.g. Lombok Barat, Denpasar..."
+                  class="w-full"
                 />
               </div>
             </div>
 
-            <DialogFooter class="flex gap-2 justify-end pt-2">
+            <DialogFooter class="pt-2">
               <Button
                 type="button"
                 variant="outline"

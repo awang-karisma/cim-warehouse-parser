@@ -68,26 +68,26 @@ export const App: Component<RouteSectionProps> = (props) => {
     >
       <Show when={currentUser() !== null} fallback={<Login />}>
         <Show when={currentUser()?.role !== 'guest'} fallback={<PendingApproval />}>
-          <SidebarProvider style={{ '--sidebar-width': '16rem' } as any}>
+          <SidebarProvider style={{ '--sidebar-width': '16rem' } as Record<string, string>}>
             <AppSidebar />
             <SidebarInset>
               <header class="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4 bg-background">
-                <div class="flex items-center gap-2">
-                  <SidebarTrigger class="-ml-1" />
-                  <Separator orientation="vertical" class="mr-2 h-4" />
-                  <Breadcrumb>
-                    <BreadcrumbList>
-                      <BreadcrumbItem>
+                <div class="flex items-center gap-2 min-w-0">
+                  <SidebarTrigger class="-ml-1 shrink-0" />
+                  <Separator orientation="vertical" class="mr-2 h-4 shrink-0" />
+                  <Breadcrumb class="min-w-0">
+                    <BreadcrumbList class="flex-nowrap">
+                      <BreadcrumbItem class="hidden sm:inline-flex shrink-0">
                         <BreadcrumbLink href="/">Warehouse</BreadcrumbLink>
                       </BreadcrumbItem>
-                      <BreadcrumbSeparator />
-                      <BreadcrumbItem>
-                        <span class="font-medium text-foreground">{routeTitle()}</span>
+                      <BreadcrumbSeparator class="hidden sm:inline-flex shrink-0" />
+                      <BreadcrumbItem class="min-w-0">
+                        <span class="font-medium text-foreground truncate block">{routeTitle()}</span>
                       </BreadcrumbItem>
                     </BreadcrumbList>
                   </Breadcrumb>
                 </div>
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3 shrink-0">
                   <ModeToggle />
                   <Show when={currentUser() && currentUser()?.email}>
                     <div class="flex items-center gap-2">

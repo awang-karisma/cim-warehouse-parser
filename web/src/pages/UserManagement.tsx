@@ -323,7 +323,7 @@ export const UserManagement: Component = () => {
             <strong class="text-foreground">{userToDelete()?.email}</strong>? They will immediately
             lose all access to the system.
           </AlertDialogDescription>
-          <div class="flex justify-end gap-2 mt-4">
+          <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => setUserToDelete(null)}>
               Cancel
             </Button>

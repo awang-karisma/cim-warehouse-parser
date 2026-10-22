@@ -45,7 +45,7 @@ const AlertDialogContent = <T extends ValidComponent = "div">(
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
         class={cn(
-          "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0 data-[closed]:zoom-out-95 data-[expanded]:zoom-in-95 data-[closed]:slide-out-to-left-1/2 data-[closed]:slide-out-to-top-[48%] data-[expanded]:slide-in-from-left-1/2 data-[expanded]:slide-in-from-top-[48%] sm:rounded-lg md:w-full",
+          "fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto border bg-background p-4 sm:p-6 shadow-lg duration-200 data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0 data-[closed]:zoom-out-95 data-[expanded]:zoom-in-95 data-[closed]:slide-out-to-left-1/2 data-[closed]:slide-out-to-top-[48%] data-[expanded]:slide-in-from-left-1/2 data-[expanded]:slide-in-from-top-[48%] sm:rounded-lg",
           local.class
         )}
         {...others}
@@ -100,6 +100,24 @@ const AlertDialogDescription = <T extends ValidComponent = "p">(
     />
   )
 }
+type AlertDialogFooterProps<T extends ValidComponent = "div"> = {
+  class?: string | undefined
+  children?: JSX.Element
+}
+
+const AlertDialogFooter = <T extends ValidComponent = "div">(
+  props: PolymorphicProps<T, AlertDialogFooterProps<T>>
+) => {
+  const [local, others] = splitProps(props as AlertDialogFooterProps, ["class", "children"])
+  return (
+    <div
+      class={cn("flex flex-col sm:flex-row sm:justify-end gap-2", local.class)}
+      {...others}
+    >
+      {local.children}
+    </div>
+  )
+}
 
 export {
   AlertDialog,
@@ -108,5 +126,6 @@ export {
   AlertDialogTrigger,
   AlertDialogContent,
   AlertDialogTitle,
-  AlertDialogDescription
+  AlertDialogDescription,
+  AlertDialogFooter
 }

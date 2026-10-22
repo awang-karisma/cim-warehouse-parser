@@ -75,22 +75,36 @@ export const Login: Component = () => {
           try {
             setError(null);
             await auth.login(response.credential);
-          } catch (err: any) {
-            setError(err?.message || 'Login failed. Please try again.');
+          } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
           }
         },
       });
 
-      // Clear any prior content
-      btnRef.innerHTML = '';
-      window.google.accounts.id.renderButton(btnRef, {
-        theme: 'outline',
-        size: 'large',
-        text: 'signin_with',
-        shape: 'rectangular',
-        width: 280,
+      const renderGoogleBtn = () => {
+        if (!btnRef || !window.google?.accounts?.id) return;
+        const availableWidth = btnRef.clientWidth ? Math.floor(btnRef.clientWidth) : 280;
+        const targetWidth = Math.min(280, Math.max(200, availableWidth));
+        btnRef.innerHTML = '';
+        window.google.accounts.id.renderButton(btnRef, {
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+          shape: 'rectangular',
+          width: targetWidth,
+        });
+      };
+
+      renderGoogleBtn();
+
+      const handleResize = () => {
+        renderGoogleBtn();
+      };
+      window.addEventListener('resize', handleResize);
+      onCleanup(() => {
+        window.removeEventListener('resize', handleResize);
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Google button render error:', err);
       setError('Error initializing Google Sign-In button.');
     }
@@ -99,7 +113,7 @@ export const Login: Component = () => {
   return (
     <div class="min-h-screen w-full flex items-center justify-center p-4 bg-muted/30">
       <Card class="w-full max-w-md shadow-lg border-border">
-        <CardHeader class="text-center space-y-2 pb-6">
+        <CardHeader class="text-center space-y-2 p-4 sm:p-6 pb-4 sm:pb-6">
           <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
             <IconPackage class="h-8 w-8" />
           </div>
@@ -108,7 +122,7 @@ export const Login: Component = () => {
             Sign in with your Google account to access order tracking and warehouse management
           </CardDescription>
         </CardHeader>
-        <CardContent class="flex flex-col items-center justify-center space-y-4 pt-0 pb-8">
+        <CardContent class="flex flex-col items-center justify-center space-y-4 p-4 sm:p-6 pt-0 sm:pt-0 pb-6 sm:pb-8">
           <Show when={error()}>
             <div class="w-full flex items-center gap-2 p-3 text-sm rounded-md bg-destructive/15 text-destructive border border-destructive/20">
               <IconAlertCircle class="h-5 w-5 shrink-0" />
@@ -134,7 +148,7 @@ export const Login: Component = () => {
             </p>
           </Show>
         </CardContent>
-        <div class="px-6 pb-6 pt-0 flex items-center justify-center gap-3 text-xs text-muted-foreground">
+        <div class="p-4 sm:p-6 pt-0 sm:pt-0 pb-4 sm:pb-6 flex items-center justify-center gap-3 text-xs text-muted-foreground">
           <A href="/privacy" class="underline hover:text-foreground transition-colors">Privacy Policy</A>
           <span>·</span>
           <A href="/terms" class="underline hover:text-foreground transition-colors">Terms of Service</A>

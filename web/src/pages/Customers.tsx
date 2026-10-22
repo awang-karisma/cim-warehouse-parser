@@ -419,16 +419,16 @@ export const Customers: Component = () => {
                 const fulfillmentPct = Math.min(100, Math.round((selesaiCount / totalItems) * 100));
 
                 return (
-                  <Card class="flex flex-col justify-between transition-shadow hover:shadow-md">
-                    <div>
+                  <Card class="flex flex-col justify-between transition-shadow hover:shadow-md min-w-0">
+                    <div class="min-w-0">
                       <CardHeader class="pb-3">
-                        <div class="flex items-start justify-between gap-2">
-                          <div class="space-y-1">
-                            <CardTitle class="text-base font-semibold leading-tight flex items-center gap-1.5">
+                        <div class="flex items-start justify-between gap-2 min-w-0">
+                          <div class="space-y-1 min-w-0 flex-1">
+                            <CardTitle class="text-base font-semibold leading-tight flex items-center gap-1.5 min-w-0">
                               <IconBuildingHospital class="size-4 text-primary shrink-0" />
                               <span class="truncate">{cust.name}</span>
                             </CardTitle>
-                            <p class="text-xs text-muted-foreground">{cust.area || 'Unknown Area'}</p>
+                            <p class="text-xs text-muted-foreground truncate">{cust.area || 'Unknown Area'}</p>
                           </div>
                           <Badge status={`${cust.total_orders} Orders`} pill class="shrink-0" />
                         </div>
@@ -546,12 +546,12 @@ export const Customers: Component = () => {
             </Show>
 
             <div class="space-y-3">
-              <TextField value={aliasSpelling()} onChange={setAliasSpelling}>
+              <TextField value={aliasSpelling()} onChange={setAliasSpelling} class="w-full">
                 <TextFieldLabel class="text-xs font-semibold">Alias Spelling (Source Name)</TextFieldLabel>
-                <TextFieldInput placeholder="Source spelling in spreadsheet..." class="h-9" />
+                <TextFieldInput placeholder="Source spelling in spreadsheet..." class="h-9 w-full" />
               </TextField>
 
-              <div class="space-y-1 flex flex-col">
+              <div class="space-y-1 flex flex-col w-full">
                 <label class="text-xs font-semibold">Canonical Group</label>
                 <Select<string>
                   options={canonicalOptions()}
@@ -572,7 +572,7 @@ export const Customers: Component = () => {
                     <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                   )}
                 >
-                  <SelectTrigger class="h-9">
+                  <SelectTrigger class="h-9 w-full">
                     <SelectValue<string>>
                       {(state) => state.selectedOption() || 'Select canonical...'}
                     </SelectValue>
@@ -585,24 +585,26 @@ export const Customers: Component = () => {
                 <TextField
                   value={newCanonicalName()}
                   onChange={setNewCanonicalName}
+                  class="w-full"
                 >
                   <TextFieldLabel class="text-xs font-semibold">New Canonical Customer Name</TextFieldLabel>
-                  <TextFieldInput placeholder="Official customer name..." class="h-9" />
+                  <TextFieldInput placeholder="Official customer name..." class="h-9 w-full" />
                 </TextField>
               </Show>
 
-              <div class="space-y-1 flex flex-col">
+              <div class="space-y-1 flex flex-col w-full">
                 <label class="text-xs font-semibold">Assigned Area (Optional)</label>
                 <AreaCombobox
                   value={aliasArea()}
                   onChange={setAliasArea}
                   areas={() => areasData()?.areas}
                   placeholder="e.g. Denpasar, Badung..."
+                  class="w-full"
                 />
               </div>
             </div>
 
-            <DialogFooter class="flex gap-2 justify-end pt-2">
+            <DialogFooter class="pt-2">
               <Button
                 type="button"
                 variant="outline"

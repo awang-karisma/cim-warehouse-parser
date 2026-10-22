@@ -148,20 +148,20 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
       {/* Filter Toolbar (Tasks Example Pattern) */}
       <Card>
         <CardContent class="p-4 md:p-6">
-          <form class="flex flex-wrap items-end gap-4" onSubmit={applyFilters}>
-            <div class="flex-1 min-w-[200px]">
+          <form class="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end gap-4" onSubmit={applyFilters}>
+            <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[200px]">
               <TextField value={filters.values.customer()} onChange={filters.setters.customer}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Customer Name
                 </TextFieldLabel>
                 <TextFieldInput
                   placeholder="Filter by customer (e.g. RSUD)..."
-                  class="h-9"
+                  class="h-9 w-full"
                 />
               </TextField>
             </div>
 
-            <div class="min-w-[180px] flex flex-col gap-1">
+            <div class="w-full lg:w-auto lg:min-w-[180px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">Area / Region</label>
               <Select<string>
                 options={areaOptions()}
@@ -171,23 +171,23 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
-                <SelectTrigger class="h-9">
+                <SelectTrigger class="h-9 w-full">
                   <SelectValue<string>>{(state) => state.selectedOption() || 'All Areas'}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
             </div>
 
-            <div class="min-w-[150px]">
+            <div class="w-full lg:w-auto lg:min-w-[150px]">
               <TextField value={filters.values.tanggal()} onChange={filters.setters.tanggal}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Order Date
                 </TextFieldLabel>
-                <TextFieldInput type="date" class="h-9" />
+                <TextFieldInput type="date" class="h-9 w-full" />
               </TextField>
             </div>
 
-            <div class="min-w-[150px] flex flex-col gap-1">
+            <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">Status</label>
               <Select<string>
                 options={['All Statuses', 'BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
@@ -197,18 +197,18 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
-                <SelectTrigger class="h-9">
+                <SelectTrigger class="h-9 w-full">
                   <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
             </div>
 
-            <div class="flex items-center gap-2">
-              <Button type="submit" size="sm" class="h-9">
+            <div class="col-span-1 sm:col-span-2 lg:col-auto flex items-center gap-2 w-full lg:w-auto">
+              <Button type="submit" size="sm" class="h-9 flex-1 sm:flex-initial">
                 Apply
               </Button>
-              <Button type="button" variant="outline" size="sm" class="h-9" onClick={filters.reset}>
+              <Button type="button" variant="outline" size="sm" class="h-9 flex-1 sm:flex-initial" onClick={filters.reset}>
                 Reset
               </Button>
             </div>

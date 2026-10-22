@@ -222,7 +222,7 @@ export const Dashboard: Component = () => {
 
         {/* Recent Sync Activity */}
         <Card class="flex flex-col">
-          <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
             <div>
               <CardTitle class="text-base font-semibold">Recent Sync Activity</CardTitle>
               <CardDescription>
@@ -231,7 +231,7 @@ export const Dashboard: Component = () => {
                   : `Last synced at ${formatSyncTime(workerStatus()?.last_sync)}`}
               </CardDescription>
             </div>
-            <Button variant="ghost" size="sm" as={A} href="/sync" class="gap-1 text-xs text-primary">
+            <Button variant="ghost" size="sm" as={A} href="/sync" class="gap-1 text-xs text-primary self-start sm:self-auto">
               View All <IconArrowRight class="size-3.5" />
             </Button>
           </CardHeader>
@@ -286,12 +286,12 @@ export const Dashboard: Component = () => {
 
       {/* Recent Orders Section */}
       <Card>
-        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+        <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
           <div>
             <CardTitle class="text-base font-semibold">Recent Orders</CardTitle>
             <CardDescription>Latest customer purchase orders from warehouse mirror</CardDescription>
           </div>
-          <Button variant="outline" size="sm" as={A} href="/orders" class="gap-1 text-xs">
+          <Button variant="outline" size="sm" as={A} href="/orders" class="gap-1 text-xs self-start sm:self-auto">
             View All Orders <IconArrowRight class="size-3.5" />
           </Button>
         </CardHeader>

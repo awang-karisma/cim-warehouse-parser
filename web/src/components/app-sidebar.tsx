@@ -29,6 +29,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from '~/components/ui/sidebar';
 
 interface NavItem {
@@ -195,7 +196,13 @@ const navItems: NavItem[] = [
 export const AppSidebar: Component = () => {
   const location = useLocation();
   const auth = useAuth();
+  const { isMobile, setOpenMobile } = useSidebar();
 
+  const handleNavClick = () => {
+    if (isMobile()) {
+      setOpenMobile(false);
+    }
+  };
   const isPrivileged = createMemo(() => {
     const role = auth.user()?.role;
     return role === 'admin' || role === 'superadmin';
@@ -251,6 +258,7 @@ export const AppSidebar: Component = () => {
                         href={item.href}
                         isActive={active()}
                         tooltip={item.label}
+                        onClick={handleNavClick}
                       >
                         <Icon class="size-4 shrink-0" />
                         <span>{item.label}</span>

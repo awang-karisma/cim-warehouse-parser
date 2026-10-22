@@ -114,7 +114,7 @@ export const SyncManager: Component = () => {
               size="sm"
               disabled={isSyncing()}
               onClick={handleManualSync}
-              class="gap-2"
+              class="gap-2 self-start sm:self-auto"
             >
               <Show
                 when={isSyncing()}
@@ -251,7 +251,7 @@ export const SyncManager: Component = () => {
 
       {/* Sync History Table Card */}
       <Card>
-        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+        <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
           <div>
             <CardTitle class="text-base font-semibold">Sync History Records</CardTitle>
             <CardDescription>Audit log of past synchronization runs</CardDescription>
@@ -260,7 +260,7 @@ export const SyncManager: Component = () => {
             variant="outline"
             size="sm"
             onClick={() => refetchHistory()}
-            class="gap-1.5 text-xs h-8"
+            class="gap-1.5 text-xs h-8 self-start sm:self-auto"
           >
             <IconRefresh class="size-3.5" />
             <span>Refresh</span>

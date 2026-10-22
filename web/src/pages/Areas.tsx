@@ -99,19 +99,19 @@ export const Areas: Component = () => {
             const isSelected = () => currentArea() === area.name;
             return (
               <Card
-                class={`cursor-pointer transition-all ${
+                class={`cursor-pointer transition-all min-w-0 ${
                   isSelected()
                     ? 'border-primary ring-2 ring-primary/20 shadow-sm'
                     : 'hover:border-primary/50'
                 }`}
                 onClick={() => setSelectedArea(area.name)}
               >
-                <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle class="text-sm font-semibold truncate flex items-center gap-1.5">
+                <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2 gap-2 min-w-0">
+                  <CardTitle class="text-sm font-semibold truncate flex items-center gap-1.5 min-w-0 flex-1">
                     <IconMapPin class="size-4 text-primary shrink-0" />
                     <span class="truncate">{area.name}</span>
                   </CardTitle>
-                  <Badge status={`${area.total_orders} Orders`} pill />
+                  <Badge status={`${area.total_orders} Orders`} pill class="shrink-0" />
                 </CardHeader>
                 <CardContent class="space-y-2">
                   <div class="text-xs text-muted-foreground flex justify-between">
@@ -205,7 +205,7 @@ export const Areas: Component = () => {
       {/* Selected Area Customers Sub-table */}
       <Show when={currentArea()}>
         <Card>
-          <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
             <div>
               <CardTitle class="text-base font-semibold">
                 Top Customers in <span class="text-primary">{currentArea()}</span>
@@ -217,7 +217,7 @@ export const Areas: Component = () => {
               href={`/orders?area=${encodeURIComponent(currentArea())}`}
               variant="outline"
               size="sm"
-              class="gap-1 text-xs"
+              class="gap-1 text-xs self-start sm:self-auto"
             >
               <span>View All Area Orders</span>
               <IconArrowRight class="size-3.5" />

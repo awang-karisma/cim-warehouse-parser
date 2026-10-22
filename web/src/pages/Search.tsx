@@ -115,19 +115,19 @@ export const Search: Component = () => {
       {/* Search Hero Card */}
       <Card>
         <CardContent class="p-4 md:p-6">
-          <form class="flex items-center gap-3" onSubmit={handleSubmit}>
-            <div class="relative flex-1">
-              <TextField value={filters.values.q()} onChange={filters.setters.q}>
-                <div class="relative flex items-center">
+          <form class="flex flex-col sm:flex-row sm:items-center gap-3" onSubmit={handleSubmit}>
+            <div class="relative flex-1 w-full">
+              <TextField value={filters.values.q()} onChange={filters.setters.q} class="w-full">
+                <div class="relative flex items-center w-full">
                   <IconSearch class="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
                   <TextFieldInput
                     placeholder="Search across orders, line items, customer names, or item descriptions..."
-                    class="pl-9 h-11 text-base"
+                    class="pl-9 h-11 text-base w-full"
                   />
                 </div>
               </TextField>
             </div>
-            <Button type="submit" class="h-11 px-6">
+            <Button type="submit" class="h-11 px-6 w-full sm:w-auto">
               Search
             </Button>
           </form>
@@ -140,8 +140,8 @@ export const Search: Component = () => {
         onChange={(val) => filters.setters.type(val as SearchType)}
         class="w-full"
       >
-        <div class="flex items-center justify-between gap-4 mb-4">
-          <TabsList>
+        <div class="w-full overflow-x-auto pb-1 mb-4">
+          <TabsList class="inline-flex w-max">
             <TabsTrigger value="all">All Results ({totalMatches()})</TabsTrigger>
             <TabsTrigger value="orders">
               Orders ({data()?.orders?.total || 0})
@@ -196,7 +196,7 @@ export const Search: Component = () => {
           }
         >
           <Card class="mb-6">
-            <CardHeader class="flex flex-row items-center justify-between space-y-0">
+            <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
               <div class="flex items-center gap-2">
                 <IconPackage class="size-4 text-primary" />
                 <CardTitle class="text-base font-semibold">
@@ -208,7 +208,7 @@ export const Search: Component = () => {
                 href={ordersLink()}
                 variant="ghost"
                 size="sm"
-                class="gap-1 text-xs text-primary"
+                class="gap-1 text-xs text-primary self-start sm:self-auto"
               >
                 View in Orders <IconArrowRight class="size-3.5" />
               </Button>
@@ -281,7 +281,7 @@ export const Search: Component = () => {
           }
         >
           <Card class="mb-6">
-            <CardHeader class="flex flex-row items-center justify-between space-y-0">
+            <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
               <div class="flex items-center gap-2">
                 <IconListDetails class="size-4 text-primary" />
                 <CardTitle class="text-base font-semibold">
@@ -293,7 +293,7 @@ export const Search: Component = () => {
                 href={itemsLink()}
                 variant="ghost"
                 size="sm"
-                class="gap-1 text-xs text-primary"
+                class="gap-1 text-xs text-primary self-start sm:self-auto"
               >
                 View in Items <IconArrowRight class="size-3.5" />
               </Button>
@@ -355,7 +355,7 @@ export const Search: Component = () => {
           }
         >
           <Card>
-            <CardHeader class="flex flex-row items-center justify-between space-y-0">
+            <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
               <div class="flex items-center gap-2">
                 <IconUsers class="size-4 text-primary" />
                 <CardTitle class="text-base font-semibold">
@@ -367,7 +367,7 @@ export const Search: Component = () => {
                 href={customersLink()}
                 variant="ghost"
                 size="sm"
-                class="gap-1 text-xs text-primary"
+                class="gap-1 text-xs text-primary self-start sm:self-auto"
               >
                 View in Customers <IconArrowRight class="size-3.5" />
               </Button>
@@ -376,12 +376,12 @@ export const Search: Component = () => {
               <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <For each={data()!.customers.results}>
                   {(cust) => (
-                    <Card class="flex flex-col justify-between p-4 bg-muted/20">
+                    <Card class="flex flex-col justify-between p-4 bg-muted/20 min-w-0">
                       <div>
-                        <div class="font-semibold text-sm mb-1">
+                        <div class="font-semibold text-sm mb-1 break-words">
                           {highlightMatch(cust.name, filters.debouncedValues.q())}
                         </div>
-                        <p class="text-xs text-muted-foreground mb-3">{cust.area || 'Unknown Area'}</p>
+                        <p class="text-xs text-muted-foreground mb-3 break-words">{cust.area || 'Unknown Area'}</p>
                         <div class="flex justify-between text-xs py-1 border-t">
                           <span class="text-muted-foreground">Total Orders:</span>
                           <span class="font-medium">{cust.total_orders}</span>

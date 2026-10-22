@@ -219,8 +219,8 @@ export const Timeline: Component = () => {
       {/* Filter Toolbar Card */}
       <Card>
         <CardContent class="p-4 md:p-6">
-          <div class="flex flex-wrap items-end gap-4">
-            <div class="min-w-[160px] flex flex-col gap-1">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end gap-4">
+            <div class="w-full lg:w-auto lg:min-w-[160px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">Delivery Status</label>
               <Select<string>
                 options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
@@ -233,14 +233,14 @@ export const Timeline: Component = () => {
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
-                <SelectTrigger class="h-9">
+                <SelectTrigger class="h-9 w-full">
                   <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
             </div>
 
-            <div class="min-w-[160px]">
+            <div class="w-full lg:w-auto lg:min-w-[160px]">
               <TextField
                 value={filters.values.date()}
                 onChange={(val) => {
@@ -251,19 +251,21 @@ export const Timeline: Component = () => {
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Delivery Date
                 </TextFieldLabel>
-                <TextFieldInput placeholder="DD/MM/YYYY" class="h-9" />
+                <TextFieldInput placeholder="DD/MM/YYYY" class="h-9 w-full" />
               </TextField>
             </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              class="h-9"
-              onClick={filters.reset}
-            >
-              Reset Filters
-            </Button>
+            <div class="col-span-1 sm:col-span-2 lg:col-auto flex items-center gap-2 w-full lg:w-auto">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                class="h-9 w-full sm:w-auto"
+                onClick={filters.reset}
+              >
+                Reset Filters
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
