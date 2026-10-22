@@ -10,6 +10,7 @@ import { Orders } from './pages/Orders';
 import { OrderDetail } from './pages/OrderDetail';
 import { Items } from './pages/Items';
 import { Customers } from './pages/Customers';
+import { CustomerAliases } from './pages/CustomerAliases';
 import { Areas } from './pages/Areas';
 import { Timeline } from './pages/Timeline';
 import { SyncManager } from './pages/SyncManager';
@@ -35,6 +36,7 @@ if (root) {
               <Route path="/orders/:id" component={OrderDetail} />
               <Route path="/items" component={Items} />
               <Route path="/customers" component={Customers} />
+              <Route path="/customer-aliases" component={CustomerAliases} />
               <Route path="/areas" component={Areas} />
               <Route path="/timeline" component={Timeline} />
               <Route path="/sync" component={SyncManager} />

@@ -17,7 +17,8 @@ Automated order ingestion, normalization, and visualization system.
 
 - **Customer Alias Engine**:
   - Resolves variant customer names to canonical targets (e.g., `RSUD Narmada` $\rightarrow$ `RS Narmada`).
-- Grouped and flat alias management with in-place canonical name and linked area editing, plus area suggestions with freeform custom input.
+  - Dedicated Customer Aliases view (`/customer-aliases`) with live search, canonical grouping, and in-place editing for canonical names and linked areas.
+  - Contextual inline alias assignment retained in Customer View (`/customers`).
   - Versioned JSON document export and atomic parse-verified JSON import (`mode=merge` or `mode=replace`).
   - Standard JSON schema: `{"version": 1, "aliases": [{"alias": "Alias", "canonical": "Canonical", "area": "Area"}]}` (`area` is optional and defaults to `""`).
 - **Embedded SQLite Mirror**:
@@ -43,6 +44,7 @@ Automated order ingestion, normalization, and visualization system.
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
+  - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Timeline, Sync Manager, Search, and Settings.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, and multi-column client-side sorting.
   - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.
