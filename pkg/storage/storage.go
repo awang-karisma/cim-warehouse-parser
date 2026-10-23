@@ -1498,8 +1498,13 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 		args = append(args, orderNum)
 	}
 	if filter.Status != "" {
-		conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(status_order)) = UPPER(TRIM(?)))")
-		args = append(args, filter.Status)
+		trimmedStatus := strings.TrimSpace(filter.Status)
+		if strings.EqualFold(trimmedStatus, "BATAL") {
+			conditions = append(conditions, "(id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(COALESCE(status_order, ''))) IN ('BATAL', 'CANCEL')) AND id NOT IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(COALESCE(status_order, ''))) NOT IN ('BATAL', 'CANCEL')))")
+		} else {
+			conditions = append(conditions, "id IN (SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(status_order)) = UPPER(TRIM(?)))")
+			args = append(args, filter.Status)
+		}
 	}
 
 	whereClause := ""

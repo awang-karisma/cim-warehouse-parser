@@ -25,6 +25,7 @@ import { SortableTableHead } from '~/components/SortableTableHead';
 import { sortRows, nextSortState, type SortState } from '~/utils/tableSorting';
 import { ItemProgress } from '~/components/ItemProgress';
 import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
+import { getDominantOrderStatus } from '~/utils/orderStatus';
 
 const formatHumanDate = (dateStr?: string) => {
   if (!dateStr) return '-';
@@ -143,7 +144,7 @@ export const OrderDetail: Component = () => {
               <div class="space-y-1">
                 <div class="flex items-center gap-2">
                   <CardTitle class="text-xl font-bold">{order()!.customer}</CardTitle>
-                  <Badge status={order()!.items?.[0]?.status_order || 'PENDING'} kind="order" pill />
+                  <Badge status={getDominantOrderStatus(order()!.items)} kind="order" pill />
                 </div>
                 <CardDescription>
                   {order()!.area || 'No regional area specified'}

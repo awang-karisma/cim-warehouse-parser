@@ -23,7 +23,7 @@ import { Button } from '~/components/ui/button';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { TableSkeleton } from '~/components/TableSkeleton';
-import { getDominantOrderStatus } from './Orders';
+import { getDominantOrderStatus } from '~/utils/orderStatus';
 
 export const Dashboard: Component = () => {
   const [stats] = createResource(getStats);

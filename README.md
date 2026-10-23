@@ -49,6 +49,7 @@ Automated order ingestion, normalization, and visualization system.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, interactive hover/focus tooltips for item notes, and multi-column client-side sorting.
   - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.
   - Streamlined expandable order rows on the Orders page with an embedded 5-column line items tray (`#`, `Item Name`, `Progress`, `Status Order`, `Status Barang`), progress bar with `sent / ordered` count, and row-level navigation to order details.
+  - Cohesive order-level cancellation status dominance (orders are marked `BATAL` only when every line item is cancelled; mixed orders preserve active priority) synchronized across Orders list, Dashboard, Order Detail, and order status filter.
   - Calculated workday lead time engine with admin-managed date-effective schedule history (`workday_policies`), immediate stored record recalculation, and chronological audit trail.
   - Mobile-responsive layout: viewport-constrained flex shell, auto-dismissing mobile navigation drawer, reflowing search and filter toolbars, and phone-fitted modals and dialogs.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.

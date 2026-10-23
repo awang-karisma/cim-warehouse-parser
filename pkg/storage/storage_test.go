@@ -824,6 +824,186 @@ func TestGetOrders_StatusFilter(t *testing.T) {
 	}
 }
 
+func TestGetOrders_CancellationStatusFilter(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	items := []model.NormalizedItem{
+		// Mixed order items (ORD-MIXED): 1 BATAL, 1 SELESAI
+		{
+			RowIndex:    2,
+			Tanggal:     model.ParseDate("01/02/2026"),
+			Customer:    "Customer Mixed",
+			Area:        "Mataram",
+			NamaBarang:  "Barang 1",
+			Jumlah:      "10",
+			Satuan:      "BOX",
+			StatusOrder: "BATAL",
+		},
+		{
+			RowIndex:    3,
+			Tanggal:     model.ParseDate("01/02/2026"),
+			Customer:    "Customer Mixed",
+			Area:        "Mataram",
+			NamaBarang:  "Barang 2",
+			Jumlah:      "5",
+			Satuan:      "BOX",
+			StatusOrder: "SELESAI",
+		},
+		// All-cancelled order items (ORD-ALL-CANCELLED): 1 BATAL, 1 CANCEL
+		{
+			RowIndex:    4,
+			Tanggal:     model.ParseDate("02/02/2026"),
+			Customer:    "Customer Cancelled",
+			Area:        "Lombok Barat",
+			NamaBarang:  "Barang 3",
+			Jumlah:      "8",
+			Satuan:      "BOX",
+			StatusOrder: "BATAL",
+		},
+		{
+			RowIndex:    5,
+			Tanggal:     model.ParseDate("02/02/2026"),
+			Customer:    "Customer Cancelled",
+			Area:        "Lombok Barat",
+			NamaBarang:  "Barang 4",
+			Jumlah:      "12",
+			Satuan:      "BOX",
+			StatusOrder: "CANCEL",
+		},
+		// Active completed order items (ORD-ACTIVE): 1 SELESAI
+		{
+			RowIndex:    6,
+			Tanggal:     model.ParseDate("03/02/2026"),
+			Customer:    "Customer Active",
+			Area:        "Lombok Tengah",
+			NamaBarang:  "Barang 5",
+			Jumlah:      "15",
+			Satuan:      "BOX",
+			StatusOrder: "SELESAI",
+		},
+	}
+
+	orders := []model.Order{
+		{
+			ID:       "ORD-MIXED",
+			Tanggal:  model.ParseDate("01/02/2026"),
+			Customer: "Customer Mixed",
+			Area:     "Mataram",
+			Items: []model.OrderItem{
+				{
+					RowIndex:    2,
+					NamaBarang:  "Barang 1",
+					Jumlah:      "10",
+					Satuan:      "BOX",
+					StatusOrder: "BATAL",
+				},
+				{
+					RowIndex:    3,
+					NamaBarang:  "Barang 2",
+					Jumlah:      "5",
+					Satuan:      "BOX",
+					StatusOrder: "SELESAI",
+				},
+			},
+		},
+		{
+			ID:       "ORD-ALL-CANCELLED",
+			Tanggal:  model.ParseDate("02/02/2026"),
+			Customer: "Customer Cancelled",
+			Area:     "Lombok Barat",
+			Items: []model.OrderItem{
+				{
+					RowIndex:    4,
+					NamaBarang:  "Barang 3",
+					Jumlah:      "8",
+					Satuan:      "BOX",
+					StatusOrder: "BATAL",
+				},
+				{
+					RowIndex:    5,
+					NamaBarang:  "Barang 4",
+					Jumlah:      "12",
+					Satuan:      "BOX",
+					StatusOrder: "CANCEL",
+				},
+			},
+		},
+		{
+			ID:       "ORD-ACTIVE",
+			Tanggal:  model.ParseDate("03/02/2026"),
+			Customer: "Customer Active",
+			Area:     "Lombok Tengah",
+			Items: []model.OrderItem{
+				{
+					RowIndex:    6,
+					NamaBarang:  "Barang 5",
+					Jumlah:      "15",
+					Satuan:      "BOX",
+					StatusOrder: "SELESAI",
+				},
+			},
+		},
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// 1. Unfiltered query must retrieve all orders including mixed order
+	allOrders, totalAll, err := store.GetOrders(ctx, storage.OrderFilter{})
+	if err != nil {
+		t.Fatalf("GetOrders all failed: %v", err)
+	}
+	if totalAll != 3 || len(allOrders) != 3 {
+		t.Fatalf("expected 3 orders without filter, got total=%d len=%d", totalAll, len(allOrders))
+	}
+	foundMixed := false
+	for _, ord := range allOrders {
+		if ord.ID == "ORD-MIXED" {
+			foundMixed = true
+			break
+		}
+	}
+	if !foundMixed {
+		t.Errorf("expected ORD-MIXED to be retrievable without filter")
+	}
+
+	// 2. Filter by BATAL must only return the all-cancelled order
+	batalOrders, totalBatal, err := store.GetOrders(ctx, storage.OrderFilter{Status: "BATAL"})
+	if err != nil {
+		t.Fatalf("GetOrders BATAL failed: %v", err)
+	}
+	if totalBatal != 1 || len(batalOrders) != 1 {
+		t.Fatalf("expected exactly 1 order for BATAL filter, got total=%d len=%d", totalBatal, len(batalOrders))
+	}
+	if batalOrders[0].ID != "ORD-ALL-CANCELLED" {
+		t.Errorf("expected ORD-ALL-CANCELLED, got %q", batalOrders[0].ID)
+	}
+
+	// 3. Case-insensitive and trimmed filter check
+	ciOrders, totalCI, err := store.GetOrders(ctx, storage.OrderFilter{Status: "  batal  "})
+	if err != nil {
+		t.Fatalf("GetOrders '  batal  ' failed: %v", err)
+	}
+	if totalCI != 1 || len(ciOrders) != 1 || ciOrders[0].ID != "ORD-ALL-CANCELLED" {
+		t.Errorf("expected 1 order with ID ORD-ALL-CANCELLED for '  batal  ', got total=%d", totalCI)
+	}
+
+	// 4. Non-cancellation status (SELESAI) preserves any-matching-item semantics
+	selesaiOrders, totalSelesai, err := store.GetOrders(ctx, storage.OrderFilter{Status: "SELESAI"})
+	if err != nil {
+		t.Fatalf("GetOrders SELESAI failed: %v", err)
+	}
+	if totalSelesai != 2 || len(selesaiOrders) != 2 {
+		t.Fatalf("expected 2 orders with SELESAI status, got total=%d len=%d", totalSelesai, len(selesaiOrders))
+	}
+}
+
 func TestGetTableStats(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.New(":memory:")

@@ -720,6 +720,25 @@ func TestNewEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("GET /api/v1/orders with status=BATAL filter", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/orders?status=BATAL", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var data struct {
+			Total int `json:"total"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		if data.Total != 0 {
+			t.Errorf("expected 0 orders with BATAL, got %d", data.Total)
+		}
+	})
+
 	t.Run("GET /api/v1/items/export CSV", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/items/export?format=csv", nil)
 		resp, err := srv.App().Test(req)
