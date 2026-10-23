@@ -26,6 +26,7 @@ import { TableSkeleton } from '~/components/TableSkeleton';
 import { DataTablePagination } from '../components/data-table-pagination';
 import { SortableTableHead } from '~/components/SortableTableHead';
 import { createUrlFilter } from '../utils/tableFilters';
+import { DeliveryDateBadges } from '~/components/DeliveryDateBadges';
 
 const VALID_STATUS_ORDERS = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
 const STATUS_BARANG_OPTIONS = ['All', 'PROSES ORDER', 'STOK GUDANG', 'STOK KOSONG', 'DELIVERY VENDOR', 'DONE', 'OTHER'] as const;
@@ -388,7 +389,7 @@ export const Items: Component = () => {
                             <Badge status={item.status_barang} kind="item" />
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground">
-                            {item.tanggal_pengiriman || '-'}
+                            <DeliveryDateBadges date={item.tanggal_pengiriman} />
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground max-w-[200px] truncate">
                             {item.keterangan || item.catatan || '-'}

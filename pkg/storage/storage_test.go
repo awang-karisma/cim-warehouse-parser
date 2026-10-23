@@ -2835,6 +2835,19 @@ func TestStorage_DeliveryStatsAndSorting(t *testing.T) {
 		t.Errorf("expected deliveries in date DESC order, got: %s, %s, %s",
 			delsDesc[0].DeliveryDate, delsDesc[1].DeliveryDate, delsDesc[2].DeliveryDate)
 	}
+	// Check Delivery Sorting (Date ASC)
+	delsAsc, _, err := store.GetDeliveries(ctx, storage.DeliveryFilter{Sort: "date", Order: "asc"})
+	if err != nil {
+		t.Fatalf("GetDeliveries date asc failed: %v", err)
+	}
+	if len(delsAsc) != 3 {
+		t.Fatalf("expected 3 deliveries, got %d", len(delsAsc))
+	}
+	if delsAsc[0].DeliveryDate != "2026-02-10" || delsAsc[1].DeliveryDate != "2026-02-20" || delsAsc[2].DeliveryDate != "2026-02-25" {
+		t.Errorf("expected deliveries in date ASC order, got: %s, %s, %s",
+			delsAsc[0].DeliveryDate, delsAsc[1].DeliveryDate, delsAsc[2].DeliveryDate)
+	}
+
 
 	// 3. Check Delivery Sorting (Customer ASC)
 	delsCust, _, err := store.GetDeliveries(ctx, storage.DeliveryFilter{Sort: "customer", Order: "asc"})

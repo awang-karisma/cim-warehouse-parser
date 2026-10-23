@@ -51,6 +51,7 @@ Automated order ingestion, normalization, and visualization system.
   - Streamlined expandable order rows on the Orders page with an embedded 5-column line items tray (`#`, `Item Name`, `Progress`, `Status Order`, `Status Barang`), progress bar with `sent / ordered` count, and row-level navigation to order details.
   - Cohesive order-level cancellation status dominance (orders are marked `BATAL` only when every line item is cancelled; mixed orders preserve active priority) synchronized across Orders list, Dashboard, Order Detail, and order status filter.
   - Calculated workday lead time engine with admin-managed date-effective schedule history (`workday_policies`), immediate stored record recalculation, and chronological audit trail.
+  - Compact delivery date presentation across Items and Order Detail using per-shipment secondary badges with unit-free quantities (`DD/MM/YYYY (qty)`). Delivery Timeline features a normalized date column (`YYYY-MM-DD`) with strict calendar validation, chronologically sorted with invalid entries last, and a dedicated Delivered Qty column before Delivery Progress. Order Detail and Delivery Timeline display sent/ordered counts with item units beneath progress bars.
   - Mobile-responsive layout: viewport-constrained flex shell, auto-dismissing mobile navigation drawer, reflowing search and filter toolbars, and phone-fitted modals and dialogs.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.
 ---

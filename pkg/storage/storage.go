@@ -1429,18 +1429,27 @@ func itemSortSQL(sortField, direction string) string {
 func deliverySortSQL(sortField, direction string) string {
 	dir := normalizedSortDirection(direction)
 	dateExpr := `CASE
-		WHEN length(d.delivery_date) = 10 AND substr(d.delivery_date, 3, 1) = '/' AND substr(d.delivery_date, 6, 1) = '/'
+		WHEN d.delivery_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'
+		THEN substr(d.delivery_date, 1, 10)
+		WHEN d.delivery_date GLOB '[0-9][0-9]/[0-9][0-9]/[0-9][0-9][0-9][0-9]'
 		THEN substr(d.delivery_date, 7, 4) || '-' || substr(d.delivery_date, 4, 2) || '-' || substr(d.delivery_date, 1, 2)
-		ELSE d.delivery_date
+		WHEN d.delivery_date GLOB '[0-9]/[0-9][0-9]/[0-9][0-9][0-9][0-9]'
+		THEN substr(d.delivery_date, 6, 4) || '-' || substr(d.delivery_date, 3, 2) || '-0' || substr(d.delivery_date, 1, 1)
+		WHEN d.delivery_date GLOB '[0-9][0-9]/[0-9]/[0-9][0-9][0-9][0-9]'
+		THEN substr(d.delivery_date, 6, 4) || '-0' || substr(d.delivery_date, 4, 1) || '-' || substr(d.delivery_date, 1, 2)
+		WHEN d.delivery_date GLOB '[0-9]/[1-9]/[0-9][0-9][0-9][0-9]'
+		THEN substr(d.delivery_date, 5, 4) || '-0' || substr(d.delivery_date, 3, 1) || '-0' || substr(d.delivery_date, 1, 1)
+		ELSE ''
 	END`
+	validOrder := fmt.Sprintf("CASE WHEN (%s) = '' THEN 1 ELSE 0 END ASC", dateExpr)
 	cleanField := strings.ToLower(strings.TrimSpace(sortField))
 	switch cleanField {
 	case "customer":
-		return fmt.Sprintf("i.customer COLLATE NOCASE %s, %s DESC, d.id DESC", dir, dateExpr)
+		return fmt.Sprintf("i.customer COLLATE NOCASE %s, %s, %s DESC, d.id DESC", dir, validOrder, dateExpr)
 	case "status", "status_order":
-		return fmt.Sprintf("i.status_order COLLATE NOCASE %s, %s DESC, d.id DESC", dir, dateExpr)
+		return fmt.Sprintf("i.status_order COLLATE NOCASE %s, %s, %s DESC, d.id DESC", dir, validOrder, dateExpr)
 	default:
-		return fmt.Sprintf("%s %s, d.id %s", dateExpr, dir, dir)
+		return fmt.Sprintf("%s, %s %s, d.id %s", validOrder, dateExpr, dir, dir)
 	}
 }
 
@@ -1911,6 +1920,9 @@ func (s *Storage) GetDeliveries(ctx context.Context, filter DeliveryFilter) ([]D
 		}
 		di.Item.Tanggal = parseStoredDate(tanggalVal)
 		di.Item.OrderID = ordID
+		if t := model.ParseDate(di.DeliveryDate); !t.IsZero() {
+			di.DeliveryDate = t.Format("2006-01-02")
+		}
 		deliveries = append(deliveries, di)
 	}
 	if err := rows.Err(); err != nil {

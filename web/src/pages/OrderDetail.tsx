@@ -26,6 +26,7 @@ import { sortRows, nextSortState, type SortState } from '~/utils/tableSorting';
 import { ItemProgress } from '~/components/ItemProgress';
 import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
 import { getDominantOrderStatus } from '~/utils/orderStatus';
+import { DeliveryDateBadges } from '~/components/DeliveryDateBadges';
 
 const formatHumanDate = (dateStr?: string) => {
   if (!dateStr) return '-';
@@ -297,16 +298,21 @@ export const OrderDetail: Component = () => {
                             {item.jumlah} {item.satuan}
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground">
-                            {item.tanggal_pengiriman || '-'}
+                            <DeliveryDateBadges date={item.tanggal_pengiriman} />
                           </TableCell>
                           <TableCell class="text-xs text-muted-foreground">
                             {item.lead_time_pengiriman ? `${item.lead_time_pengiriman}d` : '-'}
                           </TableCell>
                           <TableCell>
-                            <ItemProgress
-                              terkirim={item.jumlah_terkirim}
-                              total={item.jumlah}
-                            />
+                            <div class="flex flex-col gap-1 min-w-[120px] max-w-[200px]">
+                              <ItemProgress
+                                terkirim={item.jumlah_terkirim}
+                                total={item.jumlah}
+                              />
+                              <span class="text-[11px] font-mono text-muted-foreground">
+                                {item.jumlah_terkirim || '0'} / {item.jumlah || '0'}{item.satuan ? ` ${item.satuan}` : ''}
+                              </span>
+                            </div>
                           </TableCell>
                           <TableCell class="text-right font-mono text-xs">
                             {item.jumlah_terkirim || '0'} / {item.belum_terkirim || '0'}

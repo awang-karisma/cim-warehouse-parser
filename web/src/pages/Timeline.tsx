@@ -32,44 +32,16 @@ import { Badge as UiBadge } from '~/components/ui/badge';
 import { SortableTableHead } from '~/components/SortableTableHead';
 import { DataTablePagination } from '../components/data-table-pagination';
 import { createUrlFilter } from '../utils/tableFilters';
+import { normalizeDeliveryDate } from '~/components/DeliveryDateBadges';
+import { ItemProgress } from '~/components/ItemProgress';
 
-const DeliveryProgress: Component<{ terkirim: string | number; total: string | number }> = (props) => {
-  const percent = createMemo(() => {
-    const t = parseFloat(String(props.total)) || 0;
-    const sent = parseFloat(String(props.terkirim)) || 0;
-    if (t <= 0) return 100;
-    return Math.min(100, Math.max(0, Math.round((sent / t) * 100)));
-  });
-
-  const barColor = createMemo(() => {
-    const p = percent();
-    if (p >= 100) return 'bg-status-selesai';
-    if (p > 0) return 'bg-status-proses';
-    return 'bg-status-pending';
-  });
-
-  return (
-    <div class="flex items-center gap-2">
-      <div class="flex-1 h-2 bg-secondary rounded-full overflow-hidden min-w-[60px]">
-        <div
-          class={`h-full rounded-full transition-all duration-300 ${barColor()}`}
-          style={{ width: `${percent()}%` }}
-        />
-      </div>
-      <span class="text-xs font-semibold w-8 text-right text-muted-foreground">{percent()}%</span>
-    </div>
-  );
-};
-
-const formatDeliveryDate = (dateStr?: string): string => {
-  if (!dateStr) return '-';
-  const trimmed = dateStr.trim();
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) {
-    const [, y, m, d] = isoMatch;
-    return `${d}/${m}/${y}`;
+const formatShippedQuantity = (qty?: string, unit?: string): string => {
+  if (!qty || qty.trim() === '' || qty.trim() === '-') return '-';
+  const trimmedQty = qty.trim();
+  if (!unit || unit.trim() === '' || trimmedQty.toLowerCase().endsWith(unit.trim().toLowerCase())) {
+    return trimmedQty;
   }
-  return trimmed;
+  return `${trimmedQty} ${unit.trim()}`;
 };
 
 const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
@@ -139,6 +111,7 @@ export const Timeline: Component = () => {
   const handleSort = (field: string) => {
     const currentSort = filters.values.sort();
     const currentOrder = filters.values.order();
+    filters.setters.offset(0);
     if (currentSort === field) {
       filters.setters.order(currentOrder === 'asc' ? 'desc' : 'asc');
     } else {
@@ -251,7 +224,7 @@ export const Timeline: Component = () => {
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
                   Delivery Date
                 </TextFieldLabel>
-                <TextFieldInput placeholder="DD/MM/YYYY" class="h-9 w-full" />
+                <TextFieldInput type="date" class="h-9 w-full" />
               </TextField>
             </div>
 
@@ -290,7 +263,6 @@ export const Timeline: Component = () => {
                     direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
-                  <TableHead>Shipment Qty</TableHead>
                   <SortableTableHead
                     field="customer"
                     label="Customer"
@@ -299,8 +271,8 @@ export const Timeline: Component = () => {
                   />
                   <TableHead>Area</TableHead>
                   <TableHead>Item Name</TableHead>
-                  <TableHead class="text-right">Order Qty</TableHead>
                   <TableHead>Lead Time</TableHead>
+                  <TableHead>Delivered Qty</TableHead>
                   <TableHead class="min-w-[120px]">Delivery Progress</TableHead>
                   <TableHead>Remaining</TableHead>
                   <SortableTableHead
@@ -315,14 +287,14 @@ export const Timeline: Component = () => {
                 <Show
                   when={!deliveriesData.loading}
                   fallback={
-                    <TableSkeleton columns={10} rows={5} />
+                    <TableSkeleton columns={9} rows={5} />
                   }
                 >
                   <Show
                     when={deliveriesList().length > 0}
                     fallback={
                       <TableRow>
-                        <TableCell colspan={10} class="h-24 text-center text-muted-foreground">
+                        <TableCell colspan={9} class="h-24 text-center text-muted-foreground">
                           No shipments with delivery dates recorded
                         </TableCell>
                       </TableRow>
@@ -340,15 +312,8 @@ export const Timeline: Component = () => {
                             }
                           }}
                         >
-                          <TableCell class="font-medium text-xs font-mono">
-                            {formatDeliveryDate(del.delivery_date)}
-                          </TableCell>
-                          <TableCell class="text-xs">
-                            {del.shipped_quantity
-                              ? del.item.satuan
-                                ? `${del.shipped_quantity} ${del.item.satuan}`
-                                : del.shipped_quantity
-                              : '-'}
+                          <TableCell class="text-xs text-muted-foreground">
+                            {normalizeDeliveryDate(del.delivery_date)}
                           </TableCell>
                           <TableCell class="font-medium text-xs">{del.item.customer}</TableCell>
                           <TableCell class="text-xs text-muted-foreground">{del.item.area}</TableCell>
@@ -369,9 +334,6 @@ export const Timeline: Component = () => {
                               </span>
                             </Show>
                           </TableCell>
-                          <TableCell class="text-right text-xs">
-                            {del.item.jumlah} {del.item.satuan}
-                          </TableCell>
                           <TableCell>
                             <Show when={del.item.lead_time_pengiriman} fallback={<span class="text-muted-foreground">-</span>}>
                               <UiBadge variant="secondary" class="font-mono text-xs">
@@ -379,11 +341,19 @@ export const Timeline: Component = () => {
                               </UiBadge>
                             </Show>
                           </TableCell>
+                          <TableCell class="text-xs font-medium">
+                            {formatShippedQuantity(del.shipped_quantity, del.item.satuan)}
+                          </TableCell>
                           <TableCell class="min-w-[120px]">
-                            <DeliveryProgress
-                              terkirim={del.item.jumlah_terkirim}
-                              total={del.item.jumlah}
-                            />
+                            <div class="flex flex-col gap-1 min-w-[120px] max-w-[180px]">
+                              <ItemProgress
+                                terkirim={del.item.jumlah_terkirim}
+                                total={del.item.jumlah}
+                              />
+                              <span class="text-[11px] font-mono text-muted-foreground">
+                                {del.item.jumlah_terkirim || '0'} / {del.item.jumlah || '0'}{del.item.satuan ? ` ${del.item.satuan}` : ''}
+                              </span>
+                            </div>
                           </TableCell>
                           <TableCell class="text-xs">
                             <Show
