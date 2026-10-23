@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
+	"github.com/awang-karisma/warehouse-parser/pkg/normalizer"
 	"github.com/awang-karisma/warehouse-parser/pkg/parser"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"google.golang.org/api/sheets/v4"
@@ -136,7 +137,7 @@ func New(cfg Config, store *storage.Storage, fetcher Fetcher) (*Worker, error) {
 		}
 	}
 
-	loc, err := parseTimezone(cfg.Timezone)
+	loc, err := ParseTimezone(cfg.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse timezone: %w", err)
 	}
@@ -187,8 +188,8 @@ func parseTimeOfDay(s string) (int, error) {
 	return hour*60 + min, nil
 }
 
-// parseTimezone loads or creates a Location for the given timezone identifier.
-func parseTimezone(tz string) (*time.Location, error) {
+// ParseTimezone loads or creates a Location for the given timezone identifier.
+func ParseTimezone(tz string) (*time.Location, error) {
 	clean := strings.TrimSpace(tz)
 	switch strings.ToUpper(clean) {
 	case "UTC+8", "GMT+8", "+08:00":
@@ -330,6 +331,21 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		return fmt.Errorf("failed to load customer aliases: %w", err)
 	}
 
+	policies, err := w.store.GetWorkdayPolicies(ctx)
+	if err != nil {
+		duration := time.Since(startTime)
+		w.mu.Lock()
+		w.lastRunTime = startTime
+		w.lastDuration = duration
+		w.status = "ERROR"
+		w.lastError = err.Error()
+		w.mu.Unlock()
+
+		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, fmt.Sprintf("failed to load workday policies: %v", err), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: "ERROR", Error: fmt.Sprintf("failed to load workday policies: %v", err), DurationMs: duration.Milliseconds()})
+		return fmt.Errorf("failed to load workday policies: %w", err)
+	}
+
 	items, orders, err := w.fetcher.Fetch(ctx, aliases)
 	if err != nil {
 		duration := time.Since(startTime)
@@ -343,6 +359,30 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, err.Error(), duration.Milliseconds())
 		w.broadcast(SyncEvent{Status: "ERROR", Error: err.Error(), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("fetch failed: %w", err)
+	}
+
+	// Recompute lead time for both flat items and nested order items against full policy history
+	for i := range items {
+		items[i].LeadTimePengiriman = normalizer.CalculateLeadTime(
+			items[i].Tanggal,
+			items[i].TanggalPengiriman,
+			items[i].Jumlah,
+			items[i].JumlahTerkirim,
+			items[i].StatusOrder,
+			policies,
+		)
+	}
+	for i := range orders {
+		for j := range orders[i].Items {
+			orders[i].Items[j].LeadTimePengiriman = normalizer.CalculateLeadTime(
+				orders[i].Tanggal,
+				orders[i].Items[j].TanggalPengiriman,
+				orders[i].Items[j].Jumlah,
+				orders[i].Items[j].JumlahTerkirim,
+				orders[i].Items[j].StatusOrder,
+				policies,
+			)
+		}
 	}
 
 	w.broadcast(SyncEvent{Status: "SYNCING", Message: "writing to database"})

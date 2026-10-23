@@ -326,6 +326,12 @@ func (s *Storage) migrate() error {
 		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	);
 	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+	CREATE TABLE IF NOT EXISTS workday_policies (
+		effective_from TEXT PRIMARY KEY,
+		work_days TEXT NOT NULL,
+		changed_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -340,6 +346,12 @@ func (s *Storage) migrate() error {
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_items_order_number ON items(order_number);`)
 	_, _ = s.db.Exec(`ALTER TABLE sync_history ADD COLUMN duration_ms INTEGER DEFAULT 0;`)
 	_, _ = s.db.Exec(`ALTER TABLE customer_aliases ADD COLUMN area TEXT NOT NULL DEFAULT '';`)
+
+	seedPolicyJSON, _ := json.Marshal(normalizer.BaselineWorkDays)
+	_, _ = s.db.Exec(`
+		INSERT OR IGNORE INTO workday_policies (effective_from, work_days, changed_at)
+		VALUES ('0001-01-01', ?, datetime('now'));
+	`, string(seedPolicyJSON))
 
 	// Migrate legacy DD/MM/YYYY dates in orders and items tables to ISO YYYY-MM-DD
 	if err := s.migrateTanggal(); err != nil {
@@ -2507,7 +2519,7 @@ func (s *Storage) DeleteUser(ctx context.Context, email string) error {
 }
 
 // ClearData atomically clears items, orders, deliveries, and sync_history.
-// Customer aliases and users are preserved.
+// Customer aliases, users, and workday policies are preserved.
 func (s *Storage) ClearData(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -2526,6 +2538,166 @@ func (s *Storage) ClearData(ctx context.Context) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit clear transaction: %w", err)
+	}
+
+	return nil
+}
+
+// GetWorkdayPolicies returns all configured workday policies ordered by effective date ascending.
+func (s *Storage) GetWorkdayPolicies(ctx context.Context) ([]model.WorkdayPolicy, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT effective_from, work_days
+		FROM workday_policies
+		ORDER BY effective_from ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workday policies: %w", err)
+	}
+	defer rows.Close()
+
+	policies := make([]model.WorkdayPolicy, 0)
+	for rows.Next() {
+		var p model.WorkdayPolicy
+		var workDaysJSON string
+		if err := rows.Scan(&p.EffectiveFrom, &workDaysJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan workday policy: %w", err)
+		}
+		if err := json.Unmarshal([]byte(workDaysJSON), &p.WorkDays); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal work days JSON: %w", err)
+		}
+		policies = append(policies, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating workday policies: %w", err)
+	}
+	if len(policies) == 0 {
+		return normalizer.BaselineWorkdayPolicies, nil
+	}
+	return policies, nil
+}
+
+// SetWorkdayPolicy sets or replaces a workday policy for a specific effective date,
+// then immediately recalculates the lead_time_pengiriman for all stored items inside the same transaction.
+// If any error occurs, the entire transaction rolls back.
+func (s *Storage) SetWorkdayPolicy(ctx context.Context, effectiveFrom string, workDays []string) error {
+	trimmedEffective := strings.TrimSpace(effectiveFrom)
+	if trimmedEffective == "" {
+		return fmt.Errorf("effective_from cannot be empty")
+	}
+	if len(workDays) == 0 {
+		return fmt.Errorf("work_days cannot be empty")
+	}
+
+	workDaysJSON, err := json.Marshal(workDays)
+	if err != nil {
+		return fmt.Errorf("failed to marshal work days: %w", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Upsert the policy for effectiveFrom; replaces existing rule for the same date
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO workday_policies (effective_from, work_days, changed_at)
+		VALUES (?, ?, datetime('now'))
+		ON CONFLICT(effective_from) DO UPDATE SET
+			work_days = excluded.work_days,
+			changed_at = excluded.changed_at
+	`, trimmedEffective, string(workDaysJSON))
+	if err != nil {
+		return fmt.Errorf("failed to upsert workday policy: %w", err)
+	}
+
+	// Read all policies within transaction to compute against updated history
+	pRows, err := tx.QueryContext(ctx, `
+		SELECT effective_from, work_days
+		FROM workday_policies
+		ORDER BY effective_from ASC
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to load policies in transaction: %w", err)
+	}
+	var allPolicies []model.WorkdayPolicy
+	for pRows.Next() {
+		var p model.WorkdayPolicy
+		var rawJSON string
+		if err := pRows.Scan(&p.EffectiveFrom, &rawJSON); err != nil {
+			pRows.Close()
+			return fmt.Errorf("failed to scan policy: %w", err)
+		}
+		if err := json.Unmarshal([]byte(rawJSON), &p.WorkDays); err != nil {
+			pRows.Close()
+			return fmt.Errorf("failed to parse policy work days: %w", err)
+		}
+		allPolicies = append(allPolicies, p)
+	}
+	pRows.Close()
+	if err := pRows.Err(); err != nil {
+		return fmt.Errorf("error reading policies: %w", err)
+	}
+
+	// Recompute lead_time_pengiriman for every stored item
+	itemRows, err := tx.QueryContext(ctx, `
+		SELECT id, tanggal, tanggal_pengiriman, jumlah, jumlah_terkirim, status_order
+		FROM items
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to query items for recalculation: %w", err)
+	}
+	defer itemRows.Close()
+
+	type itemToUpdate struct {
+		id          int64
+		newLeadTime string
+	}
+	var updates []itemToUpdate
+
+	for itemRows.Next() {
+		var id int64
+		var tanggalStr, delivText, qtyText, sentText, statusText sql.NullString
+		if err := itemRows.Scan(&id, &tanggalStr, &delivText, &qtyText, &sentText, &statusText); err != nil {
+			return fmt.Errorf("failed to scan item: %w", err)
+		}
+		var orderDate time.Time
+		if tanggalStr.Valid {
+			orderDate = model.ParseDate(tanggalStr.String)
+		}
+		newLead := normalizer.CalculateLeadTime(
+			orderDate,
+			delivText.String,
+			qtyText.String,
+			sentText.String,
+			statusText.String,
+			allPolicies,
+		)
+		updates = append(updates, itemToUpdate{id: id, newLeadTime: newLead})
+	}
+	if err := itemRows.Err(); err != nil {
+		return fmt.Errorf("error scanning items: %w", err)
+	}
+	itemRows.Close()
+
+	if len(updates) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `UPDATE items SET lead_time_pengiriman = ? WHERE id = ?`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare item update: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, u := range updates {
+			if _, err := stmt.ExecContext(ctx, u.newLeadTime, u.id); err != nil {
+				return fmt.Errorf("failed to update item %d lead time: %w", u.id, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit workday policy update: %w", err)
 	}
 
 	return nil

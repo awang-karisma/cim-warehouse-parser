@@ -2666,3 +2666,160 @@ func TestStorage_DeliveryStatsAndSorting(t *testing.T) {
 			delsCust[0].Item.Customer, delsCust[2].Item.Customer)
 	}
 }
+
+func TestStorage_WorkdayPolicies(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	// 1. Migration Seed
+	policies, err := store.GetWorkdayPolicies(ctx)
+	if err != nil {
+		t.Fatalf("failed to get workday policies: %v", err)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("expected 1 initial policy, got %d", len(policies))
+	}
+	if policies[0].EffectiveFrom != "0001-01-01" {
+		t.Errorf("expected effective_from 0001-01-01, got %q", policies[0].EffectiveFrom)
+	}
+	if len(policies[0].WorkDays) != 6 {
+		t.Errorf("expected 6 baseline work days, got %d", len(policies[0].WorkDays))
+	}
+
+	// 2. Ordering
+	// Insert out of chronological order
+	if err := store.SetWorkdayPolicy(ctx, "2026-03-01", []string{"Monday", "Wednesday"}); err != nil {
+		t.Fatalf("failed to set policy 2026-03-01: %v", err)
+	}
+	if err := store.SetWorkdayPolicy(ctx, "2026-01-15", []string{"Monday", "Tuesday"}); err != nil {
+		t.Fatalf("failed to set policy 2026-01-15: %v", err)
+	}
+	if err := store.SetWorkdayPolicy(ctx, "2026-02-01", []string{"Monday", "Tuesday", "Wednesday"}); err != nil {
+		t.Fatalf("failed to set policy 2026-02-01: %v", err)
+	}
+
+	policies, err = store.GetWorkdayPolicies(ctx)
+	if err != nil {
+		t.Fatalf("failed to get policies: %v", err)
+	}
+	if len(policies) != 4 {
+		t.Fatalf("expected 4 policies, got %d", len(policies))
+	}
+	expectedOrder := []string{"0001-01-01", "2026-01-15", "2026-02-01", "2026-03-01"}
+	for i, exp := range expectedOrder {
+		if policies[i].EffectiveFrom != exp {
+			t.Errorf("policy %d: expected %s, got %s", i, exp, policies[i].EffectiveFrom)
+		}
+	}
+
+	// 3. Same-Date Replacement
+	if err := store.SetWorkdayPolicy(ctx, "2026-01-15", []string{"Monday", "Friday"}); err != nil {
+		t.Fatalf("failed to replace policy 2026-01-15: %v", err)
+	}
+	policies, err = store.GetWorkdayPolicies(ctx)
+	if err != nil {
+		t.Fatalf("failed to get policies: %v", err)
+	}
+	if len(policies) != 4 {
+		t.Fatalf("expected still 4 policies after same-date replacement, got %d", len(policies))
+	}
+	if policies[1].EffectiveFrom != "2026-01-15" || len(policies[1].WorkDays) != 2 || policies[1].WorkDays[1] != "Friday" {
+		t.Errorf("expected replaced 2026-01-15 policy with Friday, got %+v", policies[1])
+	}
+
+	// 4. Rollback on invalid parameters
+	if err := store.SetWorkdayPolicy(ctx, "", []string{"Monday"}); err == nil {
+		t.Errorf("expected error for empty effective_from, got nil")
+	}
+	if err := store.SetWorkdayPolicy(ctx, "2026-04-01", []string{}); err == nil {
+		t.Errorf("expected error for empty work_days, got nil")
+	}
+	// Verify no partial record was inserted for 2026-04-01
+	policies, _ = store.GetWorkdayPolicies(ctx)
+	if len(policies) != 4 {
+		t.Errorf("expected policies unchanged at 4 after failed calls, got %d", len(policies))
+	}
+
+	// 5. Immediate Persisted-Item Recalculation
+	// Sync an item with order date 2026-01-05 (Monday) delivered 2026-01-12 (next Monday)
+	testItem := model.NormalizedItem{
+		RowIndex:           2,
+		Tanggal:            model.ParseDate("05/01/2026"),
+		Customer:           "RS Test Recalc",
+		Area:               "Mataram",
+		NamaBarang:         "Item 1",
+		Jumlah:             "10",
+		Satuan:             "BOX",
+		TanggalPengiriman:  "12/01/2026",
+		LeadTimePengiriman: "6", // Mon-Sat initially yields 6
+		JumlahTerkirim:     "10",
+		BelumTerkirim:      "0",
+		StatusOrder:        "SELESAI",
+		StatusBarang:       "READY",
+	}
+	testOrder := model.Order{
+		ID:       "ORD-9999",
+		Tanggal:  model.ParseDate("05/01/2026"),
+		Customer: "RS Test Recalc",
+		Area:     "Mataram",
+		Items: []model.OrderItem{
+			{
+				RowIndex:           2,
+				NamaBarang:         "Item 1",
+				Jumlah:             "10",
+				TanggalPengiriman:  "12/01/2026",
+				LeadTimePengiriman: "6",
+				JumlahTerkirim:     "10",
+				StatusOrder:        "SELESAI",
+			},
+		},
+	}
+	if err := store.SyncMirror(ctx, []model.NormalizedItem{testItem}, []model.Order{testOrder}); err != nil {
+		t.Fatalf("failed to sync mirror: %v", err)
+	}
+
+	// Verify item was stored
+	itemsBefore, _, err := store.GetItems(ctx, storage.ItemFilter{})
+	if err != nil || len(itemsBefore) == 0 {
+		t.Fatalf("failed to get items before recalc: %v", err)
+	}
+
+	// Set a policy effective 2026-01-01 (before 2026-01-05) that only allows Mon-Fri
+	if err := store.SetWorkdayPolicy(ctx, "2026-01-01", []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"}); err != nil {
+		t.Fatalf("failed to set 2026-01-01 Mon-Fri policy: %v", err)
+	}
+
+	// Check that stored item lead time was immediately recalculated to "5"
+	itemsAfter, _, err := store.GetItems(ctx, storage.ItemFilter{})
+	if err != nil || len(itemsAfter) == 0 {
+		t.Fatalf("failed to get items after recalc: %v", err)
+	}
+	if itemsAfter[0].LeadTimePengiriman != "5" {
+		t.Errorf("expected recalculated lead time '5', got %q", itemsAfter[0].LeadTimePengiriman)
+	}
+
+	// Check that order item lead time is also "5"
+	orderAfter, err := store.GetOrderByID(ctx, "ORD-9999")
+	if err != nil {
+		t.Fatalf("failed to get order: %v", err)
+	}
+	if len(orderAfter.Items) == 0 || orderAfter.Items[0].LeadTimePengiriman != "5" {
+		t.Errorf("expected order item recalculated lead time '5', got %q", orderAfter.Items[0].LeadTimePengiriman)
+	}
+
+	// 6. Preservation across ClearData
+	if err := store.ClearData(ctx); err != nil {
+		t.Fatalf("failed to clear data: %v", err)
+	}
+	policiesAfterClear, err := store.GetWorkdayPolicies(ctx)
+	if err != nil {
+		t.Fatalf("failed to get policies after clear: %v", err)
+	}
+	if len(policiesAfterClear) < 5 {
+		t.Errorf("expected workday policies to be preserved across ClearData, got %d policies", len(policiesAfterClear))
+	}
+}

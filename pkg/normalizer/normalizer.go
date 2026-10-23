@@ -5,6 +5,7 @@ package normalizer
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -67,6 +68,152 @@ func ParseDeliveryEntries(raw string) []DeliveryEntry {
 		}
 	}
 	return entries
+}
+
+// BaselineWorkDays defines the default Monday–Saturday active workdays.
+var BaselineWorkDays = []string{
+	"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+}
+
+// BaselineWorkdayPolicies provides the fallback Monday–Saturday policy effective from 0001-01-01.
+var BaselineWorkdayPolicies = []model.WorkdayPolicy{
+	{
+		EffectiveFrom: "0001-01-01",
+		WorkDays:      BaselineWorkDays,
+	},
+}
+
+// parseQuantity parses a quantity string, accepting both comma and dot decimal separators.
+func parseQuantity(raw string) (float64, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false
+	}
+	trimmed = strings.ReplaceAll(trimmed, ",", ".")
+	if v, err := strconv.ParseFloat(trimmed, 64); err == nil {
+		return v, true
+	}
+	var numericPart string
+	for _, r := range trimmed {
+		if (r >= '0' && r <= '9') || r == '.' || r == '-' || r == '+' {
+			numericPart += string(r)
+		} else if numericPart != "" {
+			break
+		}
+	}
+	if numericPart != "" {
+		if v, err := strconv.ParseFloat(numericPart, 64); err == nil {
+			return v, true
+		}
+	}
+	return 0, false
+}
+
+// formatLeadTime formats a lead time float to at most two decimal places with trailing zeroes removed.
+func formatLeadTime(val float64) string {
+	formatted := fmt.Sprintf("%.2f", val)
+	formatted = strings.TrimRight(formatted, "0")
+	formatted = strings.TrimRight(formatted, ".")
+	if formatted == "" || formatted == "-0" {
+		return "0"
+	}
+	return formatted
+}
+
+// CalculateLeadTime calculates the average lead time in workdays for a line item.
+// It requires status SELESAI (case-insensitive), parseable quantities with sent >= ordered,
+// a valid order date, at least one parseable delivery date, and latest delivery date not before order date.
+// Otherwise, it returns an empty string.
+func CalculateLeadTime(orderDate time.Time, deliveryText, orderedText, sentText, status string, policies []model.WorkdayPolicy) string {
+	if !strings.EqualFold(strings.TrimSpace(status), "SELESAI") {
+		return ""
+	}
+	if orderDate.IsZero() {
+		return ""
+	}
+	ordQty, okOrd := parseQuantity(orderedText)
+	sentQty, okSent := parseQuantity(sentText)
+	if !okOrd || !okSent || sentQty < ordQty {
+		return ""
+	}
+
+	entries := ParseDeliveryEntries(deliveryText)
+	var validDates []time.Time
+	for _, e := range entries {
+		if d := model.ParseDate(e.Date); !d.IsZero() {
+			validDates = append(validDates, time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC))
+		}
+	}
+	if len(validDates) == 0 {
+		parts := strings.FieldsFunc(deliveryText, func(r rune) bool {
+			return r == ',' || r == '\n' || r == ';'
+		})
+		for _, p := range parts {
+			if d := model.ParseDate(p); !d.IsZero() {
+				validDates = append(validDates, time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC))
+			}
+		}
+	}
+	if len(validDates) == 0 {
+		return ""
+	}
+
+	normOrderDate := time.Date(orderDate.Year(), orderDate.Month(), orderDate.Day(), 0, 0, 0, 0, time.UTC)
+	latestValidDeliveryDate := validDates[0]
+	for _, d := range validDates[1:] {
+		if d.After(latestValidDeliveryDate) {
+			latestValidDeliveryDate = d
+		}
+	}
+	if latestValidDeliveryDate.Before(normOrderDate) {
+		return ""
+	}
+
+	orderDateStr := normOrderDate.Format("2006-01-02")
+	var selectedPolicy *model.WorkdayPolicy
+	for i := range policies {
+		p := &policies[i]
+		if p.EffectiveFrom <= orderDateStr {
+			if selectedPolicy == nil || p.EffectiveFrom > selectedPolicy.EffectiveFrom {
+				selectedPolicy = p
+			}
+		}
+	}
+
+	activeDaysList := BaselineWorkDays
+	if selectedPolicy != nil && len(selectedPolicy.WorkDays) > 0 {
+		activeDaysList = selectedPolicy.WorkDays
+	}
+
+	activeWeekdays := make(map[time.Weekday]bool)
+	for _, day := range activeDaysList {
+		switch strings.ToLower(strings.TrimSpace(day)) {
+		case "sunday":
+			activeWeekdays[time.Sunday] = true
+		case "monday":
+			activeWeekdays[time.Monday] = true
+		case "tuesday":
+			activeWeekdays[time.Tuesday] = true
+		case "wednesday":
+			activeWeekdays[time.Wednesday] = true
+		case "thursday":
+			activeWeekdays[time.Thursday] = true
+		case "friday":
+			activeWeekdays[time.Friday] = true
+		case "saturday":
+			activeWeekdays[time.Saturday] = true
+		}
+	}
+
+	workdayCount := 0
+	for cur := normOrderDate.AddDate(0, 0, 1); !cur.After(latestValidDeliveryDate); cur = cur.AddDate(0, 0, 1) {
+		if activeWeekdays[cur.Weekday()] {
+			workdayCount++
+		}
+	}
+
+	avgLeadTime := float64(workdayCount) / float64(len(validDates))
+	return formatLeadTime(avgLeadTime)
 }
 
 // canonicalAreas maps lowercase variations and abbreviations of regional areas to canonical names.
@@ -298,6 +445,15 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 			rowIndex = i + 2 // 1-based index: row 1 is header, data starts at row 2
 		}
 
+		leadTime := CalculateLeadTime(
+			currentTanggal,
+			raw.TanggalPengiriman,
+			raw.Jumlah,
+			raw.JumlahTerkirim,
+			raw.StatusOrder,
+			BaselineWorkdayPolicies,
+		)
+
 		items = append(items, model.NormalizedItem{
 			RowIndex:           rowIndex,
 			OrderNumber:        itemOrderNumber,
@@ -309,7 +465,7 @@ func NormalizeRows(rawRows []model.RawOrderRow) []model.NormalizedItem {
 			Jumlah:             strings.TrimSpace(raw.Jumlah),
 			Satuan:             strings.TrimSpace(raw.Satuan),
 			TanggalPengiriman:  strings.TrimSpace(raw.TanggalPengiriman),
-			LeadTimePengiriman: strings.TrimSpace(raw.LeadTimePengiriman),
+			LeadTimePengiriman: leadTime,
 			JumlahTerkirim:     strings.TrimSpace(raw.JumlahTerkirim),
 			BelumTerkirim:      strings.TrimSpace(raw.BelumTerkirim),
 			StatusOrder:        NormalizeStatusOrder(raw.StatusOrder),

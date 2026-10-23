@@ -1016,3 +1016,93 @@ func (s *Server) handleDeleteCustomerAlias(ctx context.Context, input *DeleteCus
 		Body: StatusOKResponse{Status: "ok"},
 	}, nil
 }
+
+// WorkdayPoliciesResponse defines the payload for workday policies.
+type WorkdayPoliciesResponse struct {
+	Policies []model.WorkdayPolicy `json:"policies"`
+}
+
+type WorkdayPoliciesOutput struct {
+	Body WorkdayPoliciesResponse
+}
+
+type SetWorkdayPolicyInput struct {
+	Body struct {
+		WorkDays []string `json:"work_days" doc:"Canonical English weekday names (Monday..Sunday)"`
+	}
+}
+
+var canonicalWeekdaySet = map[string]bool{
+	"Monday":    true,
+	"Tuesday":   true,
+	"Wednesday": true,
+	"Thursday":  true,
+	"Friday":    true,
+	"Saturday":  true,
+	"Sunday":    true,
+}
+
+func (s *Server) handleGetWorkdayPolicies(ctx context.Context, input *struct{}) (*WorkdayPoliciesOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	policies, err := s.store.GetWorkdayPolicies(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get workday policies", err)
+	}
+	return &WorkdayPoliciesOutput{
+		Body: WorkdayPoliciesResponse{
+			Policies: policies,
+		},
+	}, nil
+}
+
+func (s *Server) handleSetWorkdayPolicy(ctx context.Context, input *SetWorkdayPolicyInput) (*WorkdayPoliciesOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+
+	days := input.Body.WorkDays
+	if len(days) == 0 {
+		return nil, huma.Error400BadRequest("work_days cannot be empty")
+	}
+
+	seen := make(map[string]bool)
+	var validatedDays []string
+	for _, day := range days {
+		dayTrimmed := strings.TrimSpace(day)
+		if !canonicalWeekdaySet[dayTrimmed] {
+			return nil, huma.Error400BadRequest(fmt.Sprintf("invalid weekday name %q, must be canonical English name (e.g. Monday)", day))
+		}
+		if seen[dayTrimmed] {
+			return nil, huma.Error400BadRequest(fmt.Sprintf("duplicate weekday %q", dayTrimmed))
+		}
+		seen[dayTrimmed] = true
+		validatedDays = append(validatedDays, dayTrimmed)
+	}
+
+	tzStr := config.DefaultConfig().Timezone
+	if s.appConfig != nil && strings.TrimSpace(s.appConfig.Timezone) != "" {
+		tzStr = s.appConfig.Timezone
+	}
+	loc, err := worker.ParseTimezone(tzStr)
+	if err != nil {
+		loc = time.UTC
+	}
+	effectiveFrom := time.Now().In(loc).Format("2006-01-02")
+
+	if err := s.store.SetWorkdayPolicy(ctx, effectiveFrom, validatedDays); err != nil {
+		return nil, huma.Error500InternalServerError("failed to set workday policy", err)
+	}
+
+	policies, err := s.store.GetWorkdayPolicies(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to load updated workday policies", err)
+	}
+
+	return &WorkdayPoliciesOutput{
+		Body: WorkdayPoliciesResponse{
+			Policies: policies,
+		},
+	}, nil
+}

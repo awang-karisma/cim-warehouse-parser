@@ -1,4 +1,4 @@
-import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import { type Component, createSignal, createResource, createEffect, Show, For } from 'solid-js';
 import {
   IconDeviceDesktop,
   IconSettings as IconSettingsIcon,
@@ -8,6 +8,9 @@ import {
   IconTrash,
   IconSun,
   IconMoon,
+  IconCalendar,
+  IconCheck,
+  IconAlertCircle,
 } from '@tabler/icons-solidjs';
 import { useColorMode } from '@kobalte/core';
 import { useAuth } from '~/auth';
@@ -17,6 +20,8 @@ import {
   getStatus,
   triggerSync,
   clearDatabase,
+  getWorkdayPolicies,
+  setWorkdayPolicy,
 } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
@@ -37,8 +42,8 @@ import { Button } from '~/components/ui/button';
 import { Separator } from '~/components/ui/separator';
 import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
+import { Badge as UiBadge } from '~/components/ui/badge';
 import { TableSkeleton } from '~/components/TableSkeleton';
-
 export const Settings: Component = () => {
   const { colorMode, setColorMode } = useColorMode();
   const [system] = createResource(getSystemInfo);
@@ -54,6 +59,57 @@ export const Settings: Component = () => {
   const [clearDbMsg, setClearDbMsg] = createSignal<string | null>(null);
   const [clearDbError, setClearDbError] = createSignal<string | null>(null);
 
+
+  const [policiesData, { refetch: refetchPolicies }] = createResource(getWorkdayPolicies);
+  const ALL_WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const [selectedDays, setSelectedDays] = createSignal<string[]>([
+    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+  ]);
+  const [isSavingPolicy, setIsSavingPolicy] = createSignal(false);
+  const [policySaveError, setPolicySaveError] = createSignal<string | null>(null);
+  const [policySaveSuccess, setPolicySaveSuccess] = createSignal<string | null>(null);
+
+  createEffect(() => {
+    const list = policiesData()?.policies;
+    if (list && list.length > 0) {
+      setSelectedDays([...list[list.length - 1].work_days]);
+    }
+  });
+
+  const canEditLeadTime = () => {
+    if (auth.authConfig()?.auth_enabled === false) return true;
+    const role = auth.user()?.role;
+    return role === 'admin' || role === 'superadmin';
+  };
+
+  const toggleWeekday = (day: string) => {
+    if (!canEditLeadTime() || isSavingPolicy()) return;
+    const current = selectedDays();
+    if (current.includes(day)) {
+      if (current.length === 1) return;
+      setSelectedDays(current.filter((d) => d !== day));
+    } else {
+      setSelectedDays([...current, day].sort((a, b) => ALL_WEEKDAYS.indexOf(a) - ALL_WEEKDAYS.indexOf(b)));
+    }
+  };
+
+  const handleSavePolicy = async () => {
+    if (!canEditLeadTime() || isSavingPolicy() || selectedDays().length === 0) return;
+    setIsSavingPolicy(true);
+    setPolicySaveError(null);
+    setPolicySaveSuccess(null);
+    try {
+      const res = await setWorkdayPolicy(selectedDays());
+      await refetchPolicies();
+      const updated = res.policies;
+      const latest = updated && updated.length > 0 ? updated[updated.length - 1] : null;
+      setPolicySaveSuccess(`Saved active workdays (effective ${latest?.effective_from || 'today'}). Stored lead times recalculated.`);
+    } catch (err: unknown) {
+      setPolicySaveError(err instanceof Error ? err.message : 'Failed to save workday policy');
+    } finally {
+      setIsSavingPolicy(false);
+    }
+  };
 
   const [resyncing, setResyncing] = createSignal(false);
   const [resyncMsg, setResyncMsg] = createSignal('');
@@ -230,6 +286,132 @@ export const Settings: Component = () => {
           </div>
         </Card>
       </div>
+
+      {/* Lead Time Workdays Policy Card */}
+      <Card>
+        <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
+          <IconCalendar class="size-5 text-primary" />
+          <div>
+            <CardTitle class="text-base font-semibold">Lead Time Workdays</CardTitle>
+            <CardDescription>
+              Active weekday schedule used to compute delivery lead times. Changes apply on the current local date and immediately recalculate stored records without altering historical schedules.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent class="space-y-6">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Configured Active Workdays
+              </span>
+              <Show when={!canEditLeadTime()}>
+                <span class="text-xs text-muted-foreground">View-only (Admin required to edit)</span>
+              </Show>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+              <For each={ALL_WEEKDAYS}>
+                {(day) => {
+                  const isSelected = () => selectedDays().includes(day);
+                  return (
+                    <Button
+                      type="button"
+                      variant={isSelected() ? 'default' : 'outline'}
+                      size="sm"
+                      class="h-9 justify-center text-xs font-medium"
+                      disabled={!canEditLeadTime() || isSavingPolicy()}
+                      onClick={() => toggleWeekday(day)}
+                    >
+                      <Show when={isSelected()}>
+                        <IconCheck class="size-3.5 mr-1 text-primary-foreground" />
+                      </Show>
+                      <span>{day}</span>
+                    </Button>
+                  );
+                }}
+              </For>
+            </div>
+            <Show when={canEditLeadTime()}>
+              <div class="flex items-center justify-between pt-2">
+                <span class="text-xs text-muted-foreground">
+                  {selectedDays().length} of 7 days selected as active workdays
+                </span>
+                <Button
+                  size="sm"
+                  class="gap-1.5"
+                  disabled={isSavingPolicy() || selectedDays().length === 0}
+                  onClick={handleSavePolicy}
+                >
+                  <Show when={isSavingPolicy()}>
+                    <IconRefresh class="size-3.5 animate-spin" />
+                  </Show>
+                  <span>{isSavingPolicy() ? 'Saving...' : 'Save Workday Schedule'}</span>
+                </Button>
+              </div>
+            </Show>
+          </div>
+
+          <Show when={policySaveSuccess()}>
+            <div class="flex items-center gap-2 p-3 text-xs rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <IconCheck class="size-4 shrink-0" />
+              <span>{policySaveSuccess()}</span>
+            </div>
+          </Show>
+
+          <Show when={policySaveError()}>
+            <div class="flex items-center gap-2 p-3 text-xs rounded-md bg-destructive/15 text-destructive border border-destructive/20">
+              <IconAlertCircle class="size-4 shrink-0" />
+              <span>{policySaveError()}</span>
+            </div>
+          </Show>
+
+          <div class="space-y-3 pt-2">
+            <div>
+              <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Effective Schedule History
+              </h4>
+              <p class="text-xs text-muted-foreground mt-0.5">
+                Historical rules applied to orders based on their placement date
+              </p>
+            </div>
+            <DataTable>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Effective From</TableHead>
+                  <TableHead>Active Workdays</TableHead>
+                  <TableHead class="text-right">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <Show
+                  when={!policiesData.loading && policiesData()?.policies}
+                  fallback={<TableSkeleton columns={3} rows={2} />}
+                >
+                  <For each={policiesData()!.policies}>
+                    {(policy, index) => {
+                      const isLatest = () => index() === policiesData()!.policies.length - 1;
+                      return (
+                        <TableRow>
+                          <TableCell class="font-mono text-xs font-semibold">
+                            {policy.effective_from === '0001-01-01' ? '0001-01-01 (Baseline)' : policy.effective_from}
+                          </TableCell>
+                          <TableCell class="text-xs font-medium text-foreground">
+                            {policy.work_days.join(', ')}
+                          </TableCell>
+                          <TableCell class="text-right">
+                            <UiBadge variant={isLatest() ? 'default' : 'outline'}>
+                              {isLatest() ? 'Current' : 'Historical'}
+                            </UiBadge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }}
+                  </For>
+                </Show>
+              </TableBody>
+            </DataTable>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Database Diagnostics Table Card */}
       <Card>

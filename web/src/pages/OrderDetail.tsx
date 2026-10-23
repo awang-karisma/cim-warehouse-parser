@@ -23,33 +23,44 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { SortableTableHead } from '~/components/SortableTableHead';
 import { sortRows, nextSortState, type SortState } from '~/utils/tableSorting';
+import { ItemProgress } from '~/components/ItemProgress';
+import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
 
-const ItemProgress: Component<{ terkirim: string | number; total: string | number }> = (props) => {
-  const percent = createMemo(() => {
-    const t = parseFloat(String(props.total)) || 0;
-    const sent = parseFloat(String(props.terkirim)) || 0;
-    if (t <= 0) return 100;
-    return Math.min(100, Math.max(0, Math.round((sent / t) * 100)));
-  });
-
-  const barColor = createMemo(() => {
-    const p = percent();
-    if (p >= 100) return 'bg-status-selesai';
-    if (p > 0) return 'bg-status-proses';
-    return 'bg-status-pending';
-  });
-
-  return (
-    <div class="flex items-center gap-2">
-      <div class="flex-1 h-2 bg-secondary rounded-full overflow-hidden min-w-[60px]">
-        <div
-          class={`h-full rounded-full transition-all duration-300 ${barColor()}`}
-          style={{ width: `${percent()}%` }}
-        />
-      </div>
-      <span class="text-xs font-semibold w-8 text-right text-muted-foreground">{percent()}%</span>
-    </div>
-  );
+const formatHumanDate = (dateStr?: string) => {
+  if (!dateStr) return '-';
+  const parts = dateStr.split(/[-T/ ]/);
+  if (parts.length >= 3) {
+    let year = 0;
+    let month = 0;
+    let day = 0;
+    if (parts[0].length === 4) {
+      year = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10) - 1;
+      day = parseInt(parts[2], 10);
+    } else if (parts[2].length === 4) {
+      day = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10) - 1;
+      year = parseInt(parts[2], 10);
+    }
+    if (year && month >= 0 && day) {
+      const d = new Date(year, month, day);
+      return d.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    }
+  }
+  const d = new Date(dateStr);
+  return Number.isNaN(d.getTime())
+    ? dateStr
+    : d.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
 };
 
 export const OrderDetail: Component = () => {
@@ -164,7 +175,14 @@ export const OrderDetail: Component = () => {
                     <IconCalendar class="size-4 text-primary" />
                     <span>Order Date</span>
                   </div>
-                  <div class="text-sm font-semibold">{order()!.tanggal}</div>
+                  <div class="text-sm font-semibold truncate" title={formatHumanDate(order()!.tanggal)}>
+                    {formatHumanDate(order()!.tanggal)}
+                  </div>
+                  <Show when={order()!.tanggal}>
+                    <div class="text-xs text-muted-foreground font-mono">
+                      {order()!.tanggal}
+                    </div>
+                  </Show>
                 </div>
 
                 <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
@@ -298,8 +316,22 @@ export const OrderDetail: Component = () => {
                           <TableCell>
                             <Badge status={item.status_barang} kind="item" />
                           </TableCell>
-                          <TableCell class="text-xs text-muted-foreground max-w-[200px] truncate">
-                            {item.keterangan || item.catatan || '-'}
+                          <TableCell class="text-xs text-muted-foreground max-w-[200px]">
+                            <Show
+                              when={item.keterangan || item.catatan}
+                              fallback={<span>-</span>}
+                            >
+                              {(note) => (
+                                <Tooltip>
+                                  <TooltipTrigger class="truncate block max-w-full text-left cursor-default focus:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-xs">
+                                    {note()}
+                                  </TooltipTrigger>
+                                  <TooltipContent class="max-w-xs whitespace-normal break-words text-xs">
+                                    {note()}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </Show>
                           </TableCell>
                         </TableRow>
                       )}

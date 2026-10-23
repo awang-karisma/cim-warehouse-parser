@@ -969,3 +969,281 @@ func TestNormalizeRows_StatusOrderNormalization(t *testing.T) {
 		t.Errorf("order item 3 status order expected 'SELESAI', got %q", orders[0].Items[3].StatusOrder)
 	}
 }
+
+func TestCalculateLeadTime_ValidityBoundaries(t *testing.T) {
+	orderDate := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC) // Monday
+
+	tests := []struct {
+		name         string
+		orderDate    time.Time
+		deliveryText string
+		orderedText  string
+		sentText     string
+		status       string
+		expected     string
+	}{
+		{
+			name:         "non-SELESAI status BELUM SELESAI",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "BELUM SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "non-SELESAI status PENDING",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "PENDING",
+			expected:     "",
+		},
+		{
+			name:         "empty status",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "",
+			expected:     "",
+		},
+		{
+			name:         "case-insensitive and trimmed SELESAI status",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "  selesai  ",
+			expected:     "1",
+		},
+		{
+			name:         "unparseable ordered quantity",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "abc",
+			sentText:     "10",
+			status:       "SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "unparseable sent quantity",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "xyz",
+			status:       "SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "sent less than ordered",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "8",
+			status:       "SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "sent greater than ordered",
+			orderDate:    orderDate,
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "12",
+			status:       "SELESAI",
+			expected:     "1",
+		},
+		{
+			name:         "zero order date",
+			orderDate:    time.Time{},
+			deliveryText: "06/01/2026",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "empty delivery text",
+			orderDate:    orderDate,
+			deliveryText: "",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "non-date delivery text",
+			orderDate:    orderDate,
+			deliveryText: "Pengiriman via ekspedisi",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "delivery date before order date",
+			orderDate:    orderDate,
+			deliveryText: "04/01/2026",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "SELESAI",
+			expected:     "",
+		},
+		{
+			name:         "same-day completed delivery",
+			orderDate:    orderDate,
+			deliveryText: "05/01/2026",
+			orderedText:  "10",
+			sentText:     "10",
+			status:       "SELESAI",
+			expected:     "0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizer.CalculateLeadTime(tc.orderDate, tc.deliveryText, tc.orderedText, tc.sentText, tc.status, nil)
+			if got != tc.expected {
+				t.Errorf("CalculateLeadTime(...) = %q, expected %q", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestCalculateLeadTime_WorkdayIntervalAndPolicies(t *testing.T) {
+	monSatPolicy := []model.WorkdayPolicy{
+		{
+			EffectiveFrom: "0001-01-01",
+			WorkDays:      normalizer.BaselineWorkDays, // Mon - Sat
+		},
+	}
+	monFriPolicy := []model.WorkdayPolicy{
+		{
+			EffectiveFrom: "0001-01-01",
+			WorkDays:      []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"},
+		},
+	}
+
+	// Monday 2026-01-05 to next Monday 2026-01-12
+	orderDate := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+
+	// Mon-Sat week: Tue, Wed, Thu, Fri, Sat, Mon = 6 days
+	gotMonSat := normalizer.CalculateLeadTime(orderDate, "12/01/2026", "1", "1", "SELESAI", monSatPolicy)
+	if gotMonSat != "6" {
+		t.Errorf("Mon-Sat policy expected 6 days, got %q", gotMonSat)
+	}
+
+	// Mon-Fri week: Tue, Wed, Thu, Fri, Mon = 5 days (Saturday excluded)
+	gotMonFri := normalizer.CalculateLeadTime(orderDate, "12/01/2026", "1", "1", "SELESAI", monFriPolicy)
+	if gotMonFri != "5" {
+		t.Errorf("Mon-Fri policy expected 5 days, got %q", gotMonFri)
+	}
+
+	// Policy selection scenario:
+	// Baseline Mon-Sat from 0001-01-01
+	// Policy changes to Mon-Fri on 2026-01-06
+	policyHistory := []model.WorkdayPolicy{
+		{
+			EffectiveFrom: "0001-01-01",
+			WorkDays:      normalizer.BaselineWorkDays,
+		},
+		{
+			EffectiveFrom: "2026-01-06",
+			WorkDays:      []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"},
+		},
+	}
+
+	// Order on 2026-01-05 (before policy change) delivered 2026-01-12:
+	// Must select 0001-01-01 policy (Mon-Sat) for the full interval, even though policy changed on 2026-01-06.
+	// Expected: 6 workdays
+	gotBeforeChange := normalizer.CalculateLeadTime(time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC), "12/01/2026", "1", "1", "SELESAI", policyHistory)
+	if gotBeforeChange != "6" {
+		t.Errorf("order on 2026-01-05 before policy change expected 6 workdays, got %q", gotBeforeChange)
+	}
+
+	// Order on 2026-01-06 (on policy change date) delivered 2026-01-13 (next Tuesday):
+	// Must select 2026-01-06 policy (Mon-Fri).
+	// Days in (2026-01-06, 2026-01-13]: Wed, Thu, Fri, Mon, Tue = 5 workdays.
+	// Expected: 5 workdays
+	gotOnDateChange := normalizer.CalculateLeadTime(time.Date(2026, 1, 6, 0, 0, 0, 0, time.UTC), "13/01/2026", "1", "1", "SELESAI", policyHistory)
+	if gotOnDateChange != "5" {
+		t.Errorf("order on 2026-01-06 on policy change date expected 5 workdays, got %q", gotOnDateChange)
+	}
+}
+
+func TestCalculateLeadTime_RepeatedDatesAndFractionalDivision(t *testing.T) {
+	orderDate := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC) // Monday
+
+	// Repeated shipment dates:
+	// Order date 2026-01-05, deliveries 07/01/2026 (1), 07/01/2026 (1)
+	// Workdays in (2026-01-05, 2026-01-07]: Tue, Wed = 2 workdays.
+	// 2 delivery entries -> 2 / 2 = 1.
+	gotRepeated := normalizer.CalculateLeadTime(orderDate, "07/01/2026 (1), 07/01/2026 (1)", "2", "2", "SELESAI", nil)
+	if gotRepeated != "1" {
+		t.Errorf("repeated dates expected 1, got %q", gotRepeated)
+	}
+
+	// Fractional division:
+	// Order date 2026-01-05, deliveries 2026-01-07 and 2026-01-08 (3 workdays / 2 entries = 1.5)
+	gotFractional := normalizer.CalculateLeadTime(orderDate, "07/01/2026 (1), 08/01/2026 (1)", "2", "2", "SELESAI", nil)
+	if gotFractional != "1.5" {
+		t.Errorf("deliveries 07/01 and 08/01 expected 1.5, got %q", gotFractional)
+	}
+
+	// Plain comma-separated dates without quantities:
+	gotPlainDates := normalizer.CalculateLeadTime(orderDate, "07/01/2026, 08/01/2026", "2", "2", "SELESAI", nil)
+	if gotPlainDates != "1.5" {
+		t.Errorf("plain comma-separated dates expected 1.5, got %q", gotPlainDates)
+	}
+
+	// 4 workdays / 3 entries = 1.33:
+	// Deliveries: 06/01/2026 (1), 08/01/2026 (1), 09/01/2026 (1)
+	// Interval (01-05, 01-09]: Tue, Wed, Thu, Fri = 4 workdays.
+	// 4 / 3 = 1.3333... -> "1.33"
+	gotOneThird := normalizer.CalculateLeadTime(orderDate, "06/01/2026 (1), 08/01/2026 (1), 09/01/2026 (1)", "3", "3", "SELESAI", nil)
+	if gotOneThird != "1.33" {
+		t.Errorf("expected 1.33, got %q", gotOneThird)
+	}
+}
+
+func TestNormalizeRows_IgnoredSourceLeadTime(t *testing.T) {
+	rawRows := []model.RawOrderRow{
+		{
+			Tanggal:            "05/01/2026",
+			Customer:           "RS Test",
+			Area:               "Mataram",
+			NamaBarang:         "Item Completed",
+			Jumlah:             "5",
+			Satuan:             "BOX",
+			TanggalPengiriman:  "06/01/2026",
+			LeadTimePengiriman: "99", // Should be ignored and recomputed as "1"
+			JumlahTerkirim:     "5",
+			StatusOrder:        "SELESAI",
+		},
+		{
+			Tanggal:            "05/01/2026",
+			Customer:           "RS Test",
+			Area:               "Mataram",
+			NamaBarang:         "Item Pending",
+			Jumlah:             "5",
+			Satuan:             "BOX",
+			TanggalPengiriman:  "06/01/2026",
+			LeadTimePengiriman: "99", // Should be ignored; not SELESAI -> ""
+			JumlahTerkirim:     "0",
+			StatusOrder:        "BELUM SELESAI",
+		},
+	}
+
+	items := normalizer.NormalizeRows(rawRows)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	if items[0].LeadTimePengiriman != "1" {
+		t.Errorf("expected item 0 lead time '1' (recalculated), got %q", items[0].LeadTimePengiriman)
+	}
+	if items[1].LeadTimePengiriman != "" {
+		t.Errorf("expected item 1 lead time '' (unfinished item), got %q", items[1].LeadTimePengiriman)
+	}
+}

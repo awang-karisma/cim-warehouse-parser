@@ -220,3 +220,12 @@ export interface User {
 export interface UsersResponse {
   users: User[];
 }
+
+export interface WorkdayPolicy {
+  effective_from: string;
+  work_days: string[];
+}
+
+export interface WorkdayPoliciesResponse {
+  policies: WorkdayPolicy[];
+}

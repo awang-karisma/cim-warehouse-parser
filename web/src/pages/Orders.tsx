@@ -1,5 +1,6 @@
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
-import { A } from '@solidjs/router';
+import { A, useNavigate } from '@solidjs/router';
+import { ItemProgress } from '~/components/ItemProgress';
 import {
   IconChevronRight,
   IconChevronDown,
@@ -44,6 +45,7 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
   return nonBlank || items[0].status_order || 'PENDING';
 }
  export const Orders: Component = () => {
+  const navigate = useNavigate();
   const [expandedOrders, setExpandedOrders] = createSignal<Record<string, boolean>>({});
 
   const toggleExpand = (orderId: string) => {
@@ -359,12 +361,9 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                                           <TableRow>
                                             <TableHead class="w-12 h-9 px-3 text-muted-foreground font-semibold">#</TableHead>
                                             <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Item Name</TableHead>
-                                            <TableHead class="h-9 px-3 text-right text-muted-foreground font-semibold">Quantity</TableHead>
-                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Delivery Date</TableHead>
-                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Lead Time</TableHead>
+                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold min-w-[140px]">Progress</TableHead>
                                             <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Status Order</TableHead>
                                             <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Status Barang</TableHead>
-                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Notes</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -372,7 +371,7 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                                             when={order.items && order.items.length > 0}
                                             fallback={
                                               <TableRow>
-                                                <TableCell colspan={8} class="h-16 text-center text-xs text-muted-foreground">
+                                                <TableCell colspan={5} class="h-16 text-center text-xs text-muted-foreground">
                                                   No line items found.
                                                 </TableCell>
                                               </TableRow>
@@ -380,30 +379,41 @@ export function getDominantOrderStatus(items?: { status_order?: string }[]): str
                                           >
                                             <For each={order.items}>
                                               {(item, idx) => (
-                                                <TableRow class="hover:bg-muted/30">
+                                                <TableRow
+                                                  class="hover:bg-muted/30 cursor-pointer transition-colors focus-visible:outline-none focus-visible:bg-muted/40 focus-visible:ring-1 focus-visible:ring-ring"
+                                                  tabIndex={0}
+                                                  role="link"
+                                                  aria-label={`View order ${order.id} detail, item ${item.nama_barang}`}
+                                                  onClick={() => navigate(`/orders/${order.id}`)}
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' || e.key === ' ') {
+                                                      e.preventDefault();
+                                                      navigate(`/orders/${order.id}`);
+                                                    }
+                                                  }}
+                                                >
                                                   <TableCell class="py-2.5 px-3 font-mono text-muted-foreground">
                                                     {item.row_index || idx() + 1}
                                                   </TableCell>
                                                   <TableCell class="py-2.5 px-3 font-medium text-foreground">
                                                     {item.nama_barang}
                                                   </TableCell>
-                                                  <TableCell class="py-2.5 px-3 text-right font-medium text-foreground">
-                                                    {item.jumlah}{item.satuan ? ` ${item.satuan}` : ''}
-                                                  </TableCell>
-                                                  <TableCell class="py-2.5 px-3 text-muted-foreground">
-                                                    {item.tanggal_pengiriman || '-'}
-                                                  </TableCell>
-                                                  <TableCell class="py-2.5 px-3 text-muted-foreground">
-                                                    {item.lead_time_pengiriman ? `${item.lead_time_pengiriman}d` : '-'}
+                                                  <TableCell class="py-2.5 px-3">
+                                                    <div class="flex flex-col gap-1 min-w-[130px] max-w-[200px]">
+                                                      <ItemProgress
+                                                        terkirim={item.jumlah_terkirim}
+                                                        total={item.jumlah}
+                                                      />
+                                                      <span class="text-[11px] font-mono text-muted-foreground">
+                                                        {item.jumlah_terkirim || '0'} / {item.jumlah || '0'}{item.satuan ? ` ${item.satuan}` : ''}
+                                                      </span>
+                                                    </div>
                                                   </TableCell>
                                                   <TableCell class="py-2.5 px-3">
                                                     <Badge status={item.status_order} kind="order" />
                                                   </TableCell>
                                                   <TableCell class="py-2.5 px-3">
                                                     <Badge status={item.status_barang} kind="item" />
-                                                  </TableCell>
-                                                  <TableCell class="py-2.5 px-3 text-muted-foreground max-w-[200px] truncate" title={item.keterangan || item.catatan || ''}>
-                                                    {item.keterangan || item.catatan || '-'}
                                                   </TableCell>
                                                 </TableRow>
                                               )}

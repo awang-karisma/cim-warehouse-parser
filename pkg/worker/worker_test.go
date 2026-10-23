@@ -659,3 +659,169 @@ func TestRunOnce_ConcurrentSafe(t *testing.T) {
 		t.Errorf("expected 1 order, got total=%d len=%d", total, len(storedOrders))
 	}
 }
+
+func TestRunOnce_AppliesWorkdayPoliciesToBothRepresentations(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer store.Close()
+
+	// Configure a policy change effective 2026-01-06 to Mon-Fri (5 workdays)
+	if err := store.SetWorkdayPolicy(ctx, "2026-01-06", []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"}); err != nil {
+		t.Fatalf("failed to set workday policy: %v", err)
+	}
+
+	// Item 1: ordered 2026-01-05 (under baseline Mon-Sat) -> delivered 2026-01-12 -> 6 workdays
+	// Item 2: ordered 2026-01-06 (under Mon-Fri) -> delivered 2026-01-13 -> 5 workdays
+	rawItems := []model.NormalizedItem{
+		{
+			RowIndex:           2,
+			Tanggal:            model.ParseDate("05/01/2026"),
+			Customer:           "RS Alpha",
+			Area:               "Mataram",
+			NamaBarang:         "Item 1",
+			Jumlah:             "5",
+			Satuan:             "BOX",
+			TanggalPengiriman:  "12/01/2026",
+			LeadTimePengiriman: "0", // Stale value to be replaced
+			JumlahTerkirim:     "5",
+			BelumTerkirim:      "0",
+			StatusOrder:        "SELESAI",
+		},
+		{
+			RowIndex:           3,
+			Tanggal:            model.ParseDate("06/01/2026"),
+			Customer:           "RS Beta",
+			Area:               "Lombok Barat",
+			NamaBarang:         "Item 2",
+			Jumlah:             "5",
+			Satuan:             "BOX",
+			TanggalPengiriman:  "13/01/2026",
+			LeadTimePengiriman: "0", // Stale value to be replaced
+			JumlahTerkirim:     "5",
+			BelumTerkirim:      "0",
+			StatusOrder:        "SELESAI",
+		},
+	}
+
+	rawOrders := []model.Order{
+		{
+			ID:       "ORD-0001",
+			Tanggal:  model.ParseDate("05/01/2026"),
+			Customer: "RS Alpha",
+			Area:     "Mataram",
+			Items: []model.OrderItem{
+				{
+					RowIndex:           2,
+					NamaBarang:         "Item 1",
+					Jumlah:             "5",
+					Satuan:             "BOX",
+					TanggalPengiriman:  "12/01/2026",
+					LeadTimePengiriman: "0",
+					JumlahTerkirim:     "5",
+					StatusOrder:        "SELESAI",
+				},
+			},
+		},
+		{
+			ID:       "ORD-0002",
+			Tanggal:  model.ParseDate("06/01/2026"),
+			Customer: "RS Beta",
+			Area:     "Lombok Barat",
+			Items: []model.OrderItem{
+				{
+					RowIndex:           3,
+					NamaBarang:         "Item 2",
+					Jumlah:             "5",
+					Satuan:             "BOX",
+					TanggalPengiriman:  "13/01/2026",
+					LeadTimePengiriman: "0",
+					JumlahTerkirim:     "5",
+					StatusOrder:        "SELESAI",
+				},
+			},
+		},
+	}
+
+	fetcher := &mockFetcher{
+		items:  rawItems,
+		orders: rawOrders,
+	}
+
+	cfg := worker.Config{
+		WorkHoursStart: "00:00",
+		WorkHoursEnd:   "23:59",
+		Timezone:       "Asia/Makassar",
+		WorkDays: []time.Weekday{
+			time.Sunday, time.Monday, time.Tuesday, time.Wednesday,
+			time.Thursday, time.Friday, time.Saturday,
+		},
+	}
+
+	w, err := worker.New(cfg, store, fetcher)
+	if err != nil {
+		t.Fatalf("failed to create worker: %v", err)
+	}
+
+	if err := w.RunOnce(ctx, true); err != nil {
+		t.Fatalf("RunOnce failed: %v", err)
+	}
+
+	// Verify stored flat items
+	items, _, err := store.GetItems(ctx, storage.ItemFilter{Sort: "row_index", Order: "asc"})
+	if err != nil {
+		t.Fatalf("failed to get items: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].LeadTimePengiriman != "6" {
+		t.Errorf("item 1 (order 2026-01-05) expected lead time '6', got %q", items[0].LeadTimePengiriman)
+	}
+	if items[1].LeadTimePengiriman != "5" {
+		t.Errorf("item 2 (order 2026-01-06) expected lead time '5', got %q", items[1].LeadTimePengiriman)
+	}
+
+	// Verify stored nested order items
+	order1, err := store.GetOrderByID(ctx, "ORD-0001")
+	if err != nil {
+		t.Fatalf("failed to get order 1: %v", err)
+	}
+	if len(order1.Items) != 1 || order1.Items[0].LeadTimePengiriman != "6" {
+		t.Errorf("order 1 item expected lead time '6', got %q", order1.Items[0].LeadTimePengiriman)
+	}
+
+	order2, err := store.GetOrderByID(ctx, "ORD-0002")
+	if err != nil {
+		t.Fatalf("failed to get order 2: %v", err)
+	}
+	if len(order2.Items) != 1 || order2.Items[0].LeadTimePengiriman != "5" {
+		t.Errorf("order 2 item expected lead time '5', got %q", order2.Items[0].LeadTimePengiriman)
+	}
+}
+
+func TestParseTimezone(t *testing.T) {
+	tests := []struct {
+		input   string
+		wantErr bool
+	}{
+		{"Asia/Makassar", false},
+		{"UTC+8", false},
+		{"GMT+7", false},
+		{"+08:00", false},
+		{"UTC", false},
+		{"Invalid/Unknown_Timezone_123", true},
+	}
+
+	for _, tc := range tests {
+		loc, err := worker.ParseTimezone(tc.input)
+		if tc.wantErr && err == nil {
+			t.Errorf("ParseTimezone(%q) expected error, got loc=%v", tc.input, loc)
+		}
+		if !tc.wantErr && err != nil {
+			t.Errorf("ParseTimezone(%q) unexpected error: %v", tc.input, err)
+		}
+	}
+}

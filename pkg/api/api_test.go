@@ -2359,3 +2359,180 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 	})
 }
+
+func TestWorkdayPoliciesEndpoints(t *testing.T) {
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+	cfg := &config.Config{
+		Timezone: "Asia/Makassar",
+	}
+
+	srv := api.New(api.Config{
+		Store:     store,
+		AppConfig: cfg,
+	})
+
+	// 1. Initial GET returns seeded baseline policy
+	t.Run("initial GET returns baseline policy", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/workday-policies", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("GET /api/v1/workday-policies failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var body struct {
+			Policies []model.WorkdayPolicy `json:"policies"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(body.Policies) != 1 {
+			t.Fatalf("expected 1 policy, got %d", len(body.Policies))
+		}
+		if body.Policies[0].EffectiveFrom != "0001-01-01" {
+			t.Errorf("expected 0001-01-01, got %q", body.Policies[0].EffectiveFrom)
+		}
+		if len(body.Policies[0].WorkDays) != 6 {
+			t.Errorf("expected 6 baseline workdays, got %d", len(body.Policies[0].WorkDays))
+		}
+	})
+
+	// 2. PUT validation: empty list, noncanonical weekday, duplicate
+	t.Run("PUT validation rejects invalid payloads with 400", func(t *testing.T) {
+		badPayloads := []string{
+			`{"work_days": []}`,
+			`{"work_days": ["Senin"]}`,
+			`{"work_days": ["mon"]}`,
+			`{"work_days": ["Monday", "Monday"]}`,
+			`{"work_days": ["Monday", "Tuesday", "Monday"]}`,
+		}
+		for _, payload := range badPayloads {
+			req, _ := http.NewRequest("PUT", "/api/v1/workday-policies", strings.NewReader(payload))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := srv.App().Test(req)
+			if err != nil {
+				t.Fatalf("PUT failed: %v", err)
+			}
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("expected 400 for payload %s, got %d", payload, resp.StatusCode)
+			}
+		}
+	})
+
+	// 3. Successful PUT derives today's date in configured timezone and returns updated history
+	t.Run("successful PUT updates history with timezone-derived date", func(t *testing.T) {
+		loc, _ := time.LoadLocation("Asia/Makassar")
+		expectedToday := time.Now().In(loc).Format("2006-01-02")
+
+		putBody := `{"work_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]}`
+		req, _ := http.NewRequest("PUT", "/api/v1/workday-policies", strings.NewReader(putBody))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("PUT /api/v1/workday-policies failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+
+		var body struct {
+			Policies []model.WorkdayPolicy `json:"policies"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(body.Policies) != 2 {
+			t.Fatalf("expected 2 policies in history, got %d", len(body.Policies))
+		}
+		// Effective-date order: 0001-01-01, then today
+		if body.Policies[0].EffectiveFrom != "0001-01-01" {
+			t.Errorf("expected first policy 0001-01-01, got %q", body.Policies[0].EffectiveFrom)
+		}
+		if body.Policies[1].EffectiveFrom != expectedToday {
+			t.Errorf("expected derived effective date %q, got %q", expectedToday, body.Policies[1].EffectiveFrom)
+		}
+		if len(body.Policies[1].WorkDays) != 5 {
+			t.Errorf("expected 5 workdays, got %d", len(body.Policies[1].WorkDays))
+		}
+	})
+}
+
+func TestWorkdayPoliciesRBAC(t *testing.T) {
+	jwtSecret := "test-jwt-secret-key-32-chars-long!"
+	cfg := &config.Config{
+		GoogleClientID: "test-client-id.apps.googleusercontent.com",
+		JWTSecret:      jwtSecret,
+		Timezone:       "Asia/Makassar",
+	}
+	srv, store, _ := setupTestServer(t, cfg)
+	ctx := context.Background()
+
+	guestUser, _ := store.UpsertUser(ctx, "guest@example.com", "Guest", "")
+	normalUser, _ := store.UpsertUser(ctx, "user@example.com", "User", "")
+	_ = store.SetUserRole(ctx, "user@example.com", "user")
+	normalUser.Role = "user"
+	adminUser, _ := store.UpsertUser(ctx, "admin@example.com", "Admin", "")
+	_ = store.SetUserRole(ctx, "admin@example.com", "admin")
+	adminUser.Role = "admin"
+
+	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)
+	userToken, _ := auth.GenerateToken(jwtSecret, normalUser, nil)
+	adminToken, _ := auth.GenerateToken(jwtSecret, adminUser, nil)
+
+	// GET /api/v1/workday-policies: minRole user
+	t.Run("GET /api/v1/workday-policies guest gets 403", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/workday-policies", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: guestToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for guest on GET workday-policies, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("GET /api/v1/workday-policies user gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/workday-policies", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for user on GET workday-policies, got %d", resp.StatusCode)
+		}
+	})
+
+	// PUT /api/v1/workday-policies: minRole admin
+	t.Run("PUT /api/v1/workday-policies user gets 403", func(t *testing.T) {
+		req, _ := http.NewRequest("PUT", "/api/v1/workday-policies", strings.NewReader(`{"work_days":["Monday","Friday"]}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user on PUT workday-policies, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("PUT /api/v1/workday-policies admin gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("PUT", "/api/v1/workday-policies", strings.NewReader(`{"work_days":["Monday","Friday"]}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin on PUT workday-policies, got %d", resp.StatusCode)
+		}
+	})
+}

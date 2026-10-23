@@ -368,6 +368,26 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"customers"},
 		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeleteCustomerAlias)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-workday-policies",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/workday-policies",
+		Summary:     "Get workday policies",
+		Description: "Get chronological history of effective workday schedules for lead-time calculation",
+		Tags:        []string{"config"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetWorkdayPolicies)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "set-workday-policy",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/workday-policies",
+		Summary:     "Set workday policy",
+		Description: "Set or replace active workdays effective from current local date and recalculate lead times",
+		Tags:        []string{"config"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleSetWorkdayPolicy)
 }
 
 // clearSessionCookie expires the warehouse_session cookie.

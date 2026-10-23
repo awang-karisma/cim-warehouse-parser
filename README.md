@@ -46,9 +46,10 @@ Automated order ingestion, normalization, and visualization system.
   - Light, Dark, and System color themes with uniform status palettes.
   - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Timeline, Sync Manager, Search, and Settings.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
-  - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, and multi-column client-side sorting.
+  - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, interactive hover/focus tooltips for item notes, and multi-column client-side sorting.
   - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.
-  - Expandable order rows on the Orders page with an embedded line items tray and row/chevron click toggling, populated directly from the existing list payload without extra API round-trips.
+  - Streamlined expandable order rows on the Orders page with an embedded 5-column line items tray (`#`, `Item Name`, `Progress`, `Status Order`, `Status Barang`), progress bar with `sent / ordered` count, and row-level navigation to order details.
+  - Calculated workday lead time engine with admin-managed date-effective schedule history (`workday_policies`), immediate stored record recalculation, and chronological audit trail.
   - Mobile-responsive layout: viewport-constrained flex shell, auto-dismissing mobile navigation drawer, reflowing search and filter toolbars, and phone-fitted modals and dialogs.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.
 ---
@@ -280,6 +281,8 @@ go run ./cmd/warehouse-parser \
 | `/api/v1/customer-aliases` | `PUT` | `admin` | Create or update customer alias. |
 | `/api/v1/customer-aliases/{alias}`| `DELETE` | `admin` | Remove customer alias mapping. |
 | `/api/v1/customer-aliases/import` | `POST` | `admin` | Import customer aliases JSON (supports `mode=merge` or `mode=replace`). |
+| `/api/v1/workday-policies` | `GET` | `user` | List chronological history of effective workday schedules for lead-time calculation. |
+| `/api/v1/workday-policies` | `PUT` | `admin` | Set active workdays effective from current local date and recalculate stored lead times. |
 | `/api/v1/admin/clear-database` | `POST` | `admin` | Reset order, item, and sync tables. |
 | `/api/v1/admin/users` | `GET` | `admin` | List registered users and roles. |
 | `/api/v1/admin/users/{email}/role` | `PUT` | `admin` / `superadmin` | Approve `guest`→`user` (admin); assign `user` or `admin` (superadmin). |

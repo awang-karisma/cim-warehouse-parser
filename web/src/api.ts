@@ -16,6 +16,7 @@ import type {
   PaginatedDeliveries,
   DeliveryStats,
   UsersResponse,
+  WorkdayPoliciesResponse,
 } from './types';
 
 function qs(params?: Record<string, string | number | boolean | undefined>): string {
@@ -190,4 +191,14 @@ export const deleteUser = (email: string) =>
 export const clearDatabase = () =>
   apiFetch<{ status: string; message: string }>('/api/v1/admin/clear-database', {
     method: 'POST',
+  });
+
+export const getWorkdayPolicies = () =>
+  apiFetch<WorkdayPoliciesResponse>('/api/v1/workday-policies');
+
+export const setWorkdayPolicy = (workDays: string[]) =>
+  apiFetch<WorkdayPoliciesResponse>('/api/v1/workday-policies', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ work_days: workDays }),
   });

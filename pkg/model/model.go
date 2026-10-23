@@ -198,3 +198,9 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// WorkdayPolicy defines an active workday schedule effective from a specific calendar date (YYYY-MM-DD).
+type WorkdayPolicy struct {
+	EffectiveFrom string   `json:"effective_from"`
+	WorkDays      []string `json:"work_days"`
+}
