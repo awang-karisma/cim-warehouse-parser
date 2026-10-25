@@ -195,16 +195,32 @@ func (s *Server) HumaAPI() huma.API {
 
 // SetupStaticFiles configures static asset serving and SPA fallback to index.html.
 func (s *Server) SetupStaticFiles(distPath string) {
-	s.app.Use("/assets", static.New(filepath.Join(distPath, "assets")))
+	s.app.Use("/assets", static.New(filepath.Join(distPath, "assets"), static.Config{
+		ModifyResponse: func(c fiber.Ctx) error {
+			c.Set("Cache-Control", "public, max-age=31536000, immutable")
+			return nil
+		},
+	}))
 	s.app.Get("/*", func(c fiber.Ctx) error {
 		p := c.Path()
 		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") || strings.HasPrefix(p, "/auth") {
 			return c.Next()
 		}
+		if strings.HasPrefix(p, "/assets/") || strings.HasPrefix(p, "/assets") {
+			return c.Status(fiber.StatusNotFound).SendString("Asset not found")
+		}
 		targetFile := filepath.Join(distPath, filepath.Clean(p))
 		if info, err := os.Stat(targetFile); err == nil && !info.IsDir() {
+			if strings.HasSuffix(targetFile, ".html") {
+				c.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				c.Set("Pragma", "no-cache")
+				c.Set("Expires", "0")
+			}
 			return c.SendFile(targetFile)
 		}
+		c.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Set("Pragma", "no-cache")
+		c.Set("Expires", "0")
 		return c.SendFile(filepath.Join(distPath, "index.html"))
 	})
 }
@@ -214,20 +230,38 @@ func (s *Server) SetupStaticFS(distFS fs.FS) {
 	s.app.Use("/", static.New("", static.Config{
 		FS:         distFS,
 		IndexNames: []string{"index.html"},
+		ModifyResponse: func(c fiber.Ctx) error {
+			p := c.Path()
+			if strings.HasPrefix(p, "/assets/") {
+				c.Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else if p == "/" || strings.HasSuffix(p, ".html") {
+				c.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				c.Set("Pragma", "no-cache")
+				c.Set("Expires", "0")
+			}
+			return nil
+		},
 	}))
 	s.app.Get("/*", func(c fiber.Ctx) error {
 		p := c.Path()
 		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/docs") || strings.HasPrefix(p, "/openapi") || strings.HasPrefix(p, "/auth") {
 			return c.Next()
 		}
+		if strings.HasPrefix(p, "/assets/") || strings.HasPrefix(p, "/assets") {
+			return c.Status(fiber.StatusNotFound).SendString("Asset not found")
+		}
 		indexData, err := fs.ReadFile(distFS, "index.html")
 		if err != nil {
 			return c.Status(fiber.StatusNotFound).SendString("Frontend build not found")
 		}
 		c.Set("Content-Type", "text/html; charset=utf-8")
+		c.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Set("Pragma", "no-cache")
+		c.Set("Expires", "0")
 		return c.Status(fiber.StatusOK).Send(indexData)
 	})
 }
+
 
 func (s *Server) registerOperations() {
 	huma.Register(s.humaAPI, huma.Operation{

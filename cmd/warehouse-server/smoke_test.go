@@ -262,9 +262,26 @@ func TestEndToEndSmoke_AccurateAndSpreadsheet(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200 for /barcode SPA, got %d", resp.StatusCode)
 		}
+		cc := resp.Header.Get("Cache-Control")
+		if !strings.Contains(cc, "no-cache") || !strings.Contains(cc, "no-store") {
+			t.Errorf("expected no-cache/no-store Cache-Control header for index.html, got %q", cc)
+		}
 		body, _ := io.ReadAll(resp.Body)
 		if !strings.Contains(string(body), "<!DOCTYPE html>") && !strings.Contains(string(body), "html") {
 			t.Fatalf("expected HTML index file, got: %s", string(body)[:min(100, len(body))])
+		}
+	})
+
+	// 9. Test missing /assets/* returns 404 Not Found, never HTML
+	t.Run("Missing assets return 404", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/assets/non-existent-old-hash.js", nil)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("missing asset request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("expected 404 for missing asset, got %d", resp.StatusCode)
 		}
 	})
 }
