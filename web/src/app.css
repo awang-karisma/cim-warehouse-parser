@@ -276,6 +276,16 @@ body {
   text-align: right;
 }
 
+/* Hide browser default number input spinners (quantity stepper uses ± buttons) */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 /* PRINT MEDIA OVERRIDES */
 @media print {
   header, nav, aside, [data-sidebar], .no-print, [role="dialog"], [role="status"] {

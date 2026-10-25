@@ -207,8 +207,8 @@ export const PrintPreview: Component = () => {
           <span class="font-semibold text-primary">{expandedItems().length} total labels</span>
         </div>
         <div class="flex items-center gap-3">
-          <span class="font-bold text-foreground bg-muted px-2.5 py-1 rounded border">
-            {layout().totalSheets} Page{layout().totalSheets === 1 ? '' : 's'}
+          <span class="text-xs text-muted-foreground">
+            {layout().totalSheets} {layout().totalSheets === 1 ? 'page' : 'pages'}
           </span>
           <Button
             size="sm"
@@ -217,7 +217,7 @@ export const PrintPreview: Component = () => {
             class="h-8 shadow-sm"
           >
             <IconPrinter class="size-4 mr-1.5" />
-            Print Labels
+            Print Labels ({expandedItems().length})
           </Button>
         </div>
       </div>

@@ -47,7 +47,7 @@ Automated order ingestion, normalization, and visualization system.
   - Six transaction source adapters: Receive Item (`receive-item`), Purchase Order (`purchase-order`), Sales Order (`sales-order`), Delivery Order (`delivery-order`), Stock Opname Order (`stock-opname-order`), and Stock Opname Result (`stock-opname-result`).
   - Interactive barcode printing workspace with live vector barcode rendering (`CODE128`, `CODE39`, `EAN13`, `QRCODE`) via `jsbarcode` and `qrcode-generator`.
   - Preset templates: Tom & Jerry No. 108 (5×14) & No. 121 (2×5), Continuous Thermal Rolls (50×30mm, 40×20mm), A4 Stock Opname Audit Sheet, and custom dimensions.
-  - Single and Multiply quantity printing modes, instant barcode scanner lookup, and CSV/TSV/JSON paste importer.
+  - Single and Multiply quantity printing modes, instant barcode scanner input with Accurate Online live item autocomplete lookup, and transaction document importer (PO, SO, DO, Receive Item, Opname).
   - Print-isolated CSS: exact configured paper sizing, zero margins, application chrome completely hidden during printing.
 
 - **Interactive Modern UI & API Docs**:

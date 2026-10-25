@@ -29,7 +29,7 @@ interface TransactionDrawerProps {
 
 export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   const [sources, setSources] = createSignal<AccurateSourceInfo[]>([]);
-  const [selectedSource, setSelectedSource] = createSignal<string>('receive-item');
+  const [selectedSource, setSelectedSource] = createSignal<string>('');
   const [documents, setDocuments] = createSignal<AccurateDocumentHeader[]>([]);
   const [pagination, setPagination] = createSignal<AccuratePagination>({ page: 1, pageCount: 1, pageSize: 20, rowCount: 0 });
   const [selectedDoc, setSelectedDoc] = createSignal<AccurateDocumentHeader | null>(null);
@@ -47,25 +47,26 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   let detailRequestToken = 0;
 
   createEffect(() => {
-    if (props.isOpen) {
+    if (props.isOpen && sources().length === 0) {
       void (async () => {
         try {
           const list = await api.getAccurateSources();
           setSources(list);
-          let current = selectedSource();
-          if (list.length > 0 && (!current || !list.some((s) => s.id === current))) {
-            current = list[0].id;
-            setSelectedSource(current);
-          }
-          if (current) {
-            void fetchDocuments(current, 1);
-          }
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Failed to fetch transaction sources');
         }
       })();
     }
   });
+
+  const formatToAccurateDate = (d: string) => {
+    if (!d) return '';
+    const parts = d.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return d;
+  };
 
   const fetchDocuments = async (sourceId: string, page = 1) => {
     if (!sourceId) return;
@@ -80,8 +81,8 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
     try {
       const res = await api.getAccurateSourceDocuments(sourceId, {
         q: searchQuery(),
-        from: fromDate(),
-        to: toDate(),
+        from: formatToAccurateDate(fromDate()),
+        to: formatToAccurateDate(toDate()),
         page,
         pageSize: 20,
       });
@@ -131,6 +132,9 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   const handleAddItems = () => {
     const selected = docItems().filter((_, i) => selectedItemIndices().has(i));
     addNormalizedItems(selected);
+    setSelectedDoc(null);
+    setDocItems([]);
+    setSelectedItemIndices(new Set<number>());
     props.onClose();
   };
 
@@ -151,31 +155,29 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
           {/* Source Tabs */}
           <div class="mt-4 flex flex-wrap gap-1.5">
             <For each={sources()}>
-              {(src) => {
-                const isSelected = selectedSource() === src.id;
-                return (
-                  <Button
-                    variant={isSelected ? 'default' : 'outline'}
-                    size="sm"
-                    disabled={!src.available}
-                    onClick={() => {
-                      setSelectedSource(src.id);
-                      setSelectedDoc(null);
-                      setDocItems([]);
-                      setSelectedItemIndices(new Set<number>());
-                      void fetchDocuments(src.id, 1);
-                    }}
-                    class="text-xs h-8"
-                  >
-                    {src.name.split(' (')[0]}
-                  </Button>
-                );
-              }}
+              {(src) => (
+                <Button
+                  variant={selectedSource() === src.id ? 'default' : 'outline'}
+                  size="sm"
+                  disabled={!src.available}
+                  onClick={() => {
+                    if (selectedSource() === src.id && !selectedDoc()) return;
+                    setSelectedSource(src.id);
+                    setSelectedDoc(null);
+                    setDocItems([]);
+                    setSelectedItemIndices(new Set<number>());
+                    void fetchDocuments(src.id, 1);
+                  }}
+                  class="text-xs h-8"
+                >
+                  {src.name.split(' (')[0]}
+                </Button>
+              )}
             </For>
           </div>
 
-          {/* Filter Bar (only when document is not selected) */}
-          <Show when={!selectedDoc()}>
+          {/* Filter Bar (only when source is selected and document is not selected) */}
+          <Show when={Boolean(selectedSource() && !selectedDoc())}>
             <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div class="relative sm:col-span-1">
                 <input
@@ -186,25 +188,23 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                     if (e.key === 'Enter') void fetchDocuments(selectedSource(), 1);
                   }}
                   placeholder="Doc number / note..."
-                  class="w-full px-2.5 py-1.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  class="w-full h-8 px-2.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <input
-                type="text"
-                placeholder="From: DD/MM/YYYY"
+                type="date"
                 value={fromDate()}
                 onInput={(e) => setFromDate(e.currentTarget.value)}
-                class="px-2.5 py-1.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                class="h-8 px-2.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
               />
               <div class="flex items-center gap-1.5">
                 <input
-                  type="text"
-                  placeholder="To: DD/MM/YYYY"
+                  type="date"
                   value={toDate()}
                   onInput={(e) => setToDate(e.currentTarget.value)}
-                  class="flex-1 px-2.5 py-1.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  class="flex-1 h-8 px-2.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                 />
-                <Button size="sm" onClick={() => void fetchDocuments(selectedSource(), 1)} disabled={isLoading()}>
+                <Button size="sm" onClick={() => void fetchDocuments(selectedSource(), 1)} disabled={isLoading()} class="h-8">
                   <IconSearch class="size-3.5" />
                 </Button>
               </div>
@@ -233,15 +233,30 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
             <Show
               when={selectedDoc()}
               fallback={
-                /* View 2: Documents List */
                 <Show
-                  when={documents().length > 0}
+                  when={selectedSource()}
                   fallback={
-                    <div class="py-16 text-center text-muted-foreground text-xs">
-                      No documents found for this source or search filters.
+                    /* View 0: No Source Selected */
+                    <div class="py-16 flex flex-col items-center justify-center text-center p-6 text-muted-foreground">
+                      <div class="size-12 rounded-full bg-muted/60 flex items-center justify-center mb-3">
+                        <IconFileInvoice class="size-6 text-muted-foreground/60" />
+                      </div>
+                      <p class="text-sm font-semibold text-foreground">No document type selected</p>
+                      <p class="text-xs text-muted-foreground mt-1 max-w-sm">
+                        Please select a document type above (e.g. Purchase Order, Delivery Order, or Receive Item) to load and view transaction records.
+                      </p>
                     </div>
                   }
                 >
+                  {/* View 2: Documents List */}
+                  <Show
+                    when={documents().length > 0}
+                    fallback={
+                      <div class="py-16 text-center text-muted-foreground text-xs">
+                        No documents found for this source or search filters.
+                      </div>
+                    }
+                  >
                   <div class="border rounded-md overflow-hidden bg-card">
                     <table class="w-full text-xs text-left">
                       <thead class="bg-muted/50 border-b text-muted-foreground font-medium">
@@ -302,6 +317,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                       </Button>
                     </div>
                   </div>
+                </Show>
                 </Show>
               }
             >
