@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/normalizer"
 	_ "modernc.org/sqlite"
@@ -332,6 +333,17 @@ func (s *Storage) migrate() error {
 		work_days TEXT NOT NULL,
 		changed_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	);
+
+	CREATE TABLE IF NOT EXISTS accurate_session (
+		id               INTEGER PRIMARY KEY CHECK (id = 1),
+		provider         TEXT NOT NULL DEFAULT 'web',
+		email            TEXT NOT NULL DEFAULT '',
+		device_id        TEXT NOT NULL DEFAULT '',
+		cookies          TEXT NOT NULL DEFAULT '[]',
+		tenant           TEXT NOT NULL DEFAULT '',
+		official_session TEXT NOT NULL DEFAULT ''
+	);
+	INSERT OR IGNORE INTO accurate_session (id) VALUES (1);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -347,6 +359,8 @@ func (s *Storage) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE sync_history ADD COLUMN duration_ms INTEGER DEFAULT 0;`)
 	_, _ = s.db.Exec(`ALTER TABLE customer_aliases ADD COLUMN area TEXT NOT NULL DEFAULT '';`)
 
+	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN provider TEXT NOT NULL DEFAULT 'web';`)
+	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN official_session TEXT NOT NULL DEFAULT '';`)
 	seedPolicyJSON, _ := json.Marshal(normalizer.BaselineWorkDays)
 	_, _ = s.db.Exec(`
 		INSERT OR IGNORE INTO workday_policies (effective_from, work_days, changed_at)
@@ -2718,4 +2732,85 @@ func (s *Storage) SetWorkdayPolicy(ctx context.Context, effectiveFrom string, wo
 	}
 
 	return nil
+}
+
+// SaveAccurateSession serializes session state for either provider to JSON and updates the singleton row.
+func (s *Storage) SaveAccurateSession(providerID, email, deviceID string, jar *accurate.MemoryJar, tenant *accurate.TenantSession, official *accurate.OfficialSessionState) error {
+	cookiesJSON := "[]"
+	if jar != nil {
+		allCookies := jar.AllCookies()
+		data, err := json.Marshal(allCookies)
+		if err != nil {
+			return err
+		}
+		cookiesJSON = string(data)
+	}
+
+	tenantJSON := ""
+	if tenant != nil {
+		data, err := json.Marshal(tenant)
+		if err != nil {
+			return err
+		}
+		tenantJSON = string(data)
+	}
+
+	officialJSON := ""
+	if official != nil {
+		data, err := json.Marshal(official)
+		if err != nil {
+			return err
+		}
+		officialJSON = string(data)
+	}
+
+	if providerID == "" {
+		providerID = "web"
+	}
+
+	_, err := s.db.Exec(
+		`UPDATE accurate_session SET provider = ?, email = ?, device_id = ?, cookies = ?, tenant = ?, official_session = ? WHERE id = 1`,
+		providerID, email, deviceID, cookiesJSON, tenantJSON, officialJSON,
+	)
+	return err
+}
+
+// LoadAccurateSession reads the singleton session row and deserializes provider ID and connection state.
+func (s *Storage) LoadAccurateSession() (providerID, email, deviceID string, cookies []*accurate.Cookie, tenant *accurate.TenantSession, official *accurate.OfficialSessionState, err error) {
+	var cookiesJSON, tenantJSON, officialJSON string
+	row := s.db.QueryRow(`SELECT provider, email, device_id, cookies, tenant, official_session FROM accurate_session WHERE id = 1`)
+	if err := row.Scan(&providerID, &email, &deviceID, &cookiesJSON, &tenantJSON, &officialJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return "web", "", "", nil, nil, nil, nil
+		}
+		return "web", "", "", nil, nil, nil, err
+	}
+
+	if cookiesJSON != "" && cookiesJSON != "[]" {
+		if err := json.Unmarshal([]byte(cookiesJSON), &cookies); err != nil {
+			return providerID, email, deviceID, nil, nil, nil, fmt.Errorf("failed to decode cookies: %w", err)
+		}
+	}
+
+	if tenantJSON != "" {
+		tenant = &accurate.TenantSession{}
+		if err := json.Unmarshal([]byte(tenantJSON), tenant); err != nil {
+			return providerID, email, deviceID, nil, nil, nil, fmt.Errorf("failed to decode tenant session: %w", err)
+		}
+	}
+
+	if officialJSON != "" {
+		official = &accurate.OfficialSessionState{}
+		if err := json.Unmarshal([]byte(officialJSON), official); err != nil {
+			return providerID, email, deviceID, nil, nil, nil, fmt.Errorf("failed to decode official session: %w", err)
+		}
+	}
+
+	return providerID, email, deviceID, cookies, tenant, official, nil
+}
+
+// ClearAccurateSession clears all stored session data while preserving the singleton row.
+func (s *Storage) ClearAccurateSession() error {
+	_, err := s.db.Exec(`UPDATE accurate_session SET email = '', device_id = '', cookies = '[]', tenant = '', official_session = '' WHERE id = 1`)
+	return err
 }

@@ -41,6 +41,15 @@ Automated order ingestion, normalization, and visualization system.
   - Fully backward-compatible: leaving `GOOGLE_CLIENT_ID` empty disables authentication.
   - Public Privacy Policy (`/privacy`) and Terms of Service (`/terms`) pages linked from the sign-in screen to meet Google OAuth verification requirements.
 
+- **Accurate Online Integration & Barcode Printing (`/barcode`)**:
+  - Reusable Accurate API layer supporting both official Bearer-token API (with request signing and host redirect handling) and web automation login (with MFA/TOTP challenge support).
+  - Persistent SQLite session management (`accurate_session`) preserved across spreadsheet sync and database reset.
+  - Six transaction source adapters: Receive Item (`receive-item`), Purchase Order (`purchase-order`), Sales Order (`sales-order`), Delivery Order (`delivery-order`), Stock Opname Order (`stock-opname-order`), and Stock Opname Result (`stock-opname-result`).
+  - Interactive barcode printing workspace with live vector barcode rendering (`CODE128`, `CODE39`, `EAN13`, `QRCODE`) via `jsbarcode` and `qrcode-generator`.
+  - Preset templates: Tom & Jerry No. 108 (5×14) & No. 121 (2×5), Continuous Thermal Rolls (50×30mm, 40×20mm), A4 Stock Opname Audit Sheet, and custom dimensions.
+  - Single and Multiply quantity printing modes, instant barcode scanner lookup, and CSV/TSV/JSON paste importer.
+  - Print-isolated CSS: exact configured paper sizing, zero margins, application chrome completely hidden during printing.
+
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
@@ -159,6 +168,11 @@ sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
 | `GOOGLE_CLIENT_ID` | `""` | Google OAuth 2.0 Web Client ID. Leave blank to disable auth. |
 | `JWT_SECRET` | `""` | HMAC-SHA256 signing key (auto-generates random 32-byte key if unset). |
 | `SUPERADMIN_EMAILS` | `""` | Comma-separated emails granted superadmin privileges. |
+| `ACCURATE_PROVIDER` | `""` | Accurate Online provider (`"official"`, `"web"`, or empty/disabled). |
+| `ACCURATE_EMAIL` | `""` | User email for Accurate web automation provider. |
+| `ACCURATE_PASSWORD` | `""` | User password for Accurate web automation provider (never logged or persisted). |
+| `ACCURATE_API_TOKEN` | `""` | Accurate Online API Bearer token for official provider. |
+| `ACCURATE_API_SIGNATURE_SECRET` | `""` | Optional HMAC-SHA256 signature secret for official API request signing. |
 
 ---
 
@@ -289,6 +303,15 @@ go run ./cmd/warehouse-parser \
 | `/api/v1/admin/users` | `GET` | `admin` | List registered users and roles. |
 | `/api/v1/admin/users/{email}/role` | `PUT` | `admin` / `superadmin` | Approve `guest`→`user` (admin); assign `user` or `admin` (superadmin). |
 | `/api/v1/admin/users/{email}` | `DELETE` | `admin` / `superadmin` | Delete `guest` or `user` accounts (admin); delete any non-superadmin (superadmin). |
+| `/api/v1/accurate/status` | `GET` | `user` | Accurate Online integration status and connected database info. |
+| `/api/v1/accurate/login` | `POST` | `user` | Connect or submit MFA challenge to Accurate Online. |
+| `/api/v1/accurate/logout` | `POST` | `user` | Invalidate active Accurate Online session. |
+| `/api/v1/accurate/databases` | `GET` | `user` | List accessible tenant databases. |
+| `/api/v1/accurate/database` | `POST` | `user` | Open tenant database and acquire session token. |
+| `/api/v1/accurate/items` | `GET` | `user` | Search master inventory items with pagination. |
+| `/api/v1/accurate/sources` | `GET` | `user` | List registered transaction source adapters. |
+| `/api/v1/accurate/sources/{source}/documents` | `GET` | `user` | List documents for a transaction source with date/keyword filters. |
+| `/api/v1/accurate/sources/{source}/documents/{id}/items` | `GET` | `user` | Retrieve normalized line items from a transaction document. |
 
 ---
 

@@ -229,3 +229,63 @@ func TestAuthConfig(t *testing.T) {
 		t.Errorf("expected empty email NOT to be superadmin")
 	}
 }
+
+func TestAccurateConfigValidation(t *testing.T) {
+	// 1. Invalid provider
+	t.Run("invalid provider", func(t *testing.T) {
+		t.Setenv("ACCURATE_PROVIDER", "unsupported")
+		_, err := config.Load()
+		if err == nil {
+			t.Errorf("expected error for invalid ACCURATE_PROVIDER, got nil")
+		}
+	})
+
+	// 2. Web provider missing credentials
+	t.Run("web provider missing credentials", func(t *testing.T) {
+		t.Setenv("ACCURATE_PROVIDER", "web")
+		t.Setenv("ACCURATE_EMAIL", "")
+		t.Setenv("ACCURATE_PASSWORD", "")
+		_, err := config.Load()
+		if err == nil {
+			t.Errorf("expected error for web provider without credentials")
+		}
+	})
+
+	// 3. Web provider valid
+	t.Run("web provider valid", func(t *testing.T) {
+		t.Setenv("ACCURATE_PROVIDER", "web")
+		t.Setenv("ACCURATE_EMAIL", "test@accurate.id")
+		t.Setenv("ACCURATE_PASSWORD", "secret123")
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("unexpected error for valid web config: %v", err)
+		}
+		if cfg.AccurateProvider != "web" || cfg.AccurateEmail != "test@accurate.id" || cfg.AccuratePassword != "secret123" {
+			t.Errorf("unexpected web provider config: %+v", cfg)
+		}
+	})
+
+	// 4. Official provider missing token
+	t.Run("official provider missing token", func(t *testing.T) {
+		t.Setenv("ACCURATE_PROVIDER", "official")
+		t.Setenv("ACCURATE_API_TOKEN", "")
+		_, err := config.Load()
+		if err == nil {
+			t.Errorf("expected error for official provider without token")
+		}
+	})
+
+	// 5. Official provider valid
+	t.Run("official provider valid", func(t *testing.T) {
+		t.Setenv("ACCURATE_PROVIDER", "official")
+		t.Setenv("ACCURATE_API_TOKEN", "aat.tok123")
+		t.Setenv("ACCURATE_API_SIGNATURE_SECRET", "sigsecret456")
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("unexpected error for valid official config: %v", err)
+		}
+		if cfg.AccurateProvider != "official" || cfg.AccurateAPIToken != "aat.tok123" || cfg.AccurateAPISignatureSecret != "sigsecret456" {
+			t.Errorf("unexpected official provider config: %+v", cfg)
+		}
+	})
+}

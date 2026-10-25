@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 )
@@ -2848,7 +2849,6 @@ func TestStorage_DeliveryStatsAndSorting(t *testing.T) {
 			delsAsc[0].DeliveryDate, delsAsc[1].DeliveryDate, delsAsc[2].DeliveryDate)
 	}
 
-
 	// 3. Check Delivery Sorting (Customer ASC)
 	delsCust, _, err := store.GetDeliveries(ctx, storage.DeliveryFilter{Sort: "customer", Order: "asc"})
 	if err != nil {
@@ -3014,5 +3014,127 @@ func TestStorage_WorkdayPolicies(t *testing.T) {
 	}
 	if len(policiesAfterClear) < 5 {
 		t.Errorf("expected workday policies to be preserved across ClearData, got %d policies", len(policiesAfterClear))
+	}
+}
+
+func TestAccurateSessionPersistence(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "accurate_test.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+
+	// 1. Initial load should return defaults
+	provID, email, deviceID, cookies, tenant, official, err := store.LoadAccurateSession()
+	if err != nil {
+		t.Fatalf("failed initial LoadAccurateSession: %v", err)
+	}
+	if provID != "web" || email != "" || deviceID != "" || len(cookies) != 0 || tenant != nil || official != nil {
+		t.Fatalf("expected empty session, got provID=%s email=%s deviceID=%s", provID, email, deviceID)
+	}
+
+	// 2. Save web session
+	jar := accurate.NewMemoryJar()
+	u, _ := os.Hostname()
+	_ = u
+	jar.LoadCookies([]*accurate.Cookie{
+		{Name: "JSESSIONID", Value: "test-session-123", Domain: "account.accurate.id", Path: "/"},
+	})
+	tSess := &accurate.TenantSession{
+		Host: "https://zeus.accurate.id",
+		DSI:  "dsi-token-xyz",
+		Database: accurate.DatabaseInfo{
+			ID:       101,
+			Alias:    "Test DB",
+			Host:     "https://zeus.accurate.id",
+			UniqueID: "uid-101",
+		},
+	}
+
+	if err := store.SaveAccurateSession("web", "user@example.com", "dev-999", jar, tSess, nil); err != nil {
+		t.Fatalf("failed to save web session: %v", err)
+	}
+
+	// Reload and verify
+	provID, email, deviceID, cookies, tenant, official, err = store.LoadAccurateSession()
+	if err != nil {
+		t.Fatalf("failed to reload web session: %v", err)
+	}
+	if provID != "web" || email != "user@example.com" || deviceID != "dev-999" {
+		t.Errorf("unexpected web session fields: %s, %s, %s", provID, email, deviceID)
+	}
+	if len(cookies) != 1 || cookies[0].Value != "test-session-123" {
+		t.Errorf("expected 1 cookie, got %v", cookies)
+	}
+	if tenant == nil || tenant.DSI != "dsi-token-xyz" || tenant.Database.ID != 101 {
+		t.Errorf("unexpected tenant session: %+v", tenant)
+	}
+	if official != nil {
+		t.Errorf("expected nil official session, got %+v", official)
+	}
+
+	// 3. Save official session
+	offState := &accurate.OfficialSessionState{
+		DatabaseID: 202,
+		Host:       "https://public.accurate.id",
+		Session:    "sess-abc",
+		Database: accurate.Database{
+			ID:    202,
+			Alias: "Official DB",
+			Host:  "https://public.accurate.id",
+		},
+	}
+	if err := store.SaveAccurateSession("official", "", "", nil, nil, offState); err != nil {
+		t.Fatalf("failed to save official session: %v", err)
+	}
+
+	// Reload official
+	provID, email, deviceID, cookies, tenant, official, err = store.LoadAccurateSession()
+	if err != nil {
+		t.Fatalf("failed to reload official session: %v", err)
+	}
+	if provID != "official" || official == nil || official.DatabaseID != 202 || official.Session != "sess-abc" {
+		t.Errorf("unexpected official session: prov=%s official=%+v", provID, official)
+	}
+
+	// 4. Verify preservation across SyncMirror
+	items, orders := createSampleData()
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("failed SyncMirror: %v", err)
+	}
+
+	provID, _, _, _, _, official, err = store.LoadAccurateSession()
+	if err != nil {
+		t.Fatalf("failed to load session after SyncMirror: %v", err)
+	}
+	if provID != "official" || official == nil || official.DatabaseID != 202 {
+		t.Errorf("session corrupted after SyncMirror: prov=%s official=%+v", provID, official)
+	}
+
+	// 5. Verify preservation across ClearData
+	if err := store.ClearData(ctx); err != nil {
+		t.Fatalf("failed ClearData: %v", err)
+	}
+	provID, _, _, _, _, official, err = store.LoadAccurateSession()
+	if err != nil {
+		t.Fatalf("failed to load session after ClearData: %v", err)
+	}
+	if provID != "official" || official == nil || official.DatabaseID != 202 {
+		t.Errorf("session lost after ClearData: prov=%s official=%+v", provID, official)
+	}
+
+	// 6. Verify ClearAccurateSession
+	if err := store.ClearAccurateSession(); err != nil {
+		t.Fatalf("failed to clear accurate session: %v", err)
+	}
+	provID, email, deviceID, cookies, tenant, official, err = store.LoadAccurateSession()
+	if err != nil {
+		t.Fatalf("failed to load session after ClearAccurateSession: %v", err)
+	}
+	if email != "" || deviceID != "" || len(cookies) != 0 || tenant != nil || official != nil {
+		t.Errorf("expected cleared session fields, got email=%s dev=%s cookies=%v tenant=%v off=%v", email, deviceID, cookies, tenant, official)
 	}
 }

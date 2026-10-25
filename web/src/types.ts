@@ -229,3 +229,112 @@ export interface WorkdayPolicy {
 export interface WorkdayPoliciesResponse {
   policies: WorkdayPolicy[];
 }
+
+export interface AccurateDatabase {
+  id: number;
+  alias: string;
+  host: string;
+  uniqueId?: string;
+  isPrivateCloud?: boolean;
+}
+
+export interface AccurateStatus {
+  enabled: boolean;
+  provider?: string;
+  connected: boolean;
+  database?: AccurateDatabase;
+}
+
+export interface AccuratePagination {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  rowCount: number;
+}
+
+export interface AccurateInventoryItem {
+  id: number;
+  no: string;
+  name: string;
+  upcNo: string;
+  unit1Name: string;
+  unit2Name?: string;
+  unitPrice: number;
+  allQuantity: number;
+  availableToSell: number;
+  itemType: string;
+  itemTypeName: string;
+  canPrintBarcode: boolean;
+}
+
+export interface AccurateSearchItemsResult {
+  items: AccurateInventoryItem[];
+  pagination: AccuratePagination;
+}
+
+export interface AccurateSourceInfo {
+  id: string;
+  name: string;
+  dataPlan: string;
+  available: boolean;
+  reason?: string;
+}
+
+export interface AccurateDocumentHeader {
+  id: number;
+  number: string;
+  date: string;
+  description: string;
+  statusName: string;
+}
+
+export interface AccurateDocumentsResult {
+  documents: AccurateDocumentHeader[];
+  pagination: AccuratePagination;
+}
+
+export interface AccurateNormalizedItem {
+  itemId: number;
+  itemNo: string;
+  itemName: string;
+  upcNo: string;
+  quantity: number;
+  unitName: string;
+  unitPrice?: number;
+  documentType: string;
+  documentNumber: string;
+}
+
+export interface BarcodeItem {
+  id: string;
+  selected: boolean;
+  itemNo: string;
+  itemName: string;
+  barcode: string;
+  quantity: number;
+  unit: string;
+  price: number;
+  documentType?: string;
+  documentNumber?: string;
+}
+
+export interface PresetConfig {
+  name: string;
+  paper: string;
+  paperWidthMM: number;
+  paperHeightMM: number;
+  labelWidthMM: number;
+  labelHeightMM: number;
+  cols: number;
+  rows: number;
+  gapXMM: number;
+  gapYMM: number;
+  marginTopMM: number;
+  marginLeftMM: number;
+  isAuditSheet: boolean;
+}
+
+export type Symbology = 'CODE128' | 'CODE39' | 'EAN13' | 'QRCODE';
+export type BarcodeHeight = 'compact' | 'medium' | 'large';
+export type FontSize = 'small' | 'medium' | 'large';
+export type QtyMode = 'single' | 'multiply';

@@ -17,7 +17,22 @@ import type {
   DeliveryStats,
   UsersResponse,
   WorkdayPoliciesResponse,
+  AccurateStatus,
+  AccurateDatabase,
+  AccurateSearchItemsResult,
+  AccurateSourceInfo,
+  AccurateDocumentsResult,
+  AccurateNormalizedItem,
 } from './types';
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
 
 function qs(params?: Record<string, string | number | boolean | undefined>): string {
   if (!params) return '';
@@ -37,9 +52,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     let message = errorText;
     try {
       const parsed = JSON.parse(errorText);
-      if (parsed?.error) message = parsed.error;
+      if (parsed?.detail) message = parsed.detail;
+      else if (parsed?.error) message = parsed.error;
+      else if (parsed?.title) message = parsed.title;
     } catch {}
-    throw new Error(message || `HTTP ${res.status}: ${res.statusText}`);
+    throw new ApiError(message || `HTTP ${res.status}: ${res.statusText}`, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -202,3 +219,52 @@ export const setWorkdayPolicy = (workDays: string[]) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ work_days: workDays }),
   });
+
+// Accurate Online Integration Endpoints
+export const getAccurateStatus = () =>
+  apiFetch<AccurateStatus>('/api/v1/accurate/status');
+
+export const accurateLogin = (payload: { challengeId?: string; otp?: string } = {}) =>
+  apiFetch<{ status: string; challengeId?: string }>('/api/v1/accurate/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+export const accurateLogout = () =>
+  apiFetch<{ success: boolean }>('/api/v1/accurate/logout', {
+    method: 'POST',
+  });
+
+export const getAccurateDatabases = () =>
+  apiFetch<AccurateDatabase[]>('/api/v1/accurate/databases');
+
+export const selectAccurateDatabase = (payload: { id?: number; uniqueId?: string }) =>
+  apiFetch<{ success: boolean; database: AccurateDatabase }>('/api/v1/accurate/database', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+export const searchAccurateItems = (params?: { q?: string; page?: number; pageSize?: number }) => {
+  const query = qs(params);
+  return apiFetch<AccurateSearchItemsResult>(`/api/v1/accurate/items${query ? '?' + query : ''}`);
+};
+
+export const getAccurateSources = () =>
+  apiFetch<AccurateSourceInfo[]>('/api/v1/accurate/sources');
+
+export const getAccurateSourceDocuments = (
+  source: string,
+  params?: { q?: string; from?: string; to?: string; page?: number; pageSize?: number }
+) => {
+  const query = qs(params);
+  return apiFetch<AccurateDocumentsResult>(
+    `/api/v1/accurate/sources/${encodeURIComponent(source)}/documents${query ? '?' + query : ''}`
+  );
+};
+
+export const getAccurateSourceDocumentItems = (source: string, id: number | string) =>
+  apiFetch<AccurateNormalizedItem[]>(
+    `/api/v1/accurate/sources/${encodeURIComponent(source)}/documents/${encodeURIComponent(id)}/items`
+  );

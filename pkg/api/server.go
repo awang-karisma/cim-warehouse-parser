@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate/adapter"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate/session"
 	"github.com/awang-karisma/warehouse-parser/pkg/auth"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
@@ -20,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -87,19 +91,25 @@ func (s *Server) requireRole(c fiber.Ctx, minRole string) error {
 
 // Config holds dependencies for creating an API Server.
 type Config struct {
-	Store     *storage.Storage
-	Worker    *worker.Worker
-	AppConfig *config.Config
+	Store            *storage.Storage
+	Worker           *worker.Worker
+	AppConfig        *config.Config
+	AccurateProvider accurate.Provider
+	AccurateSession  *session.Manager
+	AccurateRegistry *adapter.Registry
 }
 
 // Server wraps the Fiber v3 HTTP application and Huma v2 API.
 type Server struct {
-	app       *fiber.App
-	humaAPI   huma.API
-	store     *storage.Storage
-	worker    *worker.Worker
-	appConfig *config.Config
-	startTime time.Time
+	app              *fiber.App
+	humaAPI          huma.API
+	store            *storage.Storage
+	worker           *worker.Worker
+	appConfig        *config.Config
+	accurateProvider accurate.Provider
+	accurateSession  *session.Manager
+	accurateRegistry *adapter.Registry
+	startTime        time.Time
 }
 
 // New creates and initializes a new Fiber v3 API Server with middlewares and routes.
@@ -125,15 +135,29 @@ func New(cfg Config) *Server {
 	humaCfg.DocsRenderer = huma.DocsRendererScalar
 	humaCfg.DocsPath = "/docs"
 	humaCfg.OpenAPIPath = "/openapi"
+	humaCfg.Components.Schemas = huma.NewMapRegistry("#/components/schemas/", func(t reflect.Type, hint string) string {
+		name := huma.DefaultSchemaNamer(t, hint)
+		elem := t
+		for elem != nil && (elem.Kind() == reflect.Ptr || elem.Kind() == reflect.Slice || elem.Kind() == reflect.Array) {
+			elem = elem.Elem()
+		}
+		if elem != nil && strings.Contains(elem.PkgPath(), "pkg/accurate") && !strings.HasPrefix(name, "Accurate") {
+			return "Accurate" + name
+		}
+		return name
+	})
 	humaAPI := humafiber.New(app, humaCfg)
 
 	s := &Server{
-		app:       app,
-		humaAPI:   humaAPI,
-		store:     cfg.Store,
-		worker:    cfg.Worker,
-		appConfig: cfg.AppConfig,
-		startTime: time.Now(),
+		app:              app,
+		humaAPI:          humaAPI,
+		store:            cfg.Store,
+		worker:           cfg.Worker,
+		appConfig:        cfg.AppConfig,
+		startTime:        time.Now(),
+		accurateProvider: cfg.AccurateProvider,
+		accurateSession:  cfg.AccurateSession,
+		accurateRegistry: cfg.AccurateRegistry,
 	}
 	app.Use(s.authMiddleware)
 	humaAPI.UseMiddleware(s.humaAuthMiddleware)
@@ -388,6 +412,88 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"config"},
 		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSetWorkdayPolicy)
+
+	// Accurate Online Integration Endpoints
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-accurate-status",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/accurate/status",
+		Summary:     "Get Accurate Online integration status",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateStatus)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "accurate-login",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/accurate/login",
+		Summary:     "Login or submit MFA for Accurate Online",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateLogin)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "accurate-logout",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/accurate/logout",
+		Summary:     "Log out from Accurate Online session",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateLogout)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-accurate-databases",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/accurate/databases",
+		Summary:     "List accessible Accurate databases",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateDatabases)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "select-accurate-database",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/accurate/database",
+		Summary:     "Select and open Accurate database",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateSelectDatabase)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "search-accurate-items",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/accurate/items",
+		Summary:     "Search items from Accurate inventory",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateItems)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-accurate-sources",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/accurate/sources",
+		Summary:     "List registered Accurate transaction sources",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateSources)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-accurate-source-documents",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/accurate/sources/{source}/documents",
+		Summary:     "List documents for an Accurate transaction source",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateSourceDocuments)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-accurate-source-document-items",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/accurate/sources/{source}/documents/{id}/items",
+		Summary:     "Get line items for an Accurate source document",
+		Tags:        []string{"accurate"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleAccurateSourceDocumentItems)
 }
 
 // clearSessionCookie expires the warehouse_session cookie.

@@ -1,24 +1,25 @@
-import { render } from 'solid-js/web';
-import { Router, Route } from '@solidjs/router';
 import { ColorModeProvider, ColorModeScript, createLocalStorageManager } from '@kobalte/core';
+import { Route, Router } from '@solidjs/router';
+import { render } from 'solid-js/web';
 import './app.css';
 
-import { AuthProvider } from './auth';
 import { App } from './App';
-import { Dashboard } from './pages/Dashboard';
-import { Orders } from './pages/Orders';
-import { OrderDetail } from './pages/OrderDetail';
-import { Items } from './pages/Items';
-import { Customers } from './pages/Customers';
-import { CustomerAliases } from './pages/CustomerAliases';
+import { AuthProvider } from './auth';
 import { Areas } from './pages/Areas';
-import { Timeline } from './pages/Timeline';
-import { SyncManager } from './pages/SyncManager';
+import { Barcode } from './pages/Barcode';
+import { CustomerAliases } from './pages/CustomerAliases';
+import { Customers } from './pages/Customers';
+import { Dashboard } from './pages/Dashboard';
+import { Items } from './pages/Items';
+import { OrderDetail } from './pages/OrderDetail';
+import { Orders } from './pages/Orders';
+import { Privacy } from './pages/Privacy';
 import { Search } from './pages/Search';
 import { Settings } from './pages/Settings';
-import { UserManagement } from './pages/UserManagement';
-import { Privacy } from './pages/Privacy';
+import { SyncManager } from './pages/SyncManager';
 import { Terms } from './pages/Terms';
+import { Timeline } from './pages/Timeline';
+import { UserManagement } from './pages/UserManagement';
 const storageManager = createLocalStorageManager('warehouse-ui-theme');
 
 const root = document.getElementById('root');
@@ -39,6 +40,7 @@ if (root) {
               <Route path="/customer-aliases" component={CustomerAliases} />
               <Route path="/areas" component={Areas} />
               <Route path="/timeline" component={Timeline} />
+              <Route path="/barcode" component={Barcode} />
               <Route path="/sync" component={SyncManager} />
               <Route path="/search" component={Search} />
               <Route path="/settings" component={Settings} />

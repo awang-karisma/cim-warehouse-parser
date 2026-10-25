@@ -12,6 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate/adapter"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate/provider/official"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate/provider/web"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate/session"
 	"github.com/awang-karisma/warehouse-parser/pkg/api"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
@@ -50,11 +55,38 @@ func main() {
 		log.Fatalf("failed to initialize worker: %v", err)
 	}
 
-	// 5. Start Fiber v3 HTTP server
+	// 5. Initialize Accurate integration (if configured)
+	var accProv accurate.Provider
+	var accSession *session.Manager
+	var accRegistry *adapter.Registry
+
+	switch cfg.AccurateProvider {
+	case "web":
+		accProv = web.New(cfg.AccurateEmail, cfg.AccuratePassword, nil)
+		accSession = session.NewManager(store, accProv)
+		accRegistry = adapter.NewRegistry(accProv)
+		log.Printf("Accurate integration initialized with provider: web (%s)", cfg.AccurateEmail)
+	case "official":
+		var opts []official.Option
+		if cfg.AccurateAPISignatureSecret != "" {
+			opts = append(opts, official.WithSignatureSecret(cfg.AccurateAPISignatureSecret))
+		}
+		accProv = official.New(cfg.AccurateAPIToken, opts...)
+		accSession = session.NewManager(store, accProv)
+		accRegistry = adapter.NewRegistry(accProv)
+		log.Println("Accurate integration initialized with provider: official")
+	default:
+		log.Println("Accurate integration is disabled (ACCURATE_PROVIDER is unset)")
+	}
+
+	// 6. Start Fiber v3 HTTP server
 	srv := api.New(api.Config{
-		Store:     store,
-		Worker:    w,
-		AppConfig: cfg,
+		Store:            store,
+		Worker:           w,
+		AppConfig:        cfg,
+		AccurateProvider: accProv,
+		AccurateSession:  accSession,
+		AccurateRegistry: accRegistry,
 	})
 
 	if embeddedFS != nil {
