@@ -338,3 +338,26 @@ export type Symbology = 'CODE128' | 'CODE39' | 'EAN13' | 'QRCODE';
 export type BarcodeHeight = 'compact' | 'medium' | 'large';
 export type FontSize = 'small' | 'medium' | 'large';
 export type QtyMode = 'single' | 'multiply';
+
+export interface PageDesign {
+  id: number;
+  name: string;
+  paper: string;
+  paper_width_mm: number;
+  paper_height_mm: number;
+  label_width_mm: number;
+  label_height_mm: number;
+  cols: number;
+  rows: number;
+  gap_x_mm: number;
+  gap_y_mm: number;
+  margin_top_mm: number;
+  margin_left_mm: number;
+  is_audit_sheet: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PageDesignsResponse {
+  designs: PageDesign[];
+}

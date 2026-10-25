@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -2552,6 +2553,348 @@ func TestWorkdayPoliciesRBAC(t *testing.T) {
 		}
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("expected 200 for admin on PUT workday-policies, got %d", resp.StatusCode)
+		}
+	})
+}
+
+func TestPageDesignsEndpoints(t *testing.T) {
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	srv := api.New(api.Config{
+		Store: store,
+	})
+
+	// 1. Initial GET
+	t.Run("initial GET returns empty list", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("GET /api/v1/page-designs failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var body struct {
+			Designs []model.PageDesign `json:"designs"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(body.Designs) != 0 {
+			t.Fatalf("expected 0 designs, got %d", len(body.Designs))
+		}
+	})
+
+	// 2. POST validation failures
+	t.Run("POST validation rejects missing required properties with 422", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/page-designs", strings.NewReader(`{"name": "Incomplete"}`))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("POST failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Errorf("expected 422 for missing properties, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("POST validation rejects invalid values with 400", func(t *testing.T) {
+		invalidPayloads := []string{
+			`{"name": "   ", "label_width_mm": 50, "label_height_mm": 20, "cols": 1, "rows": 1}`,
+			`{"name": "Test", "label_width_mm": 0, "label_height_mm": 20, "cols": 1, "rows": 1}`,
+			`{"name": "Test", "label_width_mm": 50, "label_height_mm": -1, "cols": 1, "rows": 1}`,
+			`{"name": "Test", "label_width_mm": 50, "label_height_mm": 20, "cols": 0, "rows": 1}`,
+			`{"name": "Test", "label_width_mm": 50, "label_height_mm": 20, "cols": 1, "rows": 0}`,
+			`{"name": "Test", "label_width_mm": 50, "label_height_mm": 20, "cols": 1, "rows": 1, "paper_width_mm": -10}`,
+			`{"name": "Test", "label_width_mm": 50, "label_height_mm": 20, "cols": 1, "rows": 1, "paper_height_mm": -10}`,
+		}
+		for _, payload := range invalidPayloads {
+			req, _ := http.NewRequest("POST", "/api/v1/page-designs", strings.NewReader(payload))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := srv.App().Test(req)
+			if err != nil {
+				t.Fatalf("POST failed: %v", err)
+			}
+			if resp.StatusCode != http.StatusBadRequest {
+				b, _ := io.ReadAll(resp.Body)
+				t.Errorf("expected 400 for payload %s, got %d: %s", payload, resp.StatusCode, string(b))
+			}
+		}
+	})
+
+	var createdID int64
+
+	// 3. POST create design
+	t.Run("POST creates design and returns ID", func(t *testing.T) {
+		payload := `{
+			"name": "Tom & Jerry 108 Custom",
+			"paper": "Sheet",
+			"paper_width_mm": 210,
+			"paper_height_mm": 297,
+			"label_width_mm": 38,
+			"label_height_mm": 19,
+			"cols": 5,
+			"rows": 14,
+			"gap_x_mm": 2.5,
+			"gap_y_mm": 1.5,
+			"margin_top_mm": 10,
+			"margin_left_mm": 5,
+			"is_audit_sheet": false
+		}`
+		req, _ := http.NewRequest("POST", "/api/v1/page-designs", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("POST failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+		}
+		var res struct {
+			Status string `json:"status"`
+			ID     int64  `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if res.Status != "ok" || res.ID <= 0 {
+			t.Fatalf("expected ok and positive ID, got %+v", res)
+		}
+		createdID = res.ID
+	})
+
+	// 4. GET returns created design
+	t.Run("GET returns created design", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("GET failed: %v", err)
+		}
+		var body struct {
+			Designs []model.PageDesign `json:"designs"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(body.Designs) != 1 {
+			t.Fatalf("expected 1 design, got %d", len(body.Designs))
+		}
+		d := body.Designs[0]
+		if d.ID != createdID || d.Name != "Tom & Jerry 108 Custom" || d.Cols != 5 || d.Rows != 14 {
+			t.Errorf("design mismatch: %+v", d)
+		}
+	})
+
+	// 5. PUT updates design
+	t.Run("PUT updates design", func(t *testing.T) {
+		updatePayload := `{
+			"name": "Tom & Jerry 108 Renamed",
+			"paper": "Sheet",
+			"paper_width_mm": 210,
+			"paper_height_mm": 297,
+			"label_width_mm": 40,
+			"label_height_mm": 20,
+			"cols": 5,
+			"rows": 14,
+			"gap_x_mm": 2.5,
+			"gap_y_mm": 1.5,
+			"margin_top_mm": 10,
+			"margin_left_mm": 5,
+			"is_audit_sheet": true
+		}`
+		url := fmt.Sprintf("/api/v1/page-designs/%d", createdID)
+		req, _ := http.NewRequest("PUT", url, strings.NewReader(updatePayload))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("PUT failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+
+		// Verify change
+		getReq, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		getResp, _ := srv.App().Test(getReq)
+		var body struct {
+			Designs []model.PageDesign `json:"designs"`
+		}
+		_ = json.NewDecoder(getResp.Body).Decode(&body)
+		if len(body.Designs) != 1 || body.Designs[0].Name != "Tom & Jerry 108 Renamed" || !body.Designs[0].IsAuditSheet {
+			t.Errorf("expected updated design, got %+v", body.Designs)
+		}
+
+		// PUT non-existent returns 404
+		req404, _ := http.NewRequest("PUT", "/api/v1/page-designs/9999", strings.NewReader(updatePayload))
+		req404.Header.Set("Content-Type", "application/json")
+		resp404, _ := srv.App().Test(req404)
+		if resp404.StatusCode != http.StatusNotFound {
+			t.Errorf("expected 404 for non-existent update, got %d", resp404.StatusCode)
+		}
+	})
+
+	// 6. DELETE removes design
+	t.Run("DELETE removes design", func(t *testing.T) {
+		url := fmt.Sprintf("/api/v1/page-designs/%d", createdID)
+		req, _ := http.NewRequest("DELETE", url, nil)
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("DELETE failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+
+		// Verify empty
+		getReq, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		getResp, _ := srv.App().Test(getReq)
+		var body struct {
+			Designs []model.PageDesign `json:"designs"`
+		}
+		_ = json.NewDecoder(getResp.Body).Decode(&body)
+		if len(body.Designs) != 0 {
+			t.Errorf("expected 0 designs after delete, got %d", len(body.Designs))
+		}
+
+		// DELETE non-existent returns 404
+		req404, _ := http.NewRequest("DELETE", "/api/v1/page-designs/9999", nil)
+		resp404, _ := srv.App().Test(req404)
+		if resp404.StatusCode != http.StatusNotFound {
+			t.Errorf("expected 404 for non-existent delete, got %d", resp404.StatusCode)
+		}
+	})
+}
+
+func TestPageDesignsRBAC(t *testing.T) {
+	jwtSecret := "test-jwt-secret-key-32-chars-long!"
+	cfg := &config.Config{
+		GoogleClientID: "test-client-id.apps.googleusercontent.com",
+		JWTSecret:      jwtSecret,
+	}
+	srv, store, _ := setupTestServer(t, cfg)
+	ctx := context.Background()
+
+	guestUser, _ := store.UpsertUser(ctx, "guest@example.com", "Guest", "")
+	normalUser, _ := store.UpsertUser(ctx, "user@example.com", "User", "")
+	_ = store.SetUserRole(ctx, "user@example.com", "user")
+	normalUser.Role = "user"
+	adminUser, _ := store.UpsertUser(ctx, "admin@example.com", "Admin", "")
+	_ = store.SetUserRole(ctx, "admin@example.com", "admin")
+	adminUser.Role = "admin"
+
+	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)
+	userToken, _ := auth.GenerateToken(jwtSecret, normalUser, nil)
+	adminToken, _ := auth.GenerateToken(jwtSecret, adminUser, nil)
+
+	// GET /api/v1/page-designs: minRole user
+	t.Run("GET /api/v1/page-designs guest gets 403", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: guestToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for guest on GET page-designs, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("GET /api/v1/page-designs user gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for user on GET page-designs, got %d", resp.StatusCode)
+		}
+	})
+
+	designPayload := `{
+		"name": "RBAC Test",
+		"paper": "A4",
+		"paper_width_mm": 210,
+		"paper_height_mm": 297,
+		"label_width_mm": 50,
+		"label_height_mm": 25,
+		"cols": 2,
+		"rows": 5,
+		"gap_x_mm": 2,
+		"gap_y_mm": 2,
+		"margin_top_mm": 10,
+		"margin_left_mm": 10,
+		"is_audit_sheet": false
+	}`
+
+	// POST /api/v1/page-designs: minRole admin
+	t.Run("POST /api/v1/page-designs user gets 403", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/page-designs", strings.NewReader(designPayload))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user on POST page-designs, got %d", resp.StatusCode)
+		}
+	})
+
+	var createdID int64
+	t.Run("POST /api/v1/page-designs admin gets 200", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/v1/page-designs", strings.NewReader(designPayload))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for admin on POST page-designs, got %d", resp.StatusCode)
+		}
+		var res struct {
+			Status string `json:"status"`
+			ID     int64  `json:"id"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&res)
+		createdID = res.ID
+	})
+
+	// PUT /api/v1/page-designs/{id}: minRole admin
+	t.Run("PUT /api/v1/page-designs user gets 403", func(t *testing.T) {
+		url := fmt.Sprintf("/api/v1/page-designs/%d", createdID)
+		req, _ := http.NewRequest("PUT", url, strings.NewReader(designPayload))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user on PUT page-designs, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("PUT /api/v1/page-designs admin gets 200", func(t *testing.T) {
+		url := fmt.Sprintf("/api/v1/page-designs/%d", createdID)
+		req, _ := http.NewRequest("PUT", url, strings.NewReader(designPayload))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin on PUT page-designs, got %d", resp.StatusCode)
+		}
+	})
+
+	// DELETE /api/v1/page-designs/{id}: minRole admin
+	t.Run("DELETE /api/v1/page-designs user gets 403", func(t *testing.T) {
+		url := fmt.Sprintf("/api/v1/page-designs/%d", createdID)
+		req, _ := http.NewRequest("DELETE", url, nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user on DELETE page-designs, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("DELETE /api/v1/page-designs admin gets 200", func(t *testing.T) {
+		url := fmt.Sprintf("/api/v1/page-designs/%d", createdID)
+		req, _ := http.NewRequest("DELETE", url, nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin on DELETE page-designs, got %d", resp.StatusCode)
 		}
 	})
 }

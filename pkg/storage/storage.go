@@ -24,6 +24,9 @@ type Storage struct {
 	db *sql.DB
 }
 
+// ErrNotFound is returned when an entity is not found in storage.
+var ErrNotFound = errors.New("not found")
+
 // OrderFilter defines filtering criteria for order queries.
 type OrderFilter struct {
 	Customer       string `json:"customer"`
@@ -344,6 +347,25 @@ func (s *Storage) migrate() error {
 		official_session TEXT NOT NULL DEFAULT ''
 	);
 	INSERT OR IGNORE INTO accurate_session (id) VALUES (1);
+
+	CREATE TABLE IF NOT EXISTS page_designs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		paper TEXT NOT NULL DEFAULT 'A4',
+		paper_width_mm REAL NOT NULL DEFAULT 210,
+		paper_height_mm REAL NOT NULL DEFAULT 297,
+		label_width_mm REAL NOT NULL,
+		label_height_mm REAL NOT NULL,
+		cols INTEGER NOT NULL DEFAULT 1,
+		rows INTEGER NOT NULL DEFAULT 1,
+		gap_x_mm REAL NOT NULL DEFAULT 0,
+		gap_y_mm REAL NOT NULL DEFAULT 0,
+		margin_top_mm REAL NOT NULL DEFAULT 0,
+		margin_left_mm REAL NOT NULL DEFAULT 0,
+		is_audit_sheet INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -2813,4 +2835,154 @@ func (s *Storage) LoadAccurateSession() (providerID, email, deviceID string, coo
 func (s *Storage) ClearAccurateSession() error {
 	_, err := s.db.Exec(`UPDATE accurate_session SET email = '', device_id = '', cookies = '[]', tenant = '', official_session = '' WHERE id = 1`)
 	return err
+}
+
+// GetPageDesigns returns all custom page designs ordered alphabetically by name.
+func (s *Storage) GetPageDesigns(ctx context.Context) ([]model.PageDesign, error) {
+	query := `
+		SELECT id, name, paper, paper_width_mm, paper_height_mm,
+		       label_width_mm, label_height_mm, cols, rows,
+		       gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
+		       is_audit_sheet, created_at, updated_at
+		FROM page_designs
+		ORDER BY name COLLATE NOCASE
+	`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query page designs: %w", err)
+	}
+	defer rows.Close()
+
+	var designs []model.PageDesign
+	for rows.Next() {
+		var d model.PageDesign
+		var isAuditSheetInt int
+		if err := rows.Scan(
+			&d.ID, &d.Name, &d.Paper, &d.PaperWidthMM, &d.PaperHeightMM,
+			&d.LabelWidthMM, &d.LabelHeightMM, &d.Cols, &d.Rows,
+			&d.GapXMM, &d.GapYMM, &d.MarginTopMM, &d.MarginLeftMM,
+			&isAuditSheetInt, &d.CreatedAt, &d.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan page design: %w", err)
+		}
+		d.IsAuditSheet = isAuditSheetInt == 1
+		designs = append(designs, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating page designs: %w", err)
+	}
+	if designs == nil {
+		designs = []model.PageDesign{}
+	}
+	return designs, nil
+}
+
+// GetPageDesignByID returns a single page design by ID, or ErrNotFound if it does not exist.
+func (s *Storage) GetPageDesignByID(ctx context.Context, id int64) (*model.PageDesign, error) {
+	query := `
+		SELECT id, name, paper, paper_width_mm, paper_height_mm,
+		       label_width_mm, label_height_mm, cols, rows,
+		       gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
+		       is_audit_sheet, created_at, updated_at
+		FROM page_designs
+		WHERE id = ?
+	`
+	row := s.db.QueryRowContext(ctx, query, id)
+	var d model.PageDesign
+	var isAuditSheetInt int
+	if err := row.Scan(
+		&d.ID, &d.Name, &d.Paper, &d.PaperWidthMM, &d.PaperHeightMM,
+		&d.LabelWidthMM, &d.LabelHeightMM, &d.Cols, &d.Rows,
+		&d.GapXMM, &d.GapYMM, &d.MarginTopMM, &d.MarginLeftMM,
+		&isAuditSheetInt, &d.CreatedAt, &d.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("page design %d: %w", id, ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to scan page design %d: %w", id, err)
+	}
+	d.IsAuditSheet = isAuditSheetInt == 1
+	return &d, nil
+}
+
+// CreatePageDesign inserts a new page design into storage and returns its generated ID.
+func (s *Storage) CreatePageDesign(ctx context.Context, d model.PageDesign) (int64, error) {
+	query := `
+		INSERT INTO page_designs (
+			name, paper, paper_width_mm, paper_height_mm,
+			label_width_mm, label_height_mm, cols, rows,
+			gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
+			is_audit_sheet
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	isAuditSheetInt := 0
+	if d.IsAuditSheet {
+		isAuditSheetInt = 1
+	}
+	res, err := s.db.ExecContext(
+		ctx, query,
+		d.Name, d.Paper, d.PaperWidthMM, d.PaperHeightMM,
+		d.LabelWidthMM, d.LabelHeightMM, d.Cols, d.Rows,
+		d.GapXMM, d.GapYMM, d.MarginTopMM, d.MarginLeftMM,
+		isAuditSheetInt,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert page design: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get page design insert id: %w", err)
+	}
+	return id, nil
+}
+
+// UpdatePageDesign updates an existing page design by ID. Returns ErrNotFound if the row does not exist.
+func (s *Storage) UpdatePageDesign(ctx context.Context, id int64, d model.PageDesign) error {
+	query := `
+		UPDATE page_designs SET
+			name = ?, paper = ?, paper_width_mm = ?, paper_height_mm = ?,
+			label_width_mm = ?, label_height_mm = ?, cols = ?, rows = ?,
+			gap_x_mm = ?, gap_y_mm = ?, margin_top_mm = ?, margin_left_mm = ?,
+			is_audit_sheet = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`
+	isAuditSheetInt := 0
+	if d.IsAuditSheet {
+		isAuditSheetInt = 1
+	}
+	res, err := s.db.ExecContext(
+		ctx, query,
+		d.Name, d.Paper, d.PaperWidthMM, d.PaperHeightMM,
+		d.LabelWidthMM, d.LabelHeightMM, d.Cols, d.Rows,
+		d.GapXMM, d.GapYMM, d.MarginTopMM, d.MarginLeftMM,
+		isAuditSheetInt, id,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update page design %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("page design %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// DeletePageDesign deletes a page design by ID. Returns ErrNotFound if the row does not exist.
+func (s *Storage) DeletePageDesign(ctx context.Context, id int64) error {
+	query := `DELETE FROM page_designs WHERE id = ?`
+	res, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete page design %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("page design %d: %w", id, ErrNotFound)
+	}
+	return nil
 }

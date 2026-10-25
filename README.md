@@ -46,7 +46,7 @@ Automated order ingestion, normalization, and visualization system.
   - Persistent SQLite session management (`accurate_session`) preserved across spreadsheet sync and database reset.
   - Six transaction source adapters: Receive Item (`receive-item`), Purchase Order (`purchase-order`), Sales Order (`sales-order`), Delivery Order (`delivery-order`), Stock Opname Order (`stock-opname-order`), and Stock Opname Result (`stock-opname-result`).
   - Interactive barcode printing workspace with live vector barcode rendering (`CODE128`, `CODE39`, `EAN13`, `QRCODE`) via `jsbarcode` and `qrcode-generator`.
-  - Preset templates: Tom & Jerry No. 108 (5×14) & No. 121 (2×5), Continuous Thermal Rolls (50×30mm, 40×20mm), A4 Stock Opname Audit Sheet, and custom dimensions.
+  - Preset templates & reusable custom designs: Tom & Jerry No. 108 (5×14) & No. 121 (2×5), Continuous Thermal Rolls (50×30mm, 40×20mm), A4 Stock Opname Audit Sheet, and persistent admin-managed custom page designs stored in SQLite (`page_designs`) with full CRUD API. Selecting custom presets enables a real-time live-editing dimensions inspector with instantaneous print canvas preview, inline saving, copying, and deletion without modal dialogs.
   - Single and Multiply quantity printing modes, instant barcode scanner input with Accurate Online live item autocomplete lookup, and transaction document importer (PO, SO, DO, Receive Item, Opname).
   - Print-isolated CSS: exact configured paper sizing, zero margins, application chrome completely hidden during printing.
 

@@ -23,6 +23,8 @@ import type {
   AccurateSourceInfo,
   AccurateDocumentsResult,
   AccurateNormalizedItem,
+  PageDesign,
+  PageDesignsResponse,
 } from './types';
 
 export class ApiError extends Error {
@@ -268,3 +270,25 @@ export const getAccurateSourceDocumentItems = (source: string, id: number | stri
   apiFetch<AccurateNormalizedItem[]>(
     `/api/v1/accurate/sources/${encodeURIComponent(source)}/documents/${encodeURIComponent(id)}/items`
   );
+
+export const getPageDesigns = () =>
+  apiFetch<PageDesignsResponse>('/api/v1/page-designs');
+
+export const createPageDesign = (design: Omit<PageDesign, 'id' | 'created_at' | 'updated_at'>) =>
+  apiFetch<{ status: string; id: number }>('/api/v1/page-designs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(design),
+  });
+
+export const updatePageDesign = (id: number, design: Omit<PageDesign, 'id' | 'created_at' | 'updated_at'>) =>
+  apiFetch<{ status: string }>(`/api/v1/page-designs/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(design),
+  });
+
+export const deletePageDesign = (id: number) =>
+  apiFetch<{ status: string }>(`/api/v1/page-designs/${id}`, {
+    method: 'DELETE',
+  });

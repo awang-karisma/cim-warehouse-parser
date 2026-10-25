@@ -262,7 +262,6 @@ func (s *Server) SetupStaticFS(distFS fs.FS) {
 	})
 }
 
-
 func (s *Server) registerOperations() {
 	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "health-check",
@@ -446,6 +445,47 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"config"},
 		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSetWorkdayPolicy)
+
+	// Custom Page Designs Endpoints
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-page-designs",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/page-designs",
+		Summary:     "List page designs",
+		Description: "Get all custom page designs for barcode label printing",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetPageDesigns)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "create-page-design",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/page-designs",
+		Summary:     "Create page design",
+		Description: "Create a new custom page design for barcode label printing",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleCreatePageDesign)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "update-page-design",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/page-designs/{id}",
+		Summary:     "Update page design",
+		Description: "Update an existing custom page design",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleUpdatePageDesign)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "delete-page-design",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/page-designs/{id}",
+		Summary:     "Delete page design",
+		Description: "Delete a custom page design",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleDeletePageDesign)
 
 	// Accurate Online Integration Endpoints
 	huma.Register(s.humaAPI, huma.Operation{

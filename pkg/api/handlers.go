@@ -1106,3 +1106,136 @@ func (s *Server) handleSetWorkdayPolicy(ctx context.Context, input *SetWorkdayPo
 		},
 	}, nil
 }
+
+type PageDesignsOutput struct {
+	Body struct {
+		Designs []model.PageDesign `json:"designs"`
+	}
+}
+
+type CreatePageDesignOutput struct {
+	Body struct {
+		Status string `json:"status"`
+		ID     int64  `json:"id"`
+	}
+}
+
+type CreatePageDesignInput struct {
+	Body model.PageDesign
+}
+
+type UpdatePageDesignInput struct {
+	ID   int64 `path:"id" doc:"Page design ID"`
+	Body model.PageDesign
+}
+
+type DeletePageDesignInput struct {
+	ID int64 `path:"id" doc:"Page design ID"`
+}
+
+func validatePageDesign(d *model.PageDesign) error {
+	d.Name = strings.TrimSpace(d.Name)
+	if d.Name == "" {
+		return huma.Error400BadRequest("name cannot be empty")
+	}
+	if d.LabelWidthMM <= 0 {
+		return huma.Error400BadRequest("label_width_mm must be greater than 0")
+	}
+	if d.LabelHeightMM <= 0 {
+		return huma.Error400BadRequest("label_height_mm must be greater than 0")
+	}
+	if d.Cols < 1 {
+		return huma.Error400BadRequest("cols must be at least 1")
+	}
+	if d.Rows < 1 {
+		return huma.Error400BadRequest("rows must be at least 1")
+	}
+	if d.PaperWidthMM < 0 {
+		return huma.Error400BadRequest("paper_width_mm cannot be negative")
+	}
+	if d.PaperHeightMM < 0 {
+		return huma.Error400BadRequest("paper_height_mm cannot be negative")
+	}
+	if d.PaperWidthMM == 0 {
+		d.PaperWidthMM = 210
+	}
+	if d.PaperHeightMM == 0 {
+		d.PaperHeightMM = 297
+	}
+	d.Paper = strings.TrimSpace(d.Paper)
+	if d.Paper == "" {
+		d.Paper = "A4"
+	}
+	return nil
+}
+
+func (s *Server) handleGetPageDesigns(ctx context.Context, input *struct{}) (*PageDesignsOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	designs, err := s.store.GetPageDesigns(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get page designs", err)
+	}
+	out := &PageDesignsOutput{}
+	out.Body.Designs = designs
+	return out, nil
+}
+
+func (s *Server) handleCreatePageDesign(ctx context.Context, input *CreatePageDesignInput) (*CreatePageDesignOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	design := input.Body
+	if err := validatePageDesign(&design); err != nil {
+		return nil, err
+	}
+	id, err := s.store.CreatePageDesign(ctx, design)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to create page design", err)
+	}
+	out := &CreatePageDesignOutput{}
+	out.Body.Status = "ok"
+	out.Body.ID = id
+	return out, nil
+}
+
+func (s *Server) handleUpdatePageDesign(ctx context.Context, input *UpdatePageDesignInput) (*StatusOKOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if input.ID <= 0 {
+		return nil, huma.Error400BadRequest("invalid page design id")
+	}
+	design := input.Body
+	if err := validatePageDesign(&design); err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdatePageDesign(ctx, input.ID, design); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound(fmt.Sprintf("page design %d not found", input.ID))
+		}
+		return nil, huma.Error500InternalServerError("failed to update page design", err)
+	}
+	return &StatusOKOutput{
+		Body: StatusOKResponse{Status: "ok"},
+	}, nil
+}
+
+func (s *Server) handleDeletePageDesign(ctx context.Context, input *DeletePageDesignInput) (*StatusOKOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if input.ID <= 0 {
+		return nil, huma.Error400BadRequest("invalid page design id")
+	}
+	if err := s.store.DeletePageDesign(ctx, input.ID); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound(fmt.Sprintf("page design %d not found", input.ID))
+		}
+		return nil, huma.Error500InternalServerError("failed to delete page design", err)
+	}
+	return &StatusOKOutput{
+		Body: StatusOKResponse{Status: "ok"},
+	}, nil
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -3136,5 +3137,145 @@ func TestAccurateSessionPersistence(t *testing.T) {
 	}
 	if email != "" || deviceID != "" || len(cookies) != 0 || tenant != nil || official != nil {
 		t.Errorf("expected cleared session fields, got email=%s dev=%s cookies=%v tenant=%v off=%v", email, deviceID, cookies, tenant, official)
+	}
+}
+
+func TestStorage_PageDesigns(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create memory storage: %v", err)
+	}
+
+	// 1. Initial list should be empty
+	designs, err := store.GetPageDesigns(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error getting page designs: %v", err)
+	}
+	if len(designs) != 0 {
+		t.Fatalf("expected 0 page designs, got %d", len(designs))
+	}
+
+	// 2. Create designs
+	d1 := model.PageDesign{
+		Name:          "Zebra 100x50",
+		Paper:         "Roll",
+		PaperWidthMM:  100,
+		PaperHeightMM: 50,
+		LabelWidthMM:  100,
+		LabelHeightMM: 50,
+		Cols:          1,
+		Rows:          1,
+		GapXMM:        0,
+		GapYMM:        0,
+		MarginTopMM:   0,
+		MarginLeftMM:  0,
+		IsAuditSheet:  false,
+	}
+	id1, err := store.CreatePageDesign(ctx, d1)
+	if err != nil {
+		t.Fatalf("failed to create page design d1: %v", err)
+	}
+	if id1 <= 0 {
+		t.Fatalf("expected positive ID, got %d", id1)
+	}
+
+	d2 := model.PageDesign{
+		Name:          "A4 Audit Sheet",
+		Paper:         "A4",
+		PaperWidthMM:  210,
+		PaperHeightMM: 297,
+		LabelWidthMM:  90,
+		LabelHeightMM: 30,
+		Cols:          2,
+		Rows:          8,
+		GapXMM:        5,
+		GapYMM:        5,
+		MarginTopMM:   10,
+		MarginLeftMM:  10,
+		IsAuditSheet:  true,
+	}
+	id2, err := store.CreatePageDesign(ctx, d2)
+	if err != nil {
+		t.Fatalf("failed to create page design d2: %v", err)
+	}
+
+	// 3. GetPageDesignByID
+	fetched1, err := store.GetPageDesignByID(ctx, id1)
+	if err != nil {
+		t.Fatalf("failed to get page design by ID %d: %v", id1, err)
+	}
+	if fetched1.Name != d1.Name || fetched1.IsAuditSheet != false {
+		t.Errorf("fetched1 mismatch: %+v", fetched1)
+	}
+
+	fetched2, err := store.GetPageDesignByID(ctx, id2)
+	if err != nil {
+		t.Fatalf("failed to get page design by ID %d: %v", id2, err)
+	}
+	if fetched2.Name != d2.Name || fetched2.IsAuditSheet != true {
+		t.Errorf("fetched2 mismatch: %+v", fetched2)
+	}
+
+	// 4. List should be ordered by name NOCASE ("A4 Audit Sheet" before "Zebra 100x50")
+	list, err := store.GetPageDesigns(ctx)
+	if err != nil {
+		t.Fatalf("failed to get page designs list: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 page designs, got %d", len(list))
+	}
+	if list[0].Name != "A4 Audit Sheet" || list[1].Name != "Zebra 100x50" {
+		t.Errorf("expected sorted designs, got %q then %q", list[0].Name, list[1].Name)
+	}
+
+	// 5. Update design
+	d1Updated := d1
+	d1Updated.Name = "Zebra 100x50 Updated"
+	d1Updated.LabelWidthMM = 105
+	if err := store.UpdatePageDesign(ctx, id1, d1Updated); err != nil {
+		t.Fatalf("failed to update page design: %v", err)
+	}
+	fetchedUpdated, err := store.GetPageDesignByID(ctx, id1)
+	if err != nil {
+		t.Fatalf("failed to get updated design: %v", err)
+	}
+	if fetchedUpdated.Name != "Zebra 100x50 Updated" || fetchedUpdated.LabelWidthMM != 105 {
+		t.Errorf("update not reflected: %+v", fetchedUpdated)
+	}
+
+	// 6. Not found checks
+	if err := store.UpdatePageDesign(ctx, 99999, d1); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for non-existent update, got %v", err)
+	}
+	if err := store.DeletePageDesign(ctx, 99999); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for non-existent delete, got %v", err)
+	}
+	if _, err := store.GetPageDesignByID(ctx, 99999); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for non-existent get, got %v", err)
+	}
+
+	// 7. Preservation across ClearData
+	if err := store.ClearData(ctx); err != nil {
+		t.Fatalf("ClearData failed: %v", err)
+	}
+	listAfterClear, err := store.GetPageDesigns(ctx)
+	if err != nil {
+		t.Fatalf("failed to get page designs after ClearData: %v", err)
+	}
+	if len(listAfterClear) != 2 {
+		t.Errorf("expected page designs to be preserved across ClearData, got %d", len(listAfterClear))
+	}
+
+	// 8. Delete design
+	if err := store.DeletePageDesign(ctx, id1); err != nil {
+		t.Fatalf("failed to delete page design: %v", err)
+	}
+	listAfterDelete, err := store.GetPageDesigns(ctx)
+	if err != nil {
+		t.Fatalf("failed to get page designs after delete: %v", err)
+	}
+	if len(listAfterDelete) != 1 || listAfterDelete[0].ID != id2 {
+		t.Errorf("expected 1 design remaining with id %d, got %+v", id2, listAfterDelete)
 	}
 }

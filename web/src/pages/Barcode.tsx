@@ -1,42 +1,49 @@
 import {
   type Component,
-  createSignal,
-  onMount,
-  onCleanup,
   createEffect,
-  Show,
-  For,
   createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
 } from 'solid-js';
 import * as api from '~/api';
+import { createPageDesign, deletePageDesign, updatePageDesign } from '~/api';
+import { useAuth } from '~/auth';
+import { AccurateLoginModal } from '~/components/barcode/AccurateLoginModal';
+import { ItemSearchDrawer } from '~/components/barcode/ItemSearchDrawer';
+import { PrintPreview } from '~/components/barcode/PrintPreview';
+import { TransactionDrawer } from '~/components/barcode/TransactionDrawer';
 import {
-  isLoginModalOpen,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from '~/components/ui/alert-dialog';
+import {
   refreshStatus,
   setIsLoginModalOpen,
-  status,
+  status
 } from '~/stores/accurateAuth';
-import {
-  addItem,
-  clearItems,
-  deleteItem,
-  items,
-  toggleSelectAll,
-  updateItemField,
-} from '~/stores/barcodeItems';
 import {
   barcodeHeight,
   companyName,
   customConfig,
   fontSize,
+  fromPresetConfig,
   getEffectiveConfig,
-  PRESETS,
   presetKey,
+  PRESETS,
   qtyMode,
+  refetchDesigns,
   selectPreset,
+  serverDesigns,
   setBarcodeHeight,
   setCompanyName,
   setCustomConfig,
   setFontSize,
+  setPresetKey,
   setQtyMode,
   setShowBarcodeImg,
   setShowBarcodeTxt,
@@ -59,38 +66,47 @@ import {
   showUnit,
   skipCount,
   symbology,
+  toPresetConfig,
   zoom,
 } from '~/stores/barcodeConfig';
-import type { AccurateInventoryItem, BarcodeHeight, FontSize, Symbology } from '~/types';
-import { PrintPreview } from '~/components/barcode/PrintPreview';
-import { AccurateLoginModal } from '~/components/barcode/AccurateLoginModal';
-import { ItemSearchDrawer } from '~/components/barcode/ItemSearchDrawer';
-import { TransactionDrawer } from '~/components/barcode/TransactionDrawer';
+import {
+  addItem,
+  clearItems,
+  deleteItem,
+  items,
+  toggleSelectAll,
+  updateItemField,
+} from '~/stores/barcodeItems';
+import type { AccurateInventoryItem, BarcodeHeight, FontSize, PageDesign, Symbology } from '~/types';
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
-import { DataTable } from '~/components/DataTable';
 import {
-  TableHeader,
-  TableBody,
-  TableHead,
-  TableRow,
-  TableCell,
-} from '~/components/ui/table';
-import { Button } from '~/components/ui/button';
-import { Badge } from '~/components/ui/badge';
-import {
-  IconPrinter,
-  IconPlus,
-  IconTrash,
-  IconPackage,
-  IconFileInvoice,
-  IconScan,
-  IconPlugConnected,
-  IconPlugConnectedX,
+  IconCopy,
+  IconDeviceFloppy,
+  IconEdit,
   IconEye,
   IconEyeOff,
+  IconFileInvoice,
   IconLoader2,
+  IconPackage,
+  IconPlugConnected,
+  IconPlugConnectedX,
+  IconPlus,
+  IconPrinter,
+  IconScan,
+  IconTrash,
+  IconX,
 } from '@tabler/icons-solidjs';
+import { DataTable } from '~/components/DataTable';
+import { Badge } from '~/components/ui/badge';
+import { Button } from '~/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
+import {
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '~/components/ui/table';
 
 export const Barcode: Component = () => {
   const [isInspectorOpen, setIsInspectorOpen] = createSignal(true);
@@ -98,6 +114,161 @@ export const Barcode: Component = () => {
   const [isTransactionOpen, setIsTransactionOpen] = createSignal(false);
 
   let searchInputRef: HTMLInputElement | undefined;
+  const auth = useAuth();
+  const isAdmin = () => {
+    const role = auth.user()?.role;
+    return role === 'admin' || role === 'superadmin';
+  };
+
+  const [isEditing, setIsEditing] = createSignal(false);
+  const [isCreating, setIsCreating] = createSignal(false);
+  let previousPresetKey = 'tj-108';
+
+  const startCreating = () => {
+    previousPresetKey = presetKey();
+    setIsEditing(false);
+    setIsCreating(true);
+    setPresetKey('custom');
+    setCustomConfig({ ...PRESETS.custom, name: '' });
+    setStatusMessage(null);
+  };
+
+  const cancelCreating = () => {
+    setIsCreating(false);
+    const fallback = previousPresetKey.startsWith('server-') || PRESETS[previousPresetKey] ? previousPresetKey : 'tj-108';
+    selectPreset(fallback);
+    setStatusMessage(null);
+  };
+
+  const startEditing = () => {
+    setIsCreating(false);
+    setIsEditing(true);
+    const pk = presetKey();
+    if (pk.startsWith('server-')) {
+      const id = parseInt(pk.slice(7), 10);
+      const design = (serverDesigns() ?? []).find((d) => d.id === id);
+      if (design) {
+        setCustomConfig(toPresetConfig(design));
+      }
+    }
+    setStatusMessage(null);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    const pk = presetKey();
+    if (pk.startsWith('server-')) {
+      const id = parseInt(pk.slice(7), 10);
+      const design = (serverDesigns() ?? []).find((d) => d.id === id);
+      if (design) {
+        setCustomConfig(toPresetConfig(design));
+      }
+    }
+    setStatusMessage(null);
+  };
+
+  const [isSaving, setIsSaving] = createSignal(false);
+  const [statusMessage, setStatusMessage] = createSignal<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [designToDelete, setDesignToDelete] = createSignal<PageDesign | null>(null);
+  const [isDeletingDesign, setIsDeletingDesign] = createSignal(false);
+
+  const handleSaveNewDesign = async () => {
+    const cfg = customConfig();
+    const name = cfg.name.trim();
+    if (!name || name === PRESETS.custom.name) {
+      setStatusMessage({ type: 'error', text: 'Please enter a preset name' });
+      return;
+    }
+    setIsSaving(true);
+    setStatusMessage(null);
+    try {
+      const res = await createPageDesign(fromPresetConfig(cfg));
+      await refetchDesigns();
+      setIsCreating(false);
+      selectPreset(`server-${res.id}`);
+      setStatusMessage({ type: 'success', text: `Saved preset "${name}"` });
+    } catch (err: unknown) {
+      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save preset' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUpdateDesign = async () => {
+    const pk = presetKey();
+    if (!pk.startsWith('server-')) return;
+    const id = parseInt(pk.slice(7), 10);
+    const cfg = customConfig();
+    const name = cfg.name.trim();
+    if (!name) {
+      setStatusMessage({ type: 'error', text: 'Preset name cannot be empty' });
+      return;
+    }
+    setIsSaving(true);
+    setStatusMessage(null);
+    try {
+      await updatePageDesign(id, fromPresetConfig(cfg));
+      await refetchDesigns();
+      setIsEditing(false);
+      setStatusMessage({ type: 'success', text: 'Changes saved!' });
+    } catch (err: unknown) {
+      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update preset' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveAsCopy = async () => {
+    const cfg = customConfig();
+    const baseName = cfg.name.trim() || 'Custom Label';
+    const name = baseName.includes('Copy') ? `${baseName} 2` : `${baseName} (Copy)`;
+    setIsSaving(true);
+    setStatusMessage(null);
+    try {
+      const copyCfg = { ...cfg, name };
+      const res = await createPageDesign(fromPresetConfig(copyCfg));
+      await refetchDesigns();
+      setIsEditing(false);
+      selectPreset(`server-${res.id}`);
+      setStatusMessage({ type: 'success', text: `Created copy "${name}"` });
+    } catch (err: unknown) {
+      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to create copy' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteCurrentDesign = () => {
+    const pk = presetKey();
+    if (!pk.startsWith('server-')) return;
+    const id = parseInt(pk.slice(7), 10);
+    const design = (serverDesigns() ?? []).find((d) => d.id === id);
+    if (design) {
+      setDesignToDelete(design);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    const target = designToDelete();
+    if (!target) return;
+    setIsDeletingDesign(true);
+    try {
+      await deletePageDesign(target.id);
+      await refetchDesigns();
+      setIsEditing(false);
+      setIsCreating(false);
+      if (presetKey() === `server-${target.id}`) {
+        selectPreset('tj-108');
+      }
+      setDesignToDelete(null);
+      setStatusMessage({ type: 'success', text: `Deleted "${target.name}"` });
+    } catch (err: unknown) {
+      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to delete' });
+    } finally {
+      setIsDeletingDesign(false);
+    }
+  };
+
   let searchContainerRef: HTMLDivElement | undefined;
   let debounceTimer: number | undefined;
   let searchRequestId = 0;
@@ -625,7 +796,7 @@ export const Barcode: Component = () => {
         {/* Collapsible Inspector Panel (integrated into Card 3) */}
         <Show when={isInspectorOpen()}>
           <div class="no-print border-b bg-card px-4 py-4 md:px-6">
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 text-xs">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 text-xs items-start">
               {/* Section 1: Paper & Preset */}
               <div class="space-y-1.5">
                 <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
@@ -633,83 +804,414 @@ export const Barcode: Component = () => {
                 </label>
                 <select
                   value={presetKey()}
-                  onChange={(e) => selectPreset(e.currentTarget.value)}
-                  class="w-full text-xs px-2.5 py-1.5 border rounded-md bg-background font-medium"
+                  onChange={(e) => {
+                    const nextVal = e.currentTarget.value;
+                    if (!nextVal || nextVal === 'custom') return;
+                    setIsEditing(false);
+                    setIsCreating(false);
+                    setStatusMessage(null);
+                    selectPreset(nextVal);
+                  }}
+                  class="w-full h-8 text-xs px-2.5 border rounded-md bg-background font-medium"
                 >
-                  <For each={Object.entries(PRESETS)}>
-                    {([k, p]) => <option value={k}>{p.name}</option>}
-                  </For>
+                  <option value="custom" disabled class="hidden">
+                    + New Preset (Unsaved)
+                  </option>
+                  <optgroup label="Built-in Presets">
+                    <For each={Object.entries(PRESETS).filter(([k]) => k !== 'custom')}>
+                      {([k, p]) => <option value={k}>{p.name}</option>}
+                    </For>
+                  </optgroup>
+                  <Show when={(serverDesigns() ?? []).length > 0}>
+                    <optgroup label="Custom Presets">
+                      <For each={serverDesigns() ?? []}>
+                        {(d) => <option value={`server-${d.id}`}>{d.name}</option>}
+                      </For>
+                    </optgroup>
+                  </Show>
                 </select>
 
-                <Show when={presetKey() === 'custom'}>
-                  <div class="p-2.5 bg-muted/40 border rounded-lg space-y-2 text-[11px] mt-2">
-                    <div class="font-semibold text-foreground uppercase tracking-wider text-[10px]">
-                      Custom Dimensions (mm)
+                {/* Action buttons under dropdown */}
+                <Show when={isAdmin()}>
+                  <div class="pt-0.5">
+                    <label class="block text-[10px] text-muted-foreground select-none" aria-hidden="true">
+                      &nbsp;
+                    </label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                      <Button
+                        type="button"
+                        variant={isEditing() ? 'secondary' : 'outline'}
+                        size="sm"
+                        class="w-full h-7 text-xs gap-1 px-1"
+                        disabled={!presetKey().startsWith('server-') || isCreating()}
+                        onClick={() => {
+                          if (isEditing()) cancelEditing();
+                          else startEditing();
+                        }}
+                        title={
+                          !presetKey().startsWith('server-')
+                            ? 'Built-in presets cannot be edited'
+                            : isEditing()
+                            ? 'Close preset editor'
+                            : 'Edit this custom preset'
+                        }
+                      >
+                        <Show when={isEditing()} fallback={<IconEdit class="size-3.5" />}>
+                          <IconX class="size-3.5" />
+                        </Show>
+                        <span>{isEditing() ? 'Cancel' : 'Edit'}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        class="w-full h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 disabled:text-muted-foreground disabled:hover:bg-transparent disabled:opacity-40 gap-1 px-1"
+                        disabled={!presetKey().startsWith('server-') || isCreating()}
+                        onClick={handleDeleteCurrentDesign}
+                        title={
+                          !presetKey().startsWith('server-')
+                            ? 'Built-in presets cannot be deleted'
+                            : 'Delete this custom preset'
+                        }
+                      >
+                        <IconTrash class="size-3.5" />
+                        <span>Delete</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={isCreating() ? 'secondary' : 'outline'}
+                        size="sm"
+                        class="w-full h-7 text-xs gap-1 px-1"
+                        onClick={() => {
+                          if (isCreating()) cancelCreating();
+                          else startCreating();
+                        }}
+                        title={isCreating() ? 'Cancel new preset' : 'Create new custom preset'}
+                      >
+                        <Show when={isCreating()} fallback={<IconPlus class="size-3.5" />}>
+                          <IconX class="size-3.5" />
+                        </Show>
+                        <span>{isCreating() ? 'Cancel' : 'New'}</span>
+                      </Button>
                     </div>
-                    <div class="grid grid-cols-2 gap-1.5">
+                  </div>
+                </Show>
+                <Show when={isCreating() || isEditing()}>
+                  <div class="space-y-2 pt-2 border-t border-border/50">
+                    {/* Header with Title */}
+                    <div class="flex items-center justify-between gap-1">
+                      <span class="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">
+                        Custom Dimensions (mm)
+                      </span>
+                    </div>
+
+                    {/* Status Message */}
+                    <Show when={statusMessage()}>
+                      <div
+                        class={`px-2 py-1 rounded text-[10px] flex items-center justify-between ${
+                          statusMessage()!.type === 'error'
+                            ? 'bg-destructive/10 text-destructive border border-destructive/20'
+                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                        }`}
+                      >
+                        <span>{statusMessage()!.text}</span>
+                        <button
+                          type="button"
+                          onClick={() => setStatusMessage(null)}
+                          class="opacity-60 hover:opacity-100 font-bold ml-1"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </Show>
+
+                    {/* Design Name */}
+                    <Show when={isAdmin() || presetKey() === 'custom'}>
                       <div>
-                        <label class="block text-muted-foreground text-[10px]">Width (mm)</label>
+                        <label class="block text-muted-foreground text-[10px]">Design Name</label>
                         <input
-                          type="number"
-                          step="0.5"
-                          value={customConfig().labelWidthMM}
-                          onInput={(e) =>
-                            setCustomConfig({
-                              ...customConfig(),
-                              labelWidthMM: parseFloat(e.currentTarget.value) || 10,
-                            })
-                          }
+                          type="text"
+                          value={customConfig().name}
+                          onInput={(e) => setCustomConfig({ ...customConfig(), name: e.currentTarget.value })}
+                          placeholder="e.g. Zebra 100x50"
                           class="w-full px-2 py-1 border rounded bg-background text-xs"
                         />
                       </div>
-                      <div>
-                        <label class="block text-muted-foreground text-[10px]">Height (mm)</label>
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={customConfig().labelHeightMM}
-                          onInput={(e) =>
-                            setCustomConfig({
-                              ...customConfig(),
-                              labelHeightMM: parseFloat(e.currentTarget.value) || 10,
-                            })
-                          }
-                          class="w-full px-2 py-1 border rounded bg-background text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label class="block text-muted-foreground text-[10px]">Columns</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={10}
-                          value={customConfig().cols}
-                          onInput={(e) =>
-                            setCustomConfig({
-                              ...customConfig(),
-                              cols: parseInt(e.currentTarget.value, 10) || 1,
-                            })
-                          }
-                          class="w-full px-2 py-1 border rounded bg-background text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label class="block text-muted-foreground text-[10px]">Rows</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          value={customConfig().rows}
-                          onInput={(e) =>
-                            setCustomConfig({
-                              ...customConfig(),
-                              rows: parseInt(e.currentTarget.value, 10) || 1,
-                            })
-                          }
-                          class="w-full px-2 py-1 border rounded bg-background text-xs"
-                        />
+                    </Show>
+
+                    {/* Label Dimensions */}
+                    <div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Label Size (mm)</div>
+                      <div class="grid grid-cols-2 gap-1.5">
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Width</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="1"
+                            value={customConfig().labelWidthMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                labelWidthMM: parseFloat(e.currentTarget.value) || 1,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Height</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="1"
+                            value={customConfig().labelHeightMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                labelHeightMM: parseFloat(e.currentTarget.value) || 1,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
                       </div>
                     </div>
+
+                    {/* Grid: Columns & Rows */}
+                    <div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Grid Layout</div>
+                      <div class="grid grid-cols-2 gap-1.5">
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Columns</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            value={customConfig().cols}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                cols: parseInt(e.currentTarget.value, 10) || 1,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Rows</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="50"
+                            value={customConfig().rows}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                rows: parseInt(e.currentTarget.value, 10) || 1,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Gaps: Horizontal & Vertical */}
+                    <div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Gaps (mm)</div>
+                      <div class="grid grid-cols-2 gap-1.5">
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Gap X (Horiz)</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={customConfig().gapXMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                gapXMM: parseFloat(e.currentTarget.value) || 0,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Gap Y (Vert)</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={customConfig().gapYMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                gapYMM: parseFloat(e.currentTarget.value) || 0,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Margins: Top & Left */}
+                    <div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Margins (mm)</div>
+                      <div class="grid grid-cols-2 gap-1.5">
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Margin Top</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={customConfig().marginTopMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                marginTopMM: parseFloat(e.currentTarget.value) || 0,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Margin Left</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={customConfig().marginLeftMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                marginLeftMM: parseFloat(e.currentTarget.value) || 0,
+                              })
+                            }
+                            class="w-full px-2 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Paper Sheet */}
+                    <div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Paper Sheet (mm)</div>
+                      <div class="grid grid-cols-3 gap-1">
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Paper</label>
+                          <input
+                            type="text"
+                            value={customConfig().paper}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                paper: e.currentTarget.value,
+                              })
+                            }
+                            placeholder="A4, Roll..."
+                            class="w-full px-1.5 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Width</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="10"
+                            value={customConfig().paperWidthMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                paperWidthMM: parseFloat(e.currentTarget.value) || 210,
+                              })
+                            }
+                            class="w-full px-1.5 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label class="block text-muted-foreground text-[9px]">Height</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="10"
+                            value={customConfig().paperHeightMM}
+                            onInput={(e) =>
+                              setCustomConfig({
+                                ...customConfig(),
+                                paperHeightMM: parseFloat(e.currentTarget.value) || 297,
+                              })
+                            }
+                            class="w-full px-1.5 py-1 border rounded bg-background text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Audit Sheet Toggle */}
+                    <label class="flex items-center gap-1.5 cursor-pointer text-[10px] text-muted-foreground pt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={customConfig().isAuditSheet}
+                        onChange={(e) =>
+                          setCustomConfig({
+                            ...customConfig(),
+                            isAuditSheet: e.currentTarget.checked,
+                          })
+                        }
+                        class="rounded border-border text-primary"
+                      />
+                      <span>Stock Opname Audit Sheet Mode</span>
+                    </label>
+
+                    {/* Bottom Action Buttons */}
+                    <Show when={isAdmin()}>
+                      <div class="pt-2 border-t border-border/50 flex items-center justify-end gap-1.5">
+                        <Show
+                          when={isCreating()}
+                          fallback={
+                            <>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                class="h-7 px-2 text-xs gap-1"
+                                disabled={isSaving()}
+                                onClick={handleSaveAsCopy}
+                                title="Save as a new copy"
+                              >
+                                <IconCopy class="size-3.5" />
+                                <span>Create Copy</span>
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                class="h-7 px-2.5 text-xs gap-1"
+                                disabled={isSaving()}
+                                onClick={handleUpdateDesign}
+                                title="Save changes to this preset"
+                              >
+                                <IconDeviceFloppy class="size-3.5" />
+                                <span>{isSaving() ? 'Saving...' : 'Save'}</span>
+                              </Button>
+                            </>
+                          }
+                        >
+                          <Button
+                            type="button"
+                            size="sm"
+                            class="h-7 px-2.5 text-xs gap-1"
+                            disabled={isSaving()}
+                            onClick={handleSaveNewDesign}
+                            title="Save as reusable preset"
+                          >
+                            <IconDeviceFloppy class="size-3.5" />
+                            <span>{isSaving() ? 'Saving...' : 'Save Preset'}</span>
+                          </Button>
+                        </Show>
+                      </div>
+                    </Show>
                   </div>
                 </Show>
               </div>
@@ -722,7 +1224,7 @@ export const Barcode: Component = () => {
                 <select
                   value={symbology()}
                   onChange={(e) => setSymbology(e.currentTarget.value as Symbology)}
-                  class="w-full text-xs px-2.5 py-1.5 border rounded-md bg-background"
+                  class="w-full h-8 text-xs px-2.5 border rounded-md bg-background"
                 >
                   <option value="CODE128">Code 128 (Standard)</option>
                   <option value="CODE39">Code 39</option>
@@ -736,7 +1238,7 @@ export const Barcode: Component = () => {
                     <select
                       value={barcodeHeight()}
                       onChange={(e) => setBarcodeHeight(e.currentTarget.value as BarcodeHeight)}
-                      class="w-full text-xs px-2 py-1 border rounded bg-background"
+                      class="w-full h-7 text-xs px-2 border rounded bg-background"
                     >
                       <option value="compact">Compact (18px)</option>
                       <option value="medium">Medium (24px)</option>
@@ -748,7 +1250,7 @@ export const Barcode: Component = () => {
                     <select
                       value={fontSize()}
                       onChange={(e) => setFontSize(e.currentTarget.value as FontSize)}
-                      class="w-full text-xs px-2 py-1 border rounded bg-background"
+                      class="w-full h-7 text-xs px-2 border rounded bg-background"
                     >
                       <option value="small">Small (0.55rem)</option>
                       <option value="medium">Medium (0.65rem)</option>
@@ -767,29 +1269,31 @@ export const Barcode: Component = () => {
                   <button
                     type="button"
                     onClick={() => setQtyMode('multiply')}
-                    class={`py-1.5 rounded border text-xs font-medium transition-colors ${
+                    class={`h-8 rounded-md border text-xs font-medium transition-colors flex items-center justify-center text-center px-1 truncate ${
                       qtyMode() === 'multiply'
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background hover:bg-muted'
                     }`}
+                    title="Print quantity from item (N labels)"
                   >
-                    By Qty (N labels)
+                    By Qty (N)
                   </button>
                   <button
                     type="button"
                     onClick={() => setQtyMode('single')}
-                    class={`py-1.5 rounded border text-xs font-medium transition-colors ${
+                    class={`h-8 rounded-md border text-xs font-medium transition-colors flex items-center justify-center text-center px-1 truncate ${
                       qtyMode() === 'single'
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background hover:bg-muted'
                     }`}
+                    title="Print exactly 1 label per item"
                   >
-                    Single (1 label)
+                    Single (1x)
                   </button>
                 </div>
 
                 <div class="pt-0.5">
-                  <label class="block text-[10px] text-muted-foreground mb-0.5">
+                  <label class="block text-[10px] text-muted-foreground">
                     Skip Used Slots on Sheet
                   </label>
                   <input
@@ -798,7 +1302,7 @@ export const Barcode: Component = () => {
                     max={50}
                     value={skipCount()}
                     onInput={(e) => setSkipCount(parseInt(e.currentTarget.value, 10) || 0)}
-                    class="w-full px-2 py-1 text-xs border rounded bg-background font-mono"
+                    class="w-full h-7 px-2 text-xs border rounded bg-background font-mono"
                   />
                 </div>
               </div>
@@ -930,6 +1434,39 @@ export const Barcode: Component = () => {
       <AccurateLoginModal />
       <ItemSearchDrawer isOpen={isSearchOpen()} onClose={() => setIsSearchOpen(false)} />
       <TransactionDrawer isOpen={isTransactionOpen()} onClose={() => setIsTransactionOpen(false)} />
+
+      {/* Delete Confirmation Alert Dialog */}
+      <AlertDialog
+        open={!!designToDelete()}
+        onOpenChange={(open) => {
+          if (!open) setDesignToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Delete Page Design</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to remove the page design "{designToDelete()?.name}"? Users will no longer be able to select this layout for barcode printing.
+          </AlertDialogDescription>
+          <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isDeletingDesign()}
+              onClick={() => setDesignToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isDeletingDesign()}
+              onClick={handleConfirmDelete}
+            >
+              {isDeletingDesign() ? 'Deleting...' : 'Delete'}
+            </Button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

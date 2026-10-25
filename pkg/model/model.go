@@ -204,3 +204,23 @@ type WorkdayPolicy struct {
 	EffectiveFrom string   `json:"effective_from"`
 	WorkDays      []string `json:"work_days"`
 }
+
+// PageDesign represents a customizable barcode printing layout.
+type PageDesign struct {
+	ID            int64   `json:"id,omitempty"`
+	Name          string  `json:"name"`
+	Paper         string  `json:"paper,omitempty"`
+	PaperWidthMM  float64 `json:"paper_width_mm,omitempty"`
+	PaperHeightMM float64 `json:"paper_height_mm,omitempty"`
+	LabelWidthMM  float64 `json:"label_width_mm"`
+	LabelHeightMM float64 `json:"label_height_mm"`
+	Cols          int     `json:"cols"`
+	Rows          int     `json:"rows"`
+	GapXMM        float64 `json:"gap_x_mm,omitempty"`
+	GapYMM        float64 `json:"gap_y_mm,omitempty"`
+	MarginTopMM   float64 `json:"margin_top_mm,omitempty"`
+	MarginLeftMM  float64 `json:"margin_left_mm,omitempty"`
+	IsAuditSheet  bool    `json:"is_audit_sheet,omitempty"`
+	CreatedAt     string  `json:"created_at,omitempty"`
+	UpdatedAt     string  `json:"updated_at,omitempty"`
+}
