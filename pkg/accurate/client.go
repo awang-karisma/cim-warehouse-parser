@@ -413,6 +413,19 @@ func (c *Client) OpenDatabase(ctx context.Context, db DatabaseInfo) (*TenantSess
 	if err := validateHost(db.Host); err != nil {
 		return nil, fmt.Errorf("invalid database host: %w", err)
 	}
+	if strings.TrimSpace(db.UniqueID) == "" {
+		return nil, errors.New("database uniqueId is required")
+	}
+
+	// 0. If host already has an active session (e.g. from prior login), try obtaining DSI directly
+	if c.jar.HasCookiesForHost(db.Host) {
+		if sess, err := c.requestOpenDatabaseToken(ctx, db); err == nil && sess != nil {
+			return sess, nil
+		}
+	}
+
+	// Clear any stale host cookies so open.do triggers a clean SAML handshake
+	c.jar.ClearHost(db.Host)
 
 	openURL := fmt.Sprintf("%s/accurate/open.do?uid=%s&product=aol", db.Host, url.QueryEscape(db.UniqueID))
 
@@ -498,6 +511,9 @@ func (c *Client) OpenDatabase(ctx context.Context, db DatabaseInfo) (*TenantSess
 	} else {
 		targetLocation = resolveURL(db.Host, targetLocation)
 	}
+	if err := validateHostMatch(targetLocation, db.Host); err != nil {
+		return nil, fmt.Errorf("untrusted post-SAML redirect: %w", err)
+	}
 
 	req4, err := http.NewRequestWithContext(ctx, "GET", targetLocation, nil)
 	if err != nil {
@@ -509,33 +525,38 @@ func (c *Client) OpenDatabase(ctx context.Context, db DatabaseInfo) (*TenantSess
 	if err != nil {
 		return nil, fmt.Errorf("failed to follow open database redirect: %w", err)
 	}
-	defer res4.Body.Close()
+	_ = res4.Body.Close()
 
-	// 5. Explicitly request open-database.do with database ID to obtain _dsi token
+	// 5. Request open-database.do with uid and product to obtain _dsi token
+	return c.requestOpenDatabaseToken(ctx, db)
+}
+
+func (c *Client) requestOpenDatabaseToken(ctx context.Context, db DatabaseInfo) (*TenantSession, error) {
 	openDbURL := fmt.Sprintf("%s/accurate/open-database.do", db.Host)
 	openDbForm := url.Values{
-		"id": {fmt.Sprintf("%d", db.ID)},
+		"uid":     {db.UniqueID},
+		"product": {"aol"},
 	}
 
-	req5, err := http.NewRequestWithContext(ctx, "POST", openDbURL, strings.NewReader(openDbForm.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", openDbURL, strings.NewReader(openDbForm.Encode()))
 	if err != nil {
 		return nil, err
 	}
-	req5.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req5.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", UserAgent)
 
-	res5, err := c.httpClient.Do(req5)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed open-database.do request: %w", err)
 	}
-	defer res5.Body.Close()
+	defer res.Body.Close()
 
 	var openDbData struct {
 		S   bool   `json:"s"`
 		DSI string `json:"dsi"`
 		D   any    `json:"d"`
 	}
-	if err := json.NewDecoder(res5.Body).Decode(&openDbData); err != nil {
+	if err := json.NewDecoder(res.Body).Decode(&openDbData); err != nil {
 		return nil, fmt.Errorf("failed to decode open-database.do response: %w", err)
 	}
 

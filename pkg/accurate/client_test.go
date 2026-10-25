@@ -259,6 +259,15 @@ func TestClient_OpenDatabaseAndSAML(t *testing.T) {
 	if sess.DSI != "MOCK_DSI_TOKEN_XYZ" || sess.Host != spServer.URL {
 		t.Fatalf("Unexpected session: %+v", sess)
 	}
+
+	// Second OpenDatabase call on same client must succeed via direct open-database.do without failing on SAML form
+	sess2, err := client.OpenDatabase(ctx, dbInfo)
+	if err != nil {
+		t.Fatalf("Second OpenDatabase call failed: %v", err)
+	}
+	if sess2.DSI != "MOCK_DSI_TOKEN_XYZ" {
+		t.Fatalf("Unexpected DSI in second call: %s", sess2.DSI)
+	}
 }
 
 func TestClient_PostTenant_RedirectIsSessionExpired(t *testing.T) {

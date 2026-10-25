@@ -104,3 +104,37 @@ func TestCookieJar_CloneAndLoad(t *testing.T) {
 		t.Fatalf("Clone did not retain original + new cookies")
 	}
 }
+
+func TestCookieJar_HasAndClearHost(t *testing.T) {
+	jar := accurate.NewMemoryJar()
+	idpURL, _ := url.Parse("https://account.accurate.id/")
+	spURL, _ := url.Parse("https://zeus.accurate.id/accurate")
+
+	jar.SetCookies(idpURL, []*http.Cookie{
+		{Name: "JSESSIONID", Value: "IDP_VAL", Path: "/"},
+	})
+	jar.SetCookies(spURL, []*http.Cookie{
+		{Name: "JSESSIONID", Value: "SP_VAL", Path: "/accurate"},
+	})
+
+	if !jar.HasCookiesForHost("https://zeus.accurate.id") {
+		t.Fatalf("expected HasCookiesForHost to be true for zeus.accurate.id")
+	}
+	if !jar.HasCookiesForHost("https://account.accurate.id") {
+		t.Fatalf("expected HasCookiesForHost to be true for account.accurate.id")
+	}
+	if jar.HasCookiesForHost("https://other.accurate.id") {
+		t.Fatalf("expected HasCookiesForHost to be false for other.accurate.id")
+	}
+
+	// Clear zeus.accurate.id
+	jar.ClearHost("https://zeus.accurate.id")
+
+	if jar.HasCookiesForHost("https://zeus.accurate.id") {
+		t.Fatalf("expected HasCookiesForHost to be false after ClearHost")
+	}
+	// account.accurate.id must still remain
+	if !jar.HasCookiesForHost("https://account.accurate.id") {
+		t.Fatalf("expected account.accurate.id cookies to remain untouched")
+	}
+}

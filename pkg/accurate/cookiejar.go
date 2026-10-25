@@ -171,3 +171,46 @@ func (j *MemoryJar) Clone() *MemoryJar {
 	}
 	return clone
 }
+
+// HasCookiesForHost checks if there are stored cookies matching the host.
+func (j *MemoryJar) HasCookiesForHost(hostOrURL string) bool {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+
+	target := strings.ToLower(hostOrURL)
+	if u, err := url.Parse(hostOrURL); err == nil && u.Hostname() != "" {
+		target = strings.ToLower(u.Hostname())
+	}
+
+	now := time.Now()
+	for _, c := range j.cookies {
+		if !strings.EqualFold(c.Domain, target) && !strings.HasSuffix(target, "."+c.Domain) {
+			continue
+		}
+		if !c.Expires.IsZero() && c.Expires.Before(now) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// ClearHost removes all stored cookies matching the given host or URL.
+func (j *MemoryJar) ClearHost(hostOrURL string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	target := strings.ToLower(hostOrURL)
+	if u, err := url.Parse(hostOrURL); err == nil && u.Hostname() != "" {
+		target = strings.ToLower(u.Hostname())
+	}
+
+	filtered := make([]*Cookie, 0, len(j.cookies))
+	for _, c := range j.cookies {
+		if strings.EqualFold(c.Domain, target) {
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+	j.cookies = filtered
+}
