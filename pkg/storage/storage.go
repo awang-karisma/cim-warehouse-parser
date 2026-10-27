@@ -366,6 +366,58 @@ func (s *Storage) migrate() error {
 		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	);
+
+	CREATE TABLE IF NOT EXISTS delivery_drivers (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		phone TEXT NOT NULL DEFAULT '',
+		vehicle TEXT NOT NULL DEFAULT '',
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
+
+	CREATE TABLE IF NOT EXISTS delivery_runs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT NOT NULL DEFAULT '',
+		driver_id INTEGER NOT NULL DEFAULT 0,
+		driver_name TEXT NOT NULL,
+		areas TEXT NOT NULL DEFAULT '[]',
+		delivery_date TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'PLANNED',
+		notes TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_delivery_runs_date ON delivery_runs(delivery_date);
+	CREATE INDEX IF NOT EXISTS idx_delivery_runs_status ON delivery_runs(status);
+
+	CREATE TABLE IF NOT EXISTS delivery_run_items (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		run_id INTEGER NOT NULL REFERENCES delivery_runs(id) ON DELETE CASCADE,
+		source_key TEXT NOT NULL DEFAULT '',
+		row_index INTEGER NOT NULL DEFAULT 0,
+		order_id TEXT NOT NULL DEFAULT '',
+		order_number TEXT NOT NULL DEFAULT '',
+		ecatalog_number TEXT NOT NULL DEFAULT '',
+		tanggal TEXT NOT NULL DEFAULT '',
+		customer TEXT NOT NULL DEFAULT '',
+		area TEXT NOT NULL DEFAULT '',
+		nama_barang TEXT NOT NULL,
+		satuan TEXT NOT NULL DEFAULT '',
+		jumlah TEXT NOT NULL DEFAULT '',
+		belum_terkirim TEXT NOT NULL DEFAULT '',
+		planned_qty TEXT NOT NULL,
+		status_order TEXT NOT NULL DEFAULT '',
+		status_barang TEXT NOT NULL DEFAULT '',
+		keterangan TEXT NOT NULL DEFAULT '',
+		catatan TEXT NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
+		picked INTEGER NOT NULL DEFAULT 0,
+		picked_at TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_delivery_run_items_run_id ON delivery_run_items(run_id);
+	CREATE INDEX IF NOT EXISTS idx_delivery_run_items_source_key ON delivery_run_items(source_key);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -2985,4 +3037,726 @@ func (s *Storage) DeletePageDesign(ctx context.Context, id int64) error {
 		return fmt.Errorf("page design %d: %w", id, ErrNotFound)
 	}
 	return nil
+}
+
+// GetDeliveryCandidateOrders returns orders that have at least one unfinished line item
+// (status_order not in SELESAI, COMPLETED, BATAL, CANCEL), sorted by Area, Tanggal, Customer, OrderID.
+// For all returned candidate orders, all line items are attached with Area populated.
+func (s *Storage) GetDeliveryCandidateOrders(ctx context.Context) ([]model.Order, error) {
+	query := `
+		SELECT id, order_number, ecatalog_number, tanggal, customer, area
+		FROM orders
+		WHERE id IN (
+			SELECT DISTINCT order_id FROM items
+			WHERE UPPER(TRIM(COALESCE(status_order, ''))) NOT IN ('SELESAI', 'COMPLETED', 'BATAL', 'CANCEL')
+		)
+		ORDER BY
+			CASE WHEN TRIM(COALESCE(area, '')) = '' THEN 1 ELSE 0 END,
+			area COLLATE NOCASE ASC,
+			tanggal ASC,
+			customer COLLATE NOCASE ASC,
+			id ASC
+	`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query delivery candidate orders: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []model.Order
+	var orderIDs []string
+	for rows.Next() {
+		var ord model.Order
+		var orderNumber, ecatalogNumber sql.NullString
+		var tanggalVal any
+		if err := rows.Scan(&ord.ID, &orderNumber, &ecatalogNumber, &tanggalVal, &ord.Customer, &ord.Area); err != nil {
+			return nil, fmt.Errorf("failed to scan candidate order: %w", err)
+		}
+		ord.OrderNumber = orderNumber.String
+		ord.EcatalogNumber = ecatalogNumber.String
+		ord.Tanggal = parseStoredDate(tanggalVal)
+		ord.Items = []model.OrderItem{}
+		orders = append(orders, ord)
+		orderIDs = append(orderIDs, ord.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading candidate orders: %w", err)
+	}
+	if len(orders) == 0 {
+		return []model.Order{}, nil
+	}
+
+	// Fetch items for the candidate orders
+	placeholders := make([]string, len(orderIDs))
+	idArgs := make([]any, len(orderIDs))
+	for i, id := range orderIDs {
+		placeholders[i] = "?"
+		idArgs[i] = id
+	}
+	itemQuery := fmt.Sprintf(`
+		SELECT order_id, row_index, order_number, ecatalog_number, nama_barang, jumlah, satuan, tanggal_pengiriman,
+		       lead_time_pengiriman, jumlah_terkirim, belum_terkirim, status_order,
+		       status_barang, keterangan, catatan, area
+		FROM items
+		WHERE order_id IN (%s)
+		ORDER BY id ASC
+	`, strings.Join(placeholders, ","))
+
+	itemRows, err := s.db.QueryContext(ctx, itemQuery, idArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query candidate order items: %w", err)
+	}
+	defer itemRows.Close()
+
+	orderItemMap := make(map[string][]model.OrderItem)
+	for itemRows.Next() {
+		var orderID string
+		var oi model.OrderItem
+		var itemOrderNum, itemEcatNum, itemArea sql.NullString
+		if err := itemRows.Scan(
+			&orderID, &oi.RowIndex, &itemOrderNum, &itemEcatNum, &oi.NamaBarang, &oi.Jumlah, &oi.Satuan,
+			&oi.TanggalPengiriman, &oi.LeadTimePengiriman, &oi.JumlahTerkirim,
+			&oi.BelumTerkirim, &oi.StatusOrder, &oi.StatusBarang,
+			&oi.Keterangan, &oi.Catatan, &itemArea,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan candidate order item: %w", err)
+		}
+		oi.OrderNumber = itemOrderNum.String
+		oi.EcatalogNumber = itemEcatNum.String
+		oi.Area = itemArea.String
+		orderItemMap[orderID] = append(orderItemMap[orderID], oi)
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating candidate order items: %w", err)
+	}
+
+	for i := range orders {
+		if its, ok := orderItemMap[orders[i].ID]; ok {
+			for j := range its {
+				if its[j].Area == "" && orders[i].Area != "" {
+					its[j].Area = orders[i].Area
+				}
+			}
+			orders[i].Items = its
+		}
+	}
+
+	return orders, nil
+}
+
+// GetDeliveryDrivers returns all delivery drivers ordered by active status descending then name ascending.
+func (s *Storage) GetDeliveryDrivers(ctx context.Context) ([]model.DeliveryDriver, error) {
+	query := `
+		SELECT id, name, phone, vehicle, active, created_at, updated_at
+		FROM delivery_drivers
+		ORDER BY active DESC, name COLLATE NOCASE ASC
+	`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query delivery drivers: %w", err)
+	}
+	defer rows.Close()
+
+	var drivers []model.DeliveryDriver
+	for rows.Next() {
+		var d model.DeliveryDriver
+		var activeInt int
+		if err := rows.Scan(&d.ID, &d.Name, &d.Phone, &d.Vehicle, &activeInt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan delivery driver: %w", err)
+		}
+		d.Active = activeInt == 1
+		drivers = append(drivers, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating delivery drivers: %w", err)
+	}
+	if drivers == nil {
+		drivers = []model.DeliveryDriver{}
+	}
+	return drivers, nil
+}
+
+// CreateDeliveryDriver creates a new delivery driver.
+func (s *Storage) CreateDeliveryDriver(ctx context.Context, d model.DeliveryDriver) (int64, error) {
+	activeInt := 1
+	if !d.Active && d.CreatedAt != "" {
+		activeInt = 0
+	}
+	query := `
+		INSERT INTO delivery_drivers (name, phone, vehicle, active)
+		VALUES (?, ?, ?, ?)
+	`
+	res, err := s.db.ExecContext(ctx, query, strings.TrimSpace(d.Name), strings.TrimSpace(d.Phone), strings.TrimSpace(d.Vehicle), activeInt)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert delivery driver: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get delivery driver insert id: %w", err)
+	}
+	return id, nil
+}
+
+// UpdateDeliveryDriver updates an existing delivery driver by ID.
+func (s *Storage) UpdateDeliveryDriver(ctx context.Context, id int64, d model.DeliveryDriver) error {
+	activeInt := 0
+	if d.Active {
+		activeInt = 1
+	}
+	query := `
+		UPDATE delivery_drivers
+		SET name = ?, phone = ?, vehicle = ?, active = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`
+	res, err := s.db.ExecContext(ctx, query, strings.TrimSpace(d.Name), strings.TrimSpace(d.Phone), strings.TrimSpace(d.Vehicle), activeInt, id)
+	if err != nil {
+		return fmt.Errorf("failed to update delivery driver %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("delivery driver %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// DeleteDeliveryDriver deletes a delivery driver by ID.
+func (s *Storage) DeleteDeliveryDriver(ctx context.Context, id int64) error {
+	query := `DELETE FROM delivery_drivers WHERE id = ?`
+	res, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete delivery driver %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("delivery driver %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+func deduplicateAreas(areas []string, items []model.DeliveryRunItem) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, a := range areas {
+		trimmed := strings.TrimSpace(a)
+		if trimmed != "" && !seen[strings.ToLower(trimmed)] {
+			seen[strings.ToLower(trimmed)] = true
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 {
+		for _, item := range items {
+			trimmed := strings.TrimSpace(item.Area)
+			if trimmed != "" && !seen[strings.ToLower(trimmed)] {
+				seen[strings.ToLower(trimmed)] = true
+				result = append(result, trimmed)
+			}
+		}
+	}
+	if result == nil {
+		result = []string{}
+	}
+	return result
+}
+
+// DeliveryRunFilter specifies filtering criteria for delivery runs.
+type DeliveryRunFilter struct {
+	DeliveryDate string
+	Status       string
+	DriverName   string
+	Area         string
+}
+
+// GetDeliveryRuns returns planned delivery runs matching the filter criteria.
+func (s *Storage) GetDeliveryRuns(ctx context.Context, filter DeliveryRunFilter) ([]model.DeliveryRun, error) {
+	var conds []string
+	var args []any
+	if filter.DeliveryDate != "" {
+		conds = append(conds, "delivery_date = ?")
+		args = append(args, strings.TrimSpace(filter.DeliveryDate))
+	}
+	if filter.Status != "" {
+		conds = append(conds, "UPPER(TRIM(status)) = UPPER(TRIM(?))")
+		args = append(args, strings.TrimSpace(filter.Status))
+	}
+	if filter.DriverName != "" {
+		conds = append(conds, "LOWER(driver_name) LIKE ?")
+		args = append(args, "%"+strings.ToLower(strings.TrimSpace(filter.DriverName))+"%")
+	}
+	if filter.Area != "" {
+		cleanArea := strings.ToLower(strings.TrimSpace(filter.Area))
+		conds = append(conds, "(LOWER(areas) LIKE ? OR id IN (SELECT DISTINCT run_id FROM delivery_run_items WHERE LOWER(area) LIKE ?))")
+		args = append(args, "%"+cleanArea+"%", "%"+cleanArea+"%")
+	}
+
+	whereClause := ""
+	if len(conds) > 0 {
+		whereClause = " WHERE " + strings.Join(conds, " AND ")
+	}
+	query := `
+		SELECT id, title, driver_id, driver_name, areas, delivery_date, status, notes, created_at, updated_at
+		FROM delivery_runs
+		` + whereClause + `
+		ORDER BY delivery_date DESC, id DESC
+	`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query delivery runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []model.DeliveryRun
+	var runIDs []int64
+	for rows.Next() {
+		var r model.DeliveryRun
+		var areasJSON string
+		if err := rows.Scan(&r.ID, &r.Title, &r.DriverID, &r.DriverName, &areasJSON, &r.DeliveryDate, &r.Status, &r.Notes, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan delivery run: %w", err)
+		}
+		if err := json.Unmarshal([]byte(areasJSON), &r.Areas); err != nil || r.Areas == nil {
+			r.Areas = []string{}
+		}
+		r.Items = []model.DeliveryRunItem{}
+		runs = append(runs, r)
+		runIDs = append(runIDs, r.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading delivery runs: %w", err)
+	}
+	if len(runs) == 0 {
+		return []model.DeliveryRun{}, nil
+	}
+
+	placeholders := make([]string, len(runIDs))
+	idArgs := make([]any, len(runIDs))
+	for i, id := range runIDs {
+		placeholders[i] = "?"
+		idArgs[i] = id
+	}
+	itemQuery := fmt.Sprintf(`
+		SELECT id, run_id, source_key, row_index, order_id, order_number, ecatalog_number,
+		       tanggal, customer, area, nama_barang, satuan, jumlah, belum_terkirim,
+		       planned_qty, status_order, status_barang, keterangan, catatan, note,
+		       picked, picked_at
+		FROM delivery_run_items
+		WHERE run_id IN (%s)
+		ORDER BY id ASC
+	`, strings.Join(placeholders, ","))
+
+	itemRows, err := s.db.QueryContext(ctx, itemQuery, idArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query delivery run items: %w", err)
+	}
+	defer itemRows.Close()
+
+	runItemMap := make(map[int64][]model.DeliveryRunItem)
+	for itemRows.Next() {
+		var it model.DeliveryRunItem
+		var pickedInt int
+		if err := itemRows.Scan(
+			&it.ID, &it.RunID, &it.SourceKey, &it.RowIndex, &it.OrderID, &it.OrderNumber, &it.EcatalogNumber,
+			&it.Tanggal, &it.Customer, &it.Area, &it.NamaBarang, &it.Satuan, &it.Jumlah, &it.BelumTerkirim,
+			&it.PlannedQty, &it.StatusOrder, &it.StatusBarang, &it.Keterangan, &it.Catatan, &it.Note,
+			&pickedInt, &it.PickedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan delivery run item: %w", err)
+		}
+		it.Picked = pickedInt == 1
+		runItemMap[it.RunID] = append(runItemMap[it.RunID], it)
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating delivery run items: %w", err)
+	}
+
+	for i := range runs {
+		if items, ok := runItemMap[runs[i].ID]; ok {
+			runs[i].Items = items
+			runs[i].TotalItems = len(items)
+			pickedCount := 0
+			for _, it := range items {
+				if it.Picked {
+					pickedCount++
+				}
+			}
+			runs[i].PickedItems = pickedCount
+		}
+	}
+
+	return runs, nil
+}
+
+// GetDeliveryRunByID retrieves a single delivery run and its items by ID.
+func (s *Storage) GetDeliveryRunByID(ctx context.Context, id int64) (*model.DeliveryRun, error) {
+	query := `
+		SELECT id, title, driver_id, driver_name, areas, delivery_date, status, notes, created_at, updated_at
+		FROM delivery_runs
+		WHERE id = ?
+	`
+	row := s.db.QueryRowContext(ctx, query, id)
+	var r model.DeliveryRun
+	var areasJSON string
+	if err := row.Scan(&r.ID, &r.Title, &r.DriverID, &r.DriverName, &areasJSON, &r.DeliveryDate, &r.Status, &r.Notes, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("delivery run %d: %w", id, ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to scan delivery run %d: %w", id, err)
+	}
+	if err := json.Unmarshal([]byte(areasJSON), &r.Areas); err != nil || r.Areas == nil {
+		r.Areas = []string{}
+	}
+	r.Items = []model.DeliveryRunItem{}
+
+	itemRows, err := s.db.QueryContext(ctx, `
+		SELECT id, run_id, source_key, row_index, order_id, order_number, ecatalog_number,
+		       tanggal, customer, area, nama_barang, satuan, jumlah, belum_terkirim,
+		       planned_qty, status_order, status_barang, keterangan, catatan, note,
+		       picked, picked_at
+		FROM delivery_run_items
+		WHERE run_id = ?
+		ORDER BY id ASC
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query delivery run items: %w", err)
+	}
+	defer itemRows.Close()
+
+	pickedCount := 0
+	for itemRows.Next() {
+		var it model.DeliveryRunItem
+		var pickedInt int
+		if err := itemRows.Scan(
+			&it.ID, &it.RunID, &it.SourceKey, &it.RowIndex, &it.OrderID, &it.OrderNumber, &it.EcatalogNumber,
+			&it.Tanggal, &it.Customer, &it.Area, &it.NamaBarang, &it.Satuan, &it.Jumlah, &it.BelumTerkirim,
+			&it.PlannedQty, &it.StatusOrder, &it.StatusBarang, &it.Keterangan, &it.Catatan, &it.Note,
+			&pickedInt, &it.PickedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan delivery run item: %w", err)
+		}
+		it.Picked = pickedInt == 1
+		if it.Picked {
+			pickedCount++
+		}
+		r.Items = append(r.Items, it)
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating delivery run items: %w", err)
+	}
+	r.TotalItems = len(r.Items)
+	r.PickedItems = pickedCount
+	return &r, nil
+}
+
+// CreateDeliveryRun inserts a new delivery run and its items in an atomic transaction.
+func (s *Storage) CreateDeliveryRun(ctx context.Context, run model.DeliveryRun) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	status := strings.ToUpper(strings.TrimSpace(run.Status))
+	if status == "" {
+		status = "PLANNED"
+	}
+	areas := deduplicateAreas(run.Areas, run.Items)
+	areasJSON, err := json.Marshal(areas)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal areas: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO delivery_runs (title, driver_id, driver_name, areas, delivery_date, status, notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, strings.TrimSpace(run.Title), run.DriverID, strings.TrimSpace(run.DriverName), string(areasJSON), strings.TrimSpace(run.DeliveryDate), status, strings.TrimSpace(run.Notes))
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert delivery run: %w", err)
+	}
+	runID, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get run insert id: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO delivery_run_items (
+			run_id, source_key, row_index, order_id, order_number, ecatalog_number,
+			tanggal, customer, area, nama_barang, satuan, jumlah, belum_terkirim,
+			planned_qty, status_order, status_barang, keterangan, catatan, note,
+			picked, picked_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare delivery run item insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, it := range run.Items {
+		sk := it.SourceKey
+		if sk == "" {
+			sk = model.BuildDeliveryItemSourceKey(it.OrderNumber, it.OrderID, it.Customer, it.NamaBarang, it.RowIndex)
+		}
+		pickedInt := 0
+		if it.Picked {
+			pickedInt = 1
+		}
+		if _, err := stmt.ExecContext(ctx,
+			runID, sk, it.RowIndex, it.OrderID, it.OrderNumber, it.EcatalogNumber,
+			it.Tanggal, it.Customer, it.Area, it.NamaBarang, it.Satuan, it.Jumlah, it.BelumTerkirim,
+			it.PlannedQty, it.StatusOrder, it.StatusBarang, it.Keterangan, it.Catatan, it.Note,
+			pickedInt, it.PickedAt,
+		); err != nil {
+			return 0, fmt.Errorf("failed to insert delivery run item: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit delivery run creation: %w", err)
+	}
+	return runID, nil
+}
+
+// UpdateDeliveryRun updates an existing delivery run and replaces its items in an atomic transaction.
+// It preserves previous picked statuses for items matching existing source keys.
+func (s *Storage) UpdateDeliveryRun(ctx context.Context, id int64, run model.DeliveryRun) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var existingID int64
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM delivery_runs WHERE id = ?", id).Scan(&existingID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("delivery run %d: %w", id, ErrNotFound)
+		}
+		return fmt.Errorf("failed to check delivery run %d: %w", id, err)
+	}
+
+	// Capture existing picked states by SourceKey
+	type pickedState struct {
+		picked   bool
+		pickedAt string
+	}
+	existingPicked := make(map[string]pickedState)
+	rows, err := tx.QueryContext(ctx, "SELECT source_key, picked, picked_at FROM delivery_run_items WHERE run_id = ?", id)
+	if err == nil {
+		for rows.Next() {
+			var sk, pat string
+			var pInt int
+			if err := rows.Scan(&sk, &pInt, &pat); err == nil && sk != "" {
+				existingPicked[sk] = pickedState{picked: pInt == 1, pickedAt: pat}
+			}
+		}
+		rows.Close()
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM delivery_run_items WHERE run_id = ?", id); err != nil {
+		return fmt.Errorf("failed to clear old delivery run items: %w", err)
+	}
+
+	areas := deduplicateAreas(run.Areas, run.Items)
+	areasJSON, err := json.Marshal(areas)
+	if err != nil {
+		return fmt.Errorf("failed to marshal areas: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO delivery_run_items (
+			run_id, source_key, row_index, order_id, order_number, ecatalog_number,
+			tanggal, customer, area, nama_barang, satuan, jumlah, belum_terkirim,
+			planned_qty, status_order, status_barang, keterangan, catatan, note,
+			picked, picked_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare delivery run item insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, it := range run.Items {
+		sk := it.SourceKey
+		if sk == "" {
+			sk = model.BuildDeliveryItemSourceKey(it.OrderNumber, it.OrderID, it.Customer, it.NamaBarang, it.RowIndex)
+		}
+		picked := it.Picked
+		pickedAt := it.PickedAt
+		if !picked {
+			if prev, ok := existingPicked[sk]; ok && prev.picked {
+				picked = true
+				pickedAt = prev.pickedAt
+			}
+		}
+		pickedInt := 0
+		if picked {
+			pickedInt = 1
+		}
+		if _, err := stmt.ExecContext(ctx,
+			id, sk, it.RowIndex, it.OrderID, it.OrderNumber, it.EcatalogNumber,
+			it.Tanggal, it.Customer, it.Area, it.NamaBarang, it.Satuan, it.Jumlah, it.BelumTerkirim,
+			it.PlannedQty, it.StatusOrder, it.StatusBarang, it.Keterangan, it.Catatan, it.Note,
+			pickedInt, pickedAt,
+		); err != nil {
+			return fmt.Errorf("failed to insert delivery run item: %w", err)
+		}
+	}
+
+	status := strings.ToUpper(strings.TrimSpace(run.Status))
+	if status == "" {
+		status = "PLANNED"
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE delivery_runs
+		SET title = ?, driver_id = ?, driver_name = ?, areas = ?, delivery_date = ?, status = ?, notes = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`, strings.TrimSpace(run.Title), run.DriverID, strings.TrimSpace(run.DriverName), string(areasJSON), strings.TrimSpace(run.DeliveryDate), status, strings.TrimSpace(run.Notes), id)
+	if err != nil {
+		return fmt.Errorf("failed to update delivery run: %w", err)
+	}
+	rowsAff, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAff == 0 {
+		return fmt.Errorf("delivery run %d: %w", id, ErrNotFound)
+	}
+
+	return tx.Commit()
+}
+
+// UpdateDeliveryRunStatus updates the status of an existing delivery run.
+func (s *Storage) UpdateDeliveryRunStatus(ctx context.Context, id int64, status string) (*model.DeliveryRun, error) {
+	cleanStatus := strings.ToUpper(strings.TrimSpace(status))
+	res, err := s.db.ExecContext(ctx, "UPDATE delivery_runs SET status = ?, updated_at = datetime('now') WHERE id = ?", cleanStatus, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update delivery run status: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, fmt.Errorf("delivery run %d: %w", id, ErrNotFound)
+	}
+	return s.GetDeliveryRunByID(ctx, id)
+}
+
+// UpdateDeliveryRunDriver updates the assigned driver for an existing delivery run.
+func (s *Storage) UpdateDeliveryRunDriver(ctx context.Context, id int64, driverID int64, driverName string) (*model.DeliveryRun, error) {
+	cleanName := strings.TrimSpace(driverName)
+	if cleanName == "" {
+		cleanName = "Unassigned"
+	}
+	res, err := s.db.ExecContext(ctx, "UPDATE delivery_runs SET driver_id = ?, driver_name = ?, updated_at = datetime('now') WHERE id = ?", driverID, cleanName, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update delivery run driver: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, fmt.Errorf("delivery run %d: %w", id, ErrNotFound)
+	}
+	return s.GetDeliveryRunByID(ctx, id)
+}
+
+// ToggleDeliveryRunItemPicked toggles the picked status of an item within a delivery run,
+// updating picked_at and auto-transitioning the run status (PLANNED -> PICKING -> READY) if applicable.
+func (s *Storage) ToggleDeliveryRunItemPicked(ctx context.Context, runID, itemID int64, picked bool) (*model.DeliveryRun, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	pickedInt := 0
+	pickedAt := ""
+	if picked {
+		pickedInt = 1
+		pickedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE delivery_run_items
+		SET picked = ?, picked_at = ?
+		WHERE id = ? AND run_id = ?
+	`, pickedInt, pickedAt, itemID, runID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update picked item: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, fmt.Errorf("delivery run item %d in run %d: %w", itemID, runID, ErrNotFound)
+	}
+
+	var totalCount, pickedCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN picked = 1 THEN 1 ELSE 0 END), 0)
+		FROM delivery_run_items
+		WHERE run_id = ?
+	`, runID).Scan(&totalCount, &pickedCount); err != nil {
+		return nil, fmt.Errorf("failed to count picked items: %w", err)
+	}
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, "SELECT status FROM delivery_runs WHERE id = ?", runID).Scan(&currentStatus); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("delivery run %d: %w", runID, ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to scan current status: %w", err)
+	}
+
+	currentUpper := strings.ToUpper(strings.TrimSpace(currentStatus))
+	if currentUpper == "PLANNED" || currentUpper == "PICKING" || currentUpper == "READY" {
+		newStatus := currentUpper
+		if totalCount > 0 && pickedCount == totalCount {
+			newStatus = "READY"
+		} else if pickedCount > 0 && pickedCount < totalCount {
+			newStatus = "PICKING"
+		} else if pickedCount == 0 {
+			newStatus = "PLANNED"
+		}
+		if newStatus != currentUpper {
+			if _, err := tx.ExecContext(ctx, "UPDATE delivery_runs SET status = ?, updated_at = datetime('now') WHERE id = ?", newStatus, runID); err != nil {
+				return nil, fmt.Errorf("failed to auto-update run status: %w", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit picked item toggle: %w", err)
+	}
+	return s.GetDeliveryRunByID(ctx, runID)
+}
+
+// DeleteDeliveryRun deletes a delivery run and its associated items.
+func (s *Storage) DeleteDeliveryRun(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM delivery_run_items WHERE run_id = ?", id); err != nil {
+		return fmt.Errorf("failed to delete delivery run items: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM delivery_runs WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete delivery run %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("delivery run %d: %w", id, ErrNotFound)
+	}
+	return tx.Commit()
 }

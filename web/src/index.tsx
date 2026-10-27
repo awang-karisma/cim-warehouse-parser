@@ -10,6 +10,7 @@ import { Barcode } from './pages/Barcode';
 import { CustomerAliases } from './pages/CustomerAliases';
 import { Customers } from './pages/Customers';
 import { Dashboard } from './pages/Dashboard';
+import { DeliveryFlow } from './pages/DeliveryFlow';
 import { Items } from './pages/Items';
 import { OrderDetail } from './pages/OrderDetail';
 import { Orders } from './pages/Orders';
@@ -39,6 +40,7 @@ if (root) {
               <Route path="/customers" component={Customers} />
               <Route path="/customer-aliases" component={CustomerAliases} />
               <Route path="/areas" component={Areas} />
+              <Route path="/delivery-flow" component={DeliveryFlow} />
               <Route path="/timeline" component={Timeline} />
               <Route path="/barcode" component={Barcode} />
               <Route path="/sync" component={SyncManager} />

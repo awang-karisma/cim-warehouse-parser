@@ -50,10 +50,26 @@ Automated order ingestion, normalization, and visualization system.
   - Single and Multiply quantity printing modes, instant barcode scanner input with Accurate Online live item autocomplete lookup, and transaction document importer (PO, SO, DO, Receive Item, Opname).
   - Print-isolated CSS: exact configured paper sizing, zero margins, application chrome completely hidden during printing.
 
+
+- **Delivery Flow Workspace & Warehouse Picking (`/delivery-flow`)**:
+  - **4-Step Dispatch Workflow**:
+    1. *Stock Readiness Check*: Filters candidate orders and line items by warehouse stock readiness (`status_barang = 'STOK GUDANG'` by default, with toggles for all unfinished item statuses and `PENDING` client-hold requests).
+    2. *Area Grouping & Selective Item Planning*: Summarizes candidate orders by regional `Area` with quick "Select Ready" actions, filters orders by geographic destination, and allows granular line-item selection with editable partial quantities (`planned_qty`), client hold requests/notes, and informational badges for items already in active runs.
+    3. *Driver Assignment & Route Dispatch*: Driver assignment occurs after grouping orders by area and selecting items. Driver selection is optional (defaults to `'Unassigned'` if not yet determined). Manages delivery driver roster (`delivery_drivers`), dispatch date, run title, and route instructions.
+    4. *Warehouse Preparation & Printable Manifest*: Mobile-ready warehouse picking checklist supporting two grouping modes: `By Destination Order` (delivery staging per customer stop) and `Consolidated Warehouse Pick List` (shelf pulling aggregated by product and unit with single-click bulk picking). Includes a printable A4 manifest (`.delivery-print-sheet`) with run metadata, structured table, and driver/supervisor/receiver signature blocks.
+    5. *Sudden Driver Reassignment*: In Tab 2 (Warehouse Picking & Runs), supervisor can instantly reassign or change the assigned driver directly on any active run in 1 click (`PATCH /api/v1/delivery-runs/:id/driver`) without re-entering the planner.
+  - **Independent SQLite Persistence & Source-Agnostic Keys**:
+    - Persists dispatch runs and items (`delivery_drivers`, `delivery_runs`, `delivery_run_items`) with stable source-agnostic identity keys (`source_key` via `BuildDeliveryItemSourceKey`), completely decoupled from remote sync tables and surviving `SyncMirror` and database clear operations.
+  - **Automated Status Transitions**:
+    - Toggling item picked status automatically advances run status: `PLANNED` $\rightarrow$ `PICKING` $\rightarrow$ `READY` (all items picked), with manual controls for `DISPATCHED` and `COMPLETED`.
+
+  - **Mobile-Responsive Drawers & Design Tokens**:
+    - Modernized with Kobalte `Tabs` primitives and semantic design tokens (`primary`, `destructive`, `status-selesai`, `status-pending`).
+    - Responsive right `Sheet` drawer for filters and route dispatch on Tab 1, and left `Sheet` drawer for run switching on Tab 2 via floating action buttons on mobile screens.
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
-  - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Timeline, Sync Manager, Search, and Settings.
+  - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Flow, Delivery Timeline, Barcode Printer, Sync Manager, Search, and Settings.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, interactive hover/focus tooltips for item notes, and multi-column client-side sorting.
   - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.

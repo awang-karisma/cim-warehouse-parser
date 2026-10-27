@@ -3,6 +3,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -223,4 +224,73 @@ type PageDesign struct {
 	IsAuditSheet  bool    `json:"is_audit_sheet,omitempty"`
 	CreatedAt     string  `json:"created_at,omitempty"`
 	UpdatedAt     string  `json:"updated_at,omitempty"`
+}
+
+// DeliveryDriver represents a delivery person who can be assigned to delivery runs.
+type DeliveryDriver struct {
+	ID        int64  `json:"id,omitempty"`
+	Name      string `json:"name"`
+	Phone     string `json:"phone,omitempty"`
+	Vehicle   string `json:"vehicle,omitempty"`
+	Active    bool   `json:"active,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+// DeliveryRun represents a planned or active warehouse delivery dispatch run assigned to a driver.
+type DeliveryRun struct {
+	ID           int64             `json:"id,omitempty"`
+	Title        string            `json:"title,omitempty"`
+	DriverID     int64             `json:"driver_id,omitempty"`
+	DriverName   string            `json:"driver_name"`
+	Areas        []string          `json:"areas,omitempty"`
+	DeliveryDate string            `json:"delivery_date"`
+	Status       string            `json:"status,omitempty"`
+	Notes        string            `json:"notes,omitempty"`
+	TotalItems   int               `json:"total_items,omitempty"`
+	PickedItems  int               `json:"picked_items,omitempty"`
+	Items        []DeliveryRunItem `json:"items"`
+	CreatedAt    string            `json:"created_at,omitempty"`
+	UpdatedAt    string            `json:"updated_at,omitempty"`
+}
+
+// DeliveryRunItem represents a selected order line item and planned delivery quantity in a DeliveryRun.
+type DeliveryRunItem struct {
+	ID             int64  `json:"id,omitempty"`
+	RunID          int64  `json:"run_id,omitempty"`
+	SourceKey      string `json:"source_key,omitempty"`
+	RowIndex       int    `json:"row_index,omitempty"`
+	OrderID        string `json:"order_id,omitempty"`
+	OrderNumber    string `json:"order_number,omitempty"`
+	EcatalogNumber string `json:"ecatalog_number,omitempty"`
+	Tanggal        string `json:"tanggal,omitempty"`
+	Customer       string `json:"customer,omitempty"`
+	Area           string `json:"area,omitempty"`
+	NamaBarang     string `json:"nama_barang"`
+	Satuan         string `json:"satuan,omitempty"`
+	Jumlah         string `json:"jumlah,omitempty"`
+	BelumTerkirim  string `json:"belum_terkirim,omitempty"`
+	PlannedQty     string `json:"planned_qty"`
+	StatusOrder    string `json:"status_order,omitempty"`
+	StatusBarang   string `json:"status_barang,omitempty"`
+	Keterangan     string `json:"keterangan,omitempty"`
+	Catatan        string `json:"catatan,omitempty"`
+	Note           string `json:"note,omitempty"`
+	Picked         bool   `json:"picked,omitempty"`
+	PickedAt       string `json:"picked_at,omitempty"`
+}
+
+// BuildDeliveryItemSourceKey constructs a stable, source-agnostic identity key for a line item
+// that works across both Spreadsheet rows and future Accurate Online synced items.
+func BuildDeliveryItemSourceKey(orderNumber, orderID, customer, namaBarang string, rowIndex int) string {
+	docKey := strings.TrimSpace(orderNumber)
+	if docKey == "" {
+		docKey = strings.TrimSpace(orderID)
+	}
+	cleanCust := strings.ToLower(strings.TrimSpace(customer))
+	cleanItem := strings.ToLower(strings.TrimSpace(namaBarang))
+	if rowIndex > 0 {
+		return fmt.Sprintf("%s:%d:%s:%s", docKey, rowIndex, cleanCust, cleanItem)
+	}
+	return fmt.Sprintf("%s:%s:%s", docKey, cleanCust, cleanItem)
 }

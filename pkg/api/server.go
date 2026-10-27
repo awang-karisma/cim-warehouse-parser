@@ -487,6 +487,136 @@ func (s *Server) registerOperations() {
 		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeletePageDesign)
 
+	// Delivery Flow Endpoints
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-delivery-candidates",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/delivery-flow/candidates",
+		Summary:     "List delivery candidates",
+		Description: "Get candidate orders containing unfinished items for delivery planning",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDeliveryCandidates)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-delivery-drivers",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/delivery-drivers",
+		Summary:     "List delivery drivers",
+		Description: "Get all delivery drivers",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDeliveryDrivers)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "create-delivery-driver",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/delivery-drivers",
+		Summary:     "Create delivery driver",
+		Description: "Create a new delivery driver",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleCreateDeliveryDriver)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "update-delivery-driver",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/delivery-drivers/{id}",
+		Summary:     "Update delivery driver",
+		Description: "Update an existing delivery driver",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleUpdateDeliveryDriver)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "delete-delivery-driver",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/delivery-drivers/{id}",
+		Summary:     "Delete delivery driver",
+		Description: "Delete a delivery driver",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleDeleteDeliveryDriver)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-delivery-runs",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/delivery-runs",
+		Summary:     "List delivery runs",
+		Description: "Get planned delivery runs matching optional filters",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDeliveryRuns)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-delivery-run",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/delivery-runs/{id}",
+		Summary:     "Get delivery run",
+		Description: "Get details and items of a specific delivery run",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDeliveryRunByID)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "create-delivery-run",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/delivery-runs",
+		Summary:     "Create delivery run",
+		Description: "Create a new delivery run with items",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleCreateDeliveryRun)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "update-delivery-run",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/delivery-runs/{id}",
+		Summary:     "Update delivery run",
+		Description: "Update an existing delivery run and its items",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleUpdateDeliveryRun)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "update-delivery-run-status",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/delivery-runs/{id}/status",
+		Summary:     "Update delivery run status",
+		Description: "Update the status of an existing delivery run",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleUpdateDeliveryRunStatus)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "update-delivery-run-driver",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/delivery-runs/{id}/driver",
+		Summary:     "Update delivery run driver",
+		Description: "Update the assigned driver for an existing delivery run",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleUpdateDeliveryRunDriver)
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "toggle-delivery-run-item-pick",
+		Method:      http.MethodPatch,
+		Path:        "/api/v1/delivery-runs/{id}/items/{item_id}/pick",
+		Summary:     "Toggle delivery run item pick",
+		Description: "Toggle the picked status of an item within a delivery run",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleToggleDeliveryRunItemPick)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "delete-delivery-run",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/delivery-runs/{id}",
+		Summary:     "Delete delivery run",
+		Description: "Delete a delivery run and its items",
+		Tags:        []string{"delivery-flow"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleDeleteDeliveryRun)
+
 	// Accurate Online Integration Endpoints
 	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "get-accurate-status",

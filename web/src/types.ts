@@ -361,3 +361,68 @@ export interface PageDesign {
 export interface PageDesignsResponse {
   designs: PageDesign[];
 }
+
+export interface DeliveryDriver {
+  id?: number;
+  name: string;
+  phone?: string;
+  vehicle?: string;
+  active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DeliveryDriversResponse {
+  drivers: DeliveryDriver[];
+}
+
+export type DeliveryRunStatus = 'PLANNED' | 'PICKING' | 'READY' | 'DISPATCHED' | 'COMPLETED';
+
+export interface DeliveryRunItem {
+  id?: number;
+  run_id?: number;
+  source_key?: string;
+  row_index?: number;
+  order_id?: string;
+  order_number?: string;
+  ecatalog_number?: string;
+  tanggal?: string;
+  customer?: string;
+  area?: string;
+  nama_barang: string;
+  satuan?: string;
+  jumlah?: string;
+  belum_terkirim?: string;
+  planned_qty: string;
+  status_order?: string;
+  status_barang?: string;
+  keterangan?: string;
+  catatan?: string;
+  note?: string;
+  picked?: boolean;
+  picked_at?: string;
+}
+
+export interface DeliveryRun {
+  id?: number;
+  title?: string;
+  driver_id?: number;
+  driver_name: string;
+  areas?: string[];
+  delivery_date: string;
+  status?: DeliveryRunStatus;
+  notes?: string;
+  total_items?: number;
+  picked_items?: number;
+  items: DeliveryRunItem[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DeliveryRunsResponse {
+  runs: DeliveryRun[];
+}
+
+export interface DeliveryCandidatesResponse {
+  orders: Order[];
+}

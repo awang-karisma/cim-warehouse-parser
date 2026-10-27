@@ -38,6 +38,7 @@ export const App: Component<RouteSectionProps> = (props) => {
     if (path.startsWith('/customers')) return 'Customer View';
     if (path.startsWith('/customer-aliases')) return 'Customer Aliases';
     if (path.startsWith('/areas')) return 'Area Map';
+    if (path.startsWith('/delivery-flow')) return 'Delivery Flow';
     if (path.startsWith('/timeline')) return 'Delivery Timeline';
     if (path.startsWith('/barcode')) return 'Barcode Printer';
     if (path.startsWith('/sync')) return 'Sync Manager';

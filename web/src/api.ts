@@ -25,6 +25,12 @@ import type {
   AccurateNormalizedItem,
   PageDesign,
   PageDesignsResponse,
+  DeliveryCandidatesResponse,
+  DeliveryDriver,
+  DeliveryDriversResponse,
+  DeliveryRun,
+  DeliveryRunsResponse,
+  DeliveryRunStatus,
 } from './types';
 
 export class ApiError extends Error {
@@ -290,5 +296,86 @@ export const updatePageDesign = (id: number, design: Omit<PageDesign, 'id' | 'cr
 
 export const deletePageDesign = (id: number) =>
   apiFetch<{ status: string }>(`/api/v1/page-designs/${id}`, {
+    method: 'DELETE',
+  });
+
+export const getDeliveryCandidates = () =>
+  apiFetch<DeliveryCandidatesResponse>('/api/v1/delivery-flow/candidates');
+
+export const getDeliveryDrivers = () =>
+  apiFetch<DeliveryDriversResponse>('/api/v1/delivery-drivers');
+
+export const createDeliveryDriver = (driver: Omit<DeliveryDriver, 'id' | 'created_at' | 'updated_at'>) =>
+  apiFetch<{ status: string; id: number; driver?: DeliveryDriver }>('/api/v1/delivery-drivers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(driver),
+  });
+
+export const updateDeliveryDriver = (id: number, driver: Partial<DeliveryDriver>) =>
+  apiFetch<{ status: string }>(`/api/v1/delivery-drivers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(driver),
+  });
+
+export const deleteDeliveryDriver = (id: number) =>
+  apiFetch<{ status: string }>(`/api/v1/delivery-drivers/${id}`, {
+    method: 'DELETE',
+  });
+
+export const getDeliveryRuns = (params?: {
+  delivery_date?: string;
+  status?: string;
+  driver_name?: string;
+  area?: string;
+}) => {
+  const query = qs(params);
+  return apiFetch<DeliveryRunsResponse>(`/api/v1/delivery-runs${query ? '?' + query : ''}`);
+};
+
+export const getDeliveryRun = (id: number) =>
+  apiFetch<{ run: DeliveryRun }>(`/api/v1/delivery-runs/${id}`);
+
+export const createDeliveryRun = (run: DeliveryRun) =>
+  apiFetch<{ status: string; id: number; run: DeliveryRun }>('/api/v1/delivery-runs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(run),
+  });
+
+export const updateDeliveryRun = (id: number, run: DeliveryRun) =>
+  apiFetch<{ status: string; run: DeliveryRun }>(`/api/v1/delivery-runs/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(run),
+  });
+
+export const updateDeliveryRunStatus = (id: number, status: DeliveryRunStatus) =>
+  apiFetch<{ status: string; run: DeliveryRun }>(`/api/v1/delivery-runs/${id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+
+export const updateDeliveryRunDriver = (id: number, payload: { driver_id?: number; driver_name: string }) =>
+  apiFetch<{ status: string; run: DeliveryRun }>(`/api/v1/delivery-runs/${id}/driver`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+export const toggleDeliveryRunItemPick = (runId: number, itemId: number, picked: boolean) =>
+  apiFetch<{ status: string; run: DeliveryRun }>(
+    `/api/v1/delivery-runs/${runId}/items/${itemId}/pick`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ picked }),
+    }
+  );
+
+export const deleteDeliveryRun = (id: number) =>
+  apiFetch<{ status: string }>(`/api/v1/delivery-runs/${id}`, {
     method: 'DELETE',
   });
