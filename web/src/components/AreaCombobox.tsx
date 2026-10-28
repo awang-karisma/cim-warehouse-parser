@@ -1,4 +1,5 @@
 import { type Accessor, createEffect, createMemo, createSignal } from "solid-js";
+import { useI18n } from "~/i18n";
 import {
   Combobox,
   ComboboxControl,
@@ -22,6 +23,7 @@ export interface AreaComboboxProps {
 }
 
 export function AreaCombobox(props: AreaComboboxProps) {
+  const { t } = useI18n();
   const [inputText, setInputText] = createSignal(props.value || "");
   let controlEl: HTMLDivElement | undefined;
 
@@ -102,7 +104,7 @@ export function AreaCombobox(props: AreaComboboxProps) {
       >
         <ComboboxInput
           class="h-full py-0 text-sm"
-          placeholder={props.placeholder ?? "Select or type area..."}
+          placeholder={props.placeholder ?? t("common.selectArea")}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
         />

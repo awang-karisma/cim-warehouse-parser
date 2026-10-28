@@ -3,6 +3,7 @@ import { getStatus, getConfig } from '~/api';
 import { cn } from '~/lib/utils';
 import { A, useLocation } from '@solidjs/router';
 import { useAuth } from '~/auth';
+import { useI18n } from '~/i18n';
 import {
   IconLayoutDashboard,
   IconClipboardList,
@@ -60,16 +61,6 @@ function parseDuration(s?: string): number {
   return matched ? ms : 15 * 60 * 1000;
 }
 
-function formatRelativeTime(date: Date, now: number): string {
-  const diffSec = Math.floor((now - date.getTime()) / 1000);
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} min ago`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour}h ago`;
-  const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay}d ago`;
-}
 
 function formatCountdown(ms: number): string {
   if (ms <= 0) return '00:00';
@@ -85,6 +76,7 @@ function formatCountdown(ms: number): string {
 }
 
 const SyncStatusFooter: Component = () => {
+  const { t, formatRelativeTime } = useI18n();
   const [status, { refetch: refetchStatus }] = createResource(getStatus);
   const [config] = createResource(getConfig);
   const [now, setNow] = createSignal(Date.now());
@@ -120,42 +112,42 @@ const SyncStatusFooter: Component = () => {
 
   const line1 = createMemo(() => {
     const date = lastSyncDate();
-    if (!date || isNaN(date.getTime())) return 'Never synced';
-    return `Synced ${formatRelativeTime(date, now())}`;
+    if (!date || isNaN(date.getTime())) return t('sync.neverSynced');
+    return t('sync.synced', { time: formatRelativeTime(date, now()) });
   });
 
   const line2 = createMemo(() => {
     const s = status();
     if (s?.status === 'syncing' || s?.status === 'running') {
-      return 'Sync in progress...';
+      return t('sync.inProgress');
     }
     if (s?.is_inside_work_hours === false) {
-      return 'Outside work hours';
+      return t('sync.outsideWorkHours');
     }
     if (s?.next_sync) {
       const nextTime = new Date(s.next_sync).getTime();
       const diff = nextTime - now();
       if (diff > 0) {
-        return `Next in ${formatCountdown(diff)}`;
+        return t('sync.nextIn', { time: formatCountdown(diff) });
       }
-      return 'Sync overdue';
+      return t('sync.overdue');
     }
-    return 'Idle';
+    return t('sync.idle');
   });
 
   const tooltipTitle = createMemo(() => {
     const parts: string[] = [];
     const ls = lastSyncDate();
     if (ls && !isNaN(ls.getTime())) {
-      parts.push(`Last sync: ${ls.toLocaleString()}`);
+      parts.push(t('sync.lastSync', { time: ls.toLocaleString() }));
     } else {
-      parts.push('Never synced');
+      parts.push(t('sync.neverSynced'));
     }
     if (status()?.next_sync) {
-      parts.push(`Next sync: ${new Date(status()!.next_sync!).toLocaleString()}`);
+      parts.push(t('sync.nextSync', { time: new Date(status()!.next_sync!).toLocaleString() }));
     }
     if (status()?.is_inside_work_hours === false) {
-      parts.push('Outside active work hours');
+      parts.push(t('sync.outsideActive'));
     }
     return parts.join('\n');
   });
@@ -184,24 +176,10 @@ const SyncStatusFooter: Component = () => {
   );
 };
 
-const navItems: NavItem[] = [
-  { href: '/', label: 'Dashboard', icon: IconLayoutDashboard, exact: true },
-  { href: '/orders', label: 'Orders', icon: IconClipboardList },
-  { href: '/items', label: 'Items', icon: IconPackage },
-  { href: '/customers', label: 'Customer View', icon: IconUsers },
-  { href: '/customer-aliases', label: 'Customer Aliases', icon: IconAddressBook },
-  { href: '/areas', label: 'Area Map', icon: IconMapPin },
-  { href: '/delivery-flow', label: 'Delivery Flow', icon: IconTruckDelivery },
-  { href: '/timeline', label: 'Delivery Timeline', icon: IconTimeline },
-  { href: '/barcode', label: 'Barcode Printer', icon: IconBarcode },
-  { href: '/sync', label: 'Sync Manager', icon: IconRefresh },
-  { href: '/search', label: 'Search', icon: IconSearch },
-  { href: '/settings', label: 'Settings', icon: IconSettings },
-];
-
 export const AppSidebar: Component = () => {
   const location = useLocation();
   const auth = useAuth();
+  const { t } = useI18n();
   const { isMobile, setOpenMobile } = useSidebar();
 
   const handleNavClick = () => {
@@ -214,14 +192,25 @@ export const AppSidebar: Component = () => {
     return role === 'admin' || role === 'superadmin';
   });
 
-  const currentNavItems = createMemo(() => {
+  const currentNavItems = createMemo<NavItem[]>(() => {
+    const items: NavItem[] = [
+      { href: '/', label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
+      { href: '/orders', label: t('nav.orders'), icon: IconClipboardList },
+      { href: '/items', label: t('nav.items'), icon: IconPackage },
+      { href: '/customers', label: t('nav.customerView'), icon: IconUsers },
+      { href: '/customer-aliases', label: t('nav.customerAliases'), icon: IconAddressBook },
+      { href: '/areas', label: t('nav.areaMap'), icon: IconMapPin },
+      { href: '/delivery-flow', label: t('nav.deliveryFlow'), icon: IconTruckDelivery },
+      { href: '/timeline', label: t('nav.deliveryTimeline'), icon: IconTimeline },
+      { href: '/barcode', label: t('nav.barcodePrinter'), icon: IconBarcode },
+      { href: '/sync', label: t('nav.syncManager'), icon: IconRefresh },
+      { href: '/search', label: t('nav.search'), icon: IconSearch },
+      { href: '/settings', label: t('nav.settings'), icon: IconSettings },
+    ];
     if (isPrivileged()) {
-      return [
-        ...navItems,
-        { href: '/admin/users', label: 'User Management', icon: IconUserCog },
-      ];
+      items.push({ href: '/admin/users', label: t('nav.userManagement'), icon: IconUserCog });
     }
-    return navItems;
+    return items;
   });
 
   const isActive = (item: NavItem) => {
@@ -241,7 +230,7 @@ export const AppSidebar: Component = () => {
               </div>
               <div class="grid flex-1 text-left text-sm leading-tight">
                 <span class="truncate font-semibold">Warehouse Parser</span>
-                <span class="truncate text-xs text-muted-foreground">Admin Console</span>
+                <span class="truncate text-xs text-muted-foreground">{t('common.adminConsole')}</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -250,7 +239,7 @@ export const AppSidebar: Component = () => {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel>{t('common.navigation')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <For each={currentNavItems()}>

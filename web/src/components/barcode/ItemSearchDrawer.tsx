@@ -1,4 +1,5 @@
 import { type Component, createSignal, For, Show } from 'solid-js';
+import { useI18n } from '~/i18n';
 import * as api from '~/api';
 import { handleSessionInvalidated } from '~/stores/accurateAuth';
 import { addNormalizedItems } from '~/stores/barcodeItems';
@@ -26,6 +27,7 @@ interface ItemSearchDrawerProps {
 }
 
 export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
+  const { t } = useI18n();
   const [query, setQuery] = createSignal('');
   const [items, setItems] = createSignal<AccurateInventoryItem[]>([]);
   const [pagination, setPagination] = createSignal<AccuratePagination>({ page: 1, pageCount: 1, pageSize: 50, rowCount: 0 });
@@ -44,7 +46,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
       if (err instanceof api.ApiError && err.status === 401) {
         handleSessionInvalidated(err.message);
       }
-      setError(err instanceof Error ? err.message : 'Failed to search items');
+      setError(err instanceof Error ? err.message : t('barcode.searchItemsFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -99,10 +101,10 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
           <SheetHeader>
             <SheetTitle class="text-base flex items-center gap-2">
               <IconPackage class="size-5 text-primary" />
-              Search Accurate Inventory
+              {t('barcode.searchInventory')}
             </SheetTitle>
             <SheetDescription class="text-xs">
-              Search and pick inventory master items to add to the label printing queue.
+              {t('barcode.searchInventoryDesc')}
             </SheetDescription>
           </SheetHeader>
 
@@ -117,7 +119,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void fetchItems(1);
                 }}
-                placeholder="Search item code, name, or barcode..."
+                placeholder={t('barcode.searchItemPlaceholder')}
                 class="w-full pl-9 pr-3 py-2 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -125,7 +127,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
               <Show when={isLoading()} fallback={<IconSearch class="size-4 mr-1.5" />}>
                 <IconLoader2 class="size-4 mr-1.5 animate-spin" />
               </Show>
-              Search
+              {t('common.search')}
             </Button>
           </div>
         </div>
@@ -143,7 +145,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
             fallback={
               <div class="py-16 flex flex-col items-center justify-center gap-2 text-muted-foreground text-xs">
                 <IconLoader2 class="size-6 animate-spin text-primary" />
-                <span>Searching Accurate items...</span>
+                <span>{t('barcode.searchingItems')}</span>
               </div>
             }
           >
@@ -151,7 +153,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
               when={items().length > 0}
               fallback={
                 <div class="py-16 text-center text-muted-foreground text-xs">
-                  {query() ? 'No inventory items match your search.' : 'Enter a query and click Search to look up items.'}
+                  {query() ? t('barcode.noItemsMatch') : t('barcode.enterQueryPrompt')}
                 </div>
               }
             >
@@ -167,10 +169,10 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
                           class="rounded border-border"
                         />
                       </th>
-                      <th class="p-2.5">Item Code</th>
-                      <th class="p-2.5">Item Name</th>
-                      <th class="p-2.5">Barcode / UPC</th>
-                      <th class="p-2.5 text-right">Available</th>
+                      <th class="p-2.5">{t('barcode.colItemCode')}</th>
+                      <th class="p-2.5">{t('barcode.colItemName')}</th>
+                      <th class="p-2.5">{t('barcode.colBarcode')}</th>
+                      <th class="p-2.5 text-right">{t('barcode.available')}</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-border">
@@ -212,7 +214,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
               {/* Pagination */}
               <div class="flex items-center justify-between text-xs text-muted-foreground pt-2">
                 <span>
-                  Showing {items().length} of {pagination().rowCount} items
+                  {t('barcode.showingItemsOf', { count: items().length, total: pagination().rowCount })}
                 </span>
                 <div class="flex items-center gap-1">
                   <Button
@@ -221,7 +223,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
                     disabled={pagination().page <= 1 || isLoading()}
                     onClick={() => void fetchItems(pagination().page - 1)}
                   >
-                    <IconChevronLeft class="size-3.5 mr-1" /> Prev
+                    <IconChevronLeft class="size-3.5 mr-1" /> {t('common.previous')}
                   </Button>
                   <span class="px-2 text-xs font-medium">
                     {pagination().page} / {pagination().pageCount || 1}
@@ -232,7 +234,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
                     disabled={pagination().page >= pagination().pageCount || isLoading()}
                     onClick={() => void fetchItems(pagination().page + 1)}
                   >
-                    Next <IconChevronRight class="size-3.5 ml-1" />
+                    {t('common.next')} <IconChevronRight class="size-3.5 ml-1" />
                   </Button>
                 </div>
               </div>
@@ -243,11 +245,11 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
         {/* Footer Actions */}
         <div class="p-4 border-t bg-card flex items-center justify-between">
           <span class="text-xs text-muted-foreground">
-            {selectedIds().size} item{selectedIds().size === 1 ? '' : 's'} selected
+            {t('barcode.itemsSelectedCount', { count: selectedIds().size })}
           </span>
           <div class="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={props.onClose}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               size="sm"
@@ -255,7 +257,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
               onClick={handleAddSelected}
             >
               <IconPlus class="size-4 mr-1.5" />
-              Add to Print Queue
+              {t('barcode.addToPrintQueue')}
             </Button>
           </div>
         </div>

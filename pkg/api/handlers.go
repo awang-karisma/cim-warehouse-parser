@@ -1239,3 +1239,41 @@ func (s *Server) handleDeletePageDesign(ctx context.Context, input *DeletePageDe
 		Body: StatusOKResponse{Status: "ok"},
 	}, nil
 }
+
+type SetLocaleInput struct {
+	Body struct {
+		Locale string `json:"locale" enum:"en,id" doc:"Preferred language locale ('en' or 'id')"`
+	}
+}
+
+type SetLocaleOutput struct {
+	Body struct {
+		Locale string `json:"locale"`
+	}
+}
+
+func (s *Server) handleSetUserLocale(ctx context.Context, input *SetLocaleInput) (*SetLocaleOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	locale := strings.ToLower(strings.TrimSpace(input.Body.Locale))
+	if locale != "en" && locale != "id" {
+		return nil, huma.Error400BadRequest("invalid locale: must be 'en' or 'id'")
+	}
+	claims := claimsFromContext(ctx)
+	var email string
+	if claims != nil {
+		email = claims.Email
+	}
+	if email == "" {
+		return &SetLocaleOutput{Body: struct {
+			Locale string `json:"locale"`
+		}{Locale: locale}}, nil
+	}
+	if err := s.store.UpdateUserLocale(ctx, email, locale); err != nil {
+		return nil, huma.Error500InternalServerError("failed to update locale", err)
+	}
+	return &SetLocaleOutput{Body: struct {
+		Locale string `json:"locale"`
+	}{Locale: locale}}, nil
+}

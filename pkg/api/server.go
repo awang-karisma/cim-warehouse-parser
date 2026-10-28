@@ -446,6 +446,16 @@ func (s *Server) registerOperations() {
 		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSetWorkdayPolicy)
 
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "set-user-locale",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/user/locale",
+		Summary:     "Update user locale",
+		Description: "Persist the current user's preferred language locale ('en' or 'id')",
+		Tags:        []string{"user"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleSetUserLocale)
+
 	// Custom Page Designs Endpoints
 	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "get-page-designs",
@@ -736,7 +746,7 @@ func (s *Server) resolveCurrentUser(ctx context.Context, claims *auth.Claims) (*
 	refreshed.Name = user.Name
 	refreshed.Picture = user.Picture
 	refreshed.Role = user.Role
-
+	refreshed.Locale = user.Locale
 	if s.appConfig != nil && s.appConfig.IsSuperadmin(user.Email) {
 		refreshed.Role = "superadmin"
 	}

@@ -1,4 +1,5 @@
 import { type Component, createEffect, For, onCleanup, Show } from 'solid-js';
+import { useI18n } from '~/i18n';
 import JsBarcode from 'jsbarcode';
 import qrcode from 'qrcode-generator';
 import { items } from '~/stores/barcodeItems';
@@ -24,8 +25,8 @@ import type { BarcodeItem, PresetConfig } from '~/types';
 import { Button } from '~/components/ui/button';
 import { IconPrinter } from '@tabler/icons-solidjs';
 
-function formatRupiah(num: number): string {
-  return 'Rp ' + Number(num || 0).toLocaleString('id-ID');
+function formatRupiah(num: number, loc = 'id-ID'): string {
+  return 'Rp ' + Number(num || 0).toLocaleString(loc);
 }
 
 
@@ -46,6 +47,7 @@ function resolveSheetDimensions(cfg: PresetConfig) {
   return { sheetW, sheetH, lblW, lblH, mTop, mLeft, isAudit };
 }
 export const PrintPreview: Component = () => {
+  const { t, intlLocale } = useI18n();
   const selectedItems = () => items().filter((it) => it.selected);
 
   // Expand list based on qtyMode (single vs multiply)
@@ -170,14 +172,14 @@ export const PrintPreview: Component = () => {
           <span class="font-bold text-foreground">{config().name}</span>
           <span>•</span>
           <span>
-            {layout().cols} × {layout().rowsPerSheet} per sheet
+            {t('barcode.perSheet', { cols: layout().cols, rows: layout().rowsPerSheet })}
           </span>
           <span>•</span>
-          <span class="font-semibold text-primary">{expandedItems().length} total labels</span>
+          <span class="font-semibold text-primary">{t('barcode.totalLabels', { count: expandedItems().length })}</span>
         </div>
         <div class="flex items-center gap-3">
           <span class="text-xs text-muted-foreground">
-            {layout().totalSheets} {layout().totalSheets === 1 ? 'page' : 'pages'}
+            {layout().totalSheets} {t('barcode.pages')}
           </span>
           <Button
             size="sm"
@@ -186,7 +188,7 @@ export const PrintPreview: Component = () => {
             class="h-8 shadow-sm"
           >
             <IconPrinter class="size-4 mr-1.5" />
-            Print Labels ({expandedItems().length})
+            {t('barcode.printLabels', { count: expandedItems().length })}
           </Button>
         </div>
       </div>
@@ -196,9 +198,9 @@ export const PrintPreview: Component = () => {
         fallback={
           <div class="my-auto text-center p-12 bg-card rounded-xl border shadow-sm max-w-md">
             <IconPrinter class="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
-            <p class="text-sm font-semibold text-foreground">No items selected for printing</p>
+            <p class="text-sm font-semibold text-foreground">{t('barcode.noItemsSelected')}</p>
             <p class="text-xs text-muted-foreground mt-1">
-              Select at least one item from the table on the left to preview printable barcode labels.
+              {t('barcode.selectAtLeastOne')}
             </p>
           </div>
         }
@@ -225,15 +227,15 @@ export const PrintPreview: Component = () => {
                     <div class="mb-4 flex items-center justify-between border-b-2 border-black pb-2">
                       <div>
                         <h2 class="text-base font-bold text-black uppercase tracking-wide">
-                          Stock Opname Audit Sheet
+                          {t('barcode.auditSheetTitle')}
                         </h2>
                         <p class="text-[10px] text-gray-600 font-medium">
-                          Warehouse inventory verification sheet
+                          {t('barcode.auditSheetSubtitle')}
                         </p>
                       </div>
                       <div class="text-right text-[10px] text-gray-800">
-                        <div>Date: ___________________</div>
-                        <div>Auditor: ___________________</div>
+                        <div>{t('barcode.auditDate')}</div>
+                        <div>{t('barcode.auditAuditor')}</div>
                       </div>
                     </div>
 
@@ -241,11 +243,11 @@ export const PrintPreview: Component = () => {
                       <thead>
                         <tr>
                           <th style={{ width: '5%' }}>#</th>
-                          <th style={{ width: '15%' }}>Code</th>
-                          <th style={{ width: '35%' }}>Item Name</th>
-                          <th style={{ width: '25%' }}>Barcode</th>
-                          <th style={{ width: '10%' }}>System</th>
-                          <th style={{ width: '10%' }}>Actual</th>
+                          <th style={{ width: '15%' }}>{t('barcode.colCode')}</th>
+                          <th style={{ width: '35%' }}>{t('barcode.colItemName')}</th>
+                          <th style={{ width: '25%' }}>{t('barcode.colBarcode')}</th>
+                          <th style={{ width: '10%' }}>{t('barcode.colSystem')}</th>
+                          <th style={{ width: '10%' }}>{t('barcode.colActual')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -378,7 +380,7 @@ export const PrintPreview: Component = () => {
                               >
                                 <span>{showCode() ? it.itemNo : ''}</span>
                                 <span class="lbl-price text-black">
-                                  {showPrice() ? formatRupiah(it.price) : ''}
+                                  {showPrice() ? formatRupiah(it.price, intlLocale()) : ''}
                                   {showUnit() ? ` / ${it.unit || 'Pcs'}` : ''}
                                 </span>
                               </div>

@@ -1,5 +1,6 @@
 import { type Component, createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { A } from '@solidjs/router';
+import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { IconPackage, IconAlertCircle } from '@tabler/icons-solidjs';
@@ -32,6 +33,7 @@ declare global {
 }
 
 export const Login: Component = () => {
+  const { t } = useI18n();
   const auth = useAuth();
   const [error, setError] = createSignal<string | null>(null);
   const [gisLoaded, setGisLoaded] = createSignal(false);
@@ -53,7 +55,7 @@ export const Login: Component = () => {
       setGisLoaded(true);
     };
     script.onerror = () => {
-      setError('Failed to load Google Sign-In SDK. Check your internet connection.');
+      setError(t('login.gisError'));
     };
     document.head.appendChild(script);
   });
@@ -117,9 +119,9 @@ export const Login: Component = () => {
           <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
             <IconPackage class="h-8 w-8" />
           </div>
-          <CardTitle class="text-2xl font-bold tracking-tight">Warehouse Console</CardTitle>
+          <CardTitle class="text-2xl font-bold tracking-tight">{t('login.signIn')}</CardTitle>
           <CardDescription>
-            Sign in with your Google account to access order tracking and warehouse management
+            {t('login.signInDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent class="flex flex-col items-center justify-center space-y-4 p-4 sm:p-6 pt-0 sm:pt-0 pb-6 sm:pb-8">
@@ -133,7 +135,7 @@ export const Login: Component = () => {
           <Show when={auth.loading()}>
             <div class="flex items-center gap-2 text-sm text-muted-foreground py-2">
               <Spinner size="sm" />
-              <span>Signing in...</span>
+              <span>{t('common.loading')}</span>
             </div>
           </Show>
 
@@ -149,9 +151,9 @@ export const Login: Component = () => {
           </Show>
         </CardContent>
         <div class="p-4 sm:p-6 pt-0 sm:pt-0 pb-4 sm:pb-6 flex items-center justify-center gap-3 text-xs text-muted-foreground">
-          <A href="/privacy" class="underline hover:text-foreground transition-colors">Privacy Policy</A>
+          <A href="/privacy" class="underline hover:text-foreground transition-colors">{t('nav.privacyPolicy')}</A>
           <span>·</span>
-          <A href="/terms" class="underline hover:text-foreground transition-colors">Terms of Service</A>
+          <A href="/terms" class="underline hover:text-foreground transition-colors">{t('nav.termsOfService')}</A>
         </div>
       </Card>
     </div>

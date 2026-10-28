@@ -1,4 +1,5 @@
 import { type Component, createResource, Show, For, createMemo, createSignal } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { useParams, useNavigate, A } from '@solidjs/router';
 import {
   IconArrowLeft,
@@ -28,46 +29,44 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip
 import { getDominantOrderStatus } from '~/utils/orderStatus';
 import { DeliveryDateBadges } from '~/components/DeliveryDateBadges';
 
-const formatHumanDate = (dateStr?: string) => {
-  if (!dateStr) return '-';
-  const parts = dateStr.split(/[-T/ ]/);
-  if (parts.length >= 3) {
-    let year = 0;
-    let month = 0;
-    let day = 0;
-    if (parts[0].length === 4) {
-      year = parseInt(parts[0], 10);
-      month = parseInt(parts[1], 10) - 1;
-      day = parseInt(parts[2], 10);
-    } else if (parts[2].length === 4) {
-      day = parseInt(parts[0], 10);
-      month = parseInt(parts[1], 10) - 1;
-      year = parseInt(parts[2], 10);
-    }
-    if (year && month >= 0 && day) {
-      const d = new Date(year, month, day);
-      return d.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
-    }
-  }
-  const d = new Date(dateStr);
-  return Number.isNaN(d.getTime())
-    ? dateStr
-    : d.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
-};
-
 export const OrderDetail: Component = () => {
+  const { t, formatDate } = useI18n();
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
+
+  const formatHumanDate = (dateStr?: string) => {
+    if (!dateStr) return '-';
+    const parts = dateStr.split(/[-T/ ]/);
+    if (parts.length >= 3) {
+      let year = 0;
+      let month = 0;
+      let day = 0;
+      if (parts[0].length === 4) {
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10) - 1;
+        day = parseInt(parts[2], 10);
+      } else if (parts[2].length === 4) {
+        day = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10) - 1;
+        year = parseInt(parts[2], 10);
+      }
+      if (year && month >= 0 && day) {
+        return formatDate(new Date(year, month, day), {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+      }
+    }
+    return formatDate(dateStr, {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
   const [order] = createResource(() => params.id, (id) => getOrderById(id));
   const [config] = createResource(getConfig);
 
@@ -110,7 +109,7 @@ export const OrderDetail: Component = () => {
           onClick={handleBack}
         >
           <IconArrowLeft class="size-4" />
-          <span>Back to Orders</span>
+          <span>{t('orderDetail.backToOrders')}</span>
         </Button>
       </div>
 
@@ -128,12 +127,12 @@ export const OrderDetail: Component = () => {
           fallback={
             <Card>
               <CardContent class="p-12 text-center text-muted-foreground">
-                <h3 class="text-lg font-bold text-foreground mb-2">Order not found</h3>
+                <h3 class="text-lg font-bold text-foreground mb-2">{t('orderDetail.notFoundTitle')}</h3>
                 <p class="text-sm text-muted-foreground mb-4">
-                  No order exists with ID <code class="font-mono bg-muted px-1.5 py-0.5 rounded">{params.id}</code>
+                  {t('orderDetail.notFoundDesc', { id: params.id ?? '' })}
                 </p>
                 <Button as={A} href="/orders" variant="outline" size="sm">
-                  Return to Orders Explorer
+                  {t('orderDetail.returnToOrders')}
                 </Button>
               </CardContent>
             </Card>
@@ -148,7 +147,7 @@ export const OrderDetail: Component = () => {
                   <Badge status={getDominantOrderStatus(order()!.items)} kind="order" pill />
                 </div>
                 <CardDescription>
-                  {order()!.area || 'No regional area specified'}
+                  {order()!.area || t('orderDetail.noAreaSpecified')}
                 </CardDescription>
               </div>
             </CardHeader>
@@ -157,7 +156,7 @@ export const OrderDetail: Component = () => {
                 <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconFileText class="size-4 text-primary" />
-                    <span>Order ID</span>
+                    <span>{t('orderDetail.orderId')}</span>
                   </div>
                   <div class="text-sm font-semibold break-words">{order()!.id}</div>
                 </div>
@@ -165,7 +164,7 @@ export const OrderDetail: Component = () => {
                 <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconPackage class="size-4 text-primary" />
-                    <span>E-Katalog / Order No.</span>
+                    <span>{t('orderDetail.ekatalogOrderNo')}</span>
                   </div>
                   <div class="text-sm font-semibold font-mono break-all">
                     {order()!.order_number || order()!.ecatalog_number || 'N/A'}
@@ -175,7 +174,7 @@ export const OrderDetail: Component = () => {
                 <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconCalendar class="size-4 text-primary" />
-                    <span>Order Date</span>
+                    <span>{t('orderDetail.orderDate')}</span>
                   </div>
                   <div class="text-sm font-semibold truncate" title={formatHumanDate(order()!.tanggal)}>
                     {formatHumanDate(order()!.tanggal)}
@@ -190,10 +189,10 @@ export const OrderDetail: Component = () => {
                 <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 min-w-0">
                   <div class="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <IconBuildingHospital class="size-4 text-primary" />
-                    <span>Total Line Items</span>
+                    <span>{t('orderDetail.totalLineItems')}</span>
                   </div>
                   <div class="text-sm font-semibold">
-                    {order()!.total_items || order()!.items?.length || 0} items
+                    {order()!.total_items || order()!.items?.length || 0} {t('common.itemsCount')}
                   </div>
                 </div>
               </div>
@@ -205,9 +204,9 @@ export const OrderDetail: Component = () => {
             <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
               <div class="space-y-1">
                 <CardTitle class="text-base font-semibold">
-                  Order Line Items ({order()!.items?.length || 0})
+                  {t('orderDetail.lineItems', { count: order()!.items?.length || 0 })}
                 </CardTitle>
-                <CardDescription>Dispatched and pending inventory units</CardDescription>
+                <CardDescription>{t('orderDetail.lineItemsDesc')}</CardDescription>
               </div>
               <Show when={config()?.spreadsheet_id}>
                 <Button
@@ -220,7 +219,7 @@ export const OrderDetail: Component = () => {
                   class="gap-1.5 self-start sm:self-auto"
                 >
                   <IconExternalLink class="size-4" />
-                  <span>Open in Spreadsheet</span>
+                  <span>{t('orderDetail.openInSpreadsheet')}</span>
                 </Button>
               </Show>
             </CardHeader>
@@ -237,44 +236,44 @@ export const OrderDetail: Component = () => {
                       />
                       <SortableTableHead
                         field="nama_barang"
-                        label="Item Name"
+                        label={t('orderDetail.itemName')}
                         direction={sortState().field === 'nama_barang' ? sortState().direction : undefined}
                         onSort={handleSort}
                       />
                       <SortableTableHead
                         field="jumlah"
-                        label="Quantity"
+                        label={t('orderDetail.quantity')}
                         class="text-right"
                         direction={sortState().field === 'jumlah' ? sortState().direction : undefined}
                         onSort={handleSort}
                       />
                       <SortableTableHead
                         field="tanggal_pengiriman"
-                        label="Delivery Date"
+                        label={t('orderDetail.deliveryDate')}
                         direction={sortState().field === 'tanggal_pengiriman' ? sortState().direction : undefined}
                         onSort={handleSort}
                       />
                       <SortableTableHead
                         field="lead_time_pengiriman"
-                        label="Lead Time"
+                        label={t('orderDetail.leadTime')}
                         direction={sortState().field === 'lead_time_pengiriman' ? sortState().direction : undefined}
                         onSort={handleSort}
                       />
-                      <TableHead class="min-w-[120px]">Progress</TableHead>
-                      <TableHead class="text-right">Sent / Remaining</TableHead>
+                      <TableHead class="min-w-[120px]">{t('orderDetail.progress')}</TableHead>
+                      <TableHead class="text-right">{t('orderDetail.sentRemaining')}</TableHead>
                       <SortableTableHead
                         field="status_order"
-                        label="Status Order"
+                        label={t('orderDetail.statusOrder')}
                         direction={sortState().field === 'status_order' ? sortState().direction : undefined}
                         onSort={handleSort}
                       />
                       <SortableTableHead
                         field="status_barang"
-                        label="Status Barang"
+                        label={t('orderDetail.statusBarang')}
                         direction={sortState().field === 'status_barang' ? sortState().direction : undefined}
                         onSort={handleSort}
                       />
-                      <TableHead>Notes</TableHead>
+                      <TableHead>{t('orderDetail.notes')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -283,7 +282,7 @@ export const OrderDetail: Component = () => {
                       fallback={
                         <TableRow>
                           <TableCell colSpan={10} class="h-24 text-center text-muted-foreground">
-                            No line items found.
+                            {t('orderDetail.noItemsFound')}
                           </TableCell>
                         </TableRow>
                       }

@@ -1,4 +1,5 @@
 import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import {
   IconBolt,
@@ -29,6 +30,7 @@ import { TableSkeleton } from '~/components/TableSkeleton';
 import { Badge } from '../components/Badge';
 
 export const SyncManager: Component = () => {
+  const { t } = useI18n();
   const [status, { refetch: refetchStatus }] = createResource(getStatus);
   const [history, { refetch: refetchHistory }] = createResource(() => getSyncHistory({ limit: 10 }));
   const [config] = createResource(getConfig);
@@ -47,7 +49,7 @@ export const SyncManager: Component = () => {
     if (isSyncing()) return;
 
     setIsSyncing(true);
-    setSyncProgressMsg('Connecting to sync worker...');
+    setSyncProgressMsg(t('sync.connecting'));
     setSyncError('');
 
     let es: EventSource | null = null;
@@ -55,17 +57,17 @@ export const SyncManager: Component = () => {
     try {
       es = subscribeSyncEvents((evt: SyncEvent) => {
         if (evt.status === 'SYNCING') {
-          setSyncProgressMsg(evt.message || 'Synchronizing with remote source...');
+          setSyncProgressMsg(evt.message || t('sync.synchronizingRemote'));
         } else if (evt.status === 'SUCCESS') {
           setSyncProgressMsg(
-            `Sync successful! Updated ${evt.record?.items_count ?? 0} items in ${evt.duration_ms ?? 0}ms.`
+            t('sync.syncSuccessDetail', { count: evt.record?.items_count ?? 0, duration: evt.duration_ms ?? 0 })
           );
           setIsSyncing(false);
           if (es) es.close();
           refetchStatus();
           refetchHistory();
         } else if (evt.status === 'ERROR') {
-          setSyncError(evt.error || 'Sync failed');
+          setSyncError(evt.error || t('sync.syncFailed'));
           setIsSyncing(false);
           if (es) es.close();
           refetchStatus();
@@ -76,7 +78,7 @@ export const SyncManager: Component = () => {
       // Trigger the POST sync endpoint
       await triggerSync();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Trigger sync failed';
+      const message = err instanceof Error ? err.message : t('sync.triggerSyncFailed');
       setSyncError(message);
       setIsSyncing(false);
       if (es) es.close();
@@ -98,7 +100,7 @@ export const SyncManager: Component = () => {
         <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
           <div>
             <div class="flex items-center gap-2">
-              <CardTitle class="text-base font-semibold">Live Worker State</CardTitle>
+              <CardTitle class="text-base font-semibold">{t('syncManager.liveState')}</CardTitle>
               <Badge
                 status={isSyncing() ? 'SYNCING' : status()?.status || 'IDLE'}
                 kind="sync"
@@ -106,7 +108,7 @@ export const SyncManager: Component = () => {
               />
             </div>
             <CardDescription class="mt-1">
-              Real-time synchronization engine connected to remote Google Sheets mirror
+              {t('syncManager.liveStateDesc')}
             </CardDescription>
           </div>
           <Show when={canSync()}>
@@ -121,12 +123,12 @@ export const SyncManager: Component = () => {
                 fallback={
                   <>
                     <IconBolt class="size-4" />
-                    <span>Trigger Sync Now</span>
+                    <span>{t('sync.syncNow')}</span>
                   </>
                 }
               >
                 <IconLoader2 class="size-4 animate-spin" />
-                <span>Syncing...</span>
+                <span>{t('sync.syncing')}</span>
               </Show>
             </Button>
           </Show>
@@ -147,7 +149,7 @@ export const SyncManager: Component = () => {
                 <IconLoader2 class="size-4 animate-spin text-primary" />
               </Show>
               <AlertTitle>
-                {isSyncing() ? 'Sync Operation Active' : syncError() ? 'Sync Failed' : 'Sync Complete'}
+                {isSyncing() ? t('sync.operationActive') : syncError() ? t('sync.syncFailed') : t('sync.syncComplete')}
               </AlertTitle>
               <AlertDescription>{syncError() || syncProgressMsg()}</AlertDescription>
             </Alert>
@@ -155,19 +157,19 @@ export const SyncManager: Component = () => {
 
           <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
-              <div class="text-xs font-medium text-muted-foreground">Last Sync Completed</div>
+              <div class="text-xs font-medium text-muted-foreground">{t('syncManager.lastSyncCompleted')}</div>
               <div class="text-sm font-semibold text-foreground">
                 {status.loading ? <Skeleton class="h-5 w-24" /> : formatDateTime(status()?.last_sync)}
               </div>
             </div>
             <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
-              <div class="text-xs font-medium text-muted-foreground">Next Scheduled Sync</div>
+              <div class="text-xs font-medium text-muted-foreground">{t('syncManager.nextScheduledSync')}</div>
               <div class="text-sm font-semibold text-foreground">
                 {status.loading ? <Skeleton class="h-5 w-24" /> : formatDateTime(status()?.next_sync)}
               </div>
             </div>
             <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
-              <div class="text-xs font-medium text-muted-foreground">Last Sync Duration</div>
+              <div class="text-xs font-medium text-muted-foreground">{t('syncManager.lastSyncDuration')}</div>
               <div class="text-sm font-semibold font-mono text-foreground">
                 {status.loading ? (
                   <Skeleton class="h-5 w-16" />
@@ -179,7 +181,7 @@ export const SyncManager: Component = () => {
               </div>
             </div>
             <div class="rounded-lg border bg-muted/30 p-3.5 space-y-1">
-              <div class="text-xs font-medium text-muted-foreground">Working Hours Window</div>
+              <div class="text-xs font-medium text-muted-foreground">{t('settings.workingHours')}</div>
               <div class="text-sm font-semibold text-foreground flex items-center gap-2">
                 <span
                   class={`size-2 rounded-full inline-block ${
@@ -187,7 +189,7 @@ export const SyncManager: Component = () => {
                   }`}
                 />
                 <span>
-                  {status()?.is_inside_work_hours ? 'Inside Window' : 'Outside Window'}
+                  {status()?.is_inside_work_hours ? t('syncManager.insideWindow') : t('syncManager.outsideWindow')}
                 </span>
               </div>
             </div>
@@ -198,15 +200,15 @@ export const SyncManager: Component = () => {
       {/* Worker Configuration Card */}
       <Card>
         <CardHeader>
-          <CardTitle class="text-base font-semibold">Worker Configuration & Schedule</CardTitle>
-          <CardDescription>Automated polling frequency and environment settings</CardDescription>
+          <CardTitle class="text-base font-semibold">{t('syncManager.workerConfig')}</CardTitle>
+          <CardDescription>{t('syncManager.workerConfigDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div class="grid gap-3 sm:grid-cols-2">
             <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
               <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
                 <IconClock class="size-4 text-primary" />
-                <span>Sync Interval</span>
+                <span>{t('settings.syncInterval')}</span>
               </div>
               <div class="text-sm font-semibold">{config()?.sync_interval || '15m'}</div>
             </div>
@@ -214,7 +216,7 @@ export const SyncManager: Component = () => {
             <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
               <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
                 <IconSun class="size-4 text-primary" />
-                <span>Daily Work Hours</span>
+                <span>{t('syncManager.dailyWorkHours')}</span>
               </div>
               <div class="text-sm font-semibold">
                 {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
@@ -224,7 +226,7 @@ export const SyncManager: Component = () => {
             <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
               <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
                 <IconWorld class="size-4 text-primary" />
-                <span>Timezone</span>
+                <span>{t('settings.timezone')}</span>
               </div>
               <div class="text-sm font-semibold">{config()?.timezone || 'Asia/Makassar'}</div>
             </div>
@@ -232,15 +234,15 @@ export const SyncManager: Component = () => {
             <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1">
               <div class="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
                 <IconCalendar class="size-4 text-primary" />
-                <span>Active Work Days</span>
+                <span>{t('settings.activeWorkDays')}</span>
               </div>
               <div class="text-sm font-semibold">
-                {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
+                {config()?.work_days ? config()!.work_days.join(', ') : t('syncManager.defaultWorkDays')}
               </div>
             </div>
 
             <div class="rounded-lg border bg-muted/20 p-3.5 space-y-1 sm:col-span-2">
-              <div class="text-xs text-muted-foreground font-medium">Remote Google Spreadsheet ID</div>
+              <div class="text-xs text-muted-foreground font-medium">{t('syncManager.remoteSpreadsheetId')}</div>
               <div class="text-xs font-mono font-semibold text-foreground break-all">
                 {config()?.spreadsheet_id || '-'}
               </div>
@@ -253,8 +255,8 @@ export const SyncManager: Component = () => {
       <Card>
         <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
           <div>
-            <CardTitle class="text-base font-semibold">Sync History Records</CardTitle>
-            <CardDescription>Audit log of past synchronization runs</CardDescription>
+            <CardTitle class="text-base font-semibold">{t('syncManager.syncHistory')}</CardTitle>
+            <CardDescription>{t('syncManager.syncHistoryDesc')}</CardDescription>
           </div>
           <Button
             variant="outline"
@@ -263,20 +265,20 @@ export const SyncManager: Component = () => {
             class="gap-1.5 text-xs h-8 self-start sm:self-auto"
           >
             <IconRefresh class="size-3.5" />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
         </CardHeader>
         <CardContent>
           <DataTable>
               <TableHeader>
                 <TableRow>
-                  <TableHead class="w-16">ID</TableHead>
-                  <TableHead>Sync Timestamp</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead class="text-right">Items</TableHead>
-                  <TableHead class="text-right">Orders</TableHead>
-                  <TableHead class="text-right">Duration</TableHead>
-                  <TableHead>Error Message</TableHead>
+                  <TableHead class="w-16">{t('syncManager.id')}</TableHead>
+                  <TableHead>{t('syncManager.syncTimestamp')}</TableHead>
+                  <TableHead>{t('syncManager.status')}</TableHead>
+                  <TableHead class="text-right">{t('syncManager.items')}</TableHead>
+                  <TableHead class="text-right">{t('syncManager.orders')}</TableHead>
+                  <TableHead class="text-right">{t('syncManager.duration')}</TableHead>
+                  <TableHead>{t('syncManager.errorMessage')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -291,7 +293,7 @@ export const SyncManager: Component = () => {
                     fallback={
                       <TableRow>
                         <TableCell colspan={7} class="h-20 text-center text-muted-foreground">
-                          No sync records in database
+                          {t('syncManager.noSyncRecords')}
                         </TableCell>
                       </TableRow>
                     }
@@ -309,10 +311,10 @@ export const SyncManager: Component = () => {
                             <Badge status={rec.status} kind="sync" />
                           </TableCell>
                           <TableCell class="text-right font-medium text-xs">
-                            {rec.items_count} items
+                            {rec.items_count} {t('common.itemsCount')}
                           </TableCell>
                           <TableCell class="text-right text-xs">
-                            {rec.orders_count} orders
+                            {rec.orders_count} {t('common.ordersCount')}
                           </TableCell>
                           <TableCell class="text-right font-mono text-xs text-muted-foreground">
                             {rec.duration_ms > 0 ? `${rec.duration_ms} ms` : '<1s'}

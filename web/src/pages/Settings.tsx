@@ -1,4 +1,5 @@
 import { type Component, createSignal, createResource, createEffect, Show, For } from 'solid-js';
+import { useI18n } from '~/i18n';
 import {
   IconDeviceDesktop,
   IconSettings as IconSettingsIcon,
@@ -45,6 +46,7 @@ import { Badge } from '../components/Badge';
 import { Badge as UiBadge } from '~/components/ui/badge';
 import { TableSkeleton } from '~/components/TableSkeleton';
 export const Settings: Component = () => {
+  const { t, locale, setLocale } = useI18n();
   const { colorMode, setColorMode } = useColorMode();
   const [system] = createResource(getSystemInfo);
   const [config] = createResource(getConfig);
@@ -68,7 +70,18 @@ export const Settings: Component = () => {
   const [isSavingPolicy, setIsSavingPolicy] = createSignal(false);
   const [policySaveError, setPolicySaveError] = createSignal<string | null>(null);
   const [policySaveSuccess, setPolicySaveSuccess] = createSignal<string | null>(null);
-
+  const weekdayName = (day: string) => {
+    switch (day) {
+      case 'Monday': return t('settings.monday');
+      case 'Tuesday': return t('settings.tuesday');
+      case 'Wednesday': return t('settings.wednesday');
+      case 'Thursday': return t('settings.thursday');
+      case 'Friday': return t('settings.friday');
+      case 'Saturday': return t('settings.saturday');
+      case 'Sunday': return t('settings.sunday');
+      default: return day;
+    }
+  };
   createEffect(() => {
     const list = policiesData()?.policies;
     if (list && list.length > 0) {
@@ -103,9 +116,9 @@ export const Settings: Component = () => {
       await refetchPolicies();
       const updated = res.policies;
       const latest = updated && updated.length > 0 ? updated[updated.length - 1] : null;
-      setPolicySaveSuccess(`Saved active workdays (effective ${latest?.effective_from || 'today'}). Stored lead times recalculated.`);
+      setPolicySaveSuccess(t('settings.workdaysSavedSuccess', { date: latest?.effective_from || 'today' }));
     } catch (err: unknown) {
-      setPolicySaveError(err instanceof Error ? err.message : 'Failed to save workday policy');
+      setPolicySaveError(err instanceof Error ? err.message : t('settings.workdaysSaveError'));
     } finally {
       setIsSavingPolicy(false);
     }
@@ -117,13 +130,13 @@ export const Settings: Component = () => {
   const handleForceResync = async () => {
     if (resyncing()) return;
     setResyncing(true);
-    setResyncMsg('Triggering full resync...');
+    setResyncMsg(t('settings.triggeringResync'));
     try {
       const res = await triggerSync();
-      setResyncMsg(`Resync finished: ${res.message || 'Success'}`);
+      setResyncMsg(t('settings.resyncFinished', { msg: res.message || 'Success' }));
       refetchStatus();
     } catch (err: unknown) {
-      setResyncMsg(err instanceof Error ? err.message : 'Resync error');
+      setResyncMsg(err instanceof Error ? err.message : t('settings.resyncError'));
     } finally {
       setResyncing(false);
     }
@@ -143,8 +156,8 @@ export const Settings: Component = () => {
       <Card>
         <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0 pb-4">
           <div>
-            <CardTitle class="text-base font-semibold">Theme & Appearance</CardTitle>
-            <CardDescription>Select light, dark, or system mode</CardDescription>
+            <CardTitle class="text-base font-semibold">{t('settings.themeCard')}</CardTitle>
+            <CardDescription>{t('settings.themeCardDesc')}</CardDescription>
           </div>
           <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button
@@ -154,7 +167,7 @@ export const Settings: Component = () => {
               onClick={() => setColorMode('light')}
             >
               <IconSun class="size-3.5" />
-              <span>Light</span>
+              <span>{t('theme.light')}</span>
             </Button>
             <Button
               variant={colorMode() === 'dark' ? 'default' : 'outline'}
@@ -163,7 +176,7 @@ export const Settings: Component = () => {
               onClick={() => setColorMode('dark')}
             >
               <IconMoon class="size-3.5" />
-              <span>Dark</span>
+              <span>{t('theme.dark')}</span>
             </Button>
             <Button
               variant="outline"
@@ -172,7 +185,35 @@ export const Settings: Component = () => {
               onClick={() => setColorMode('system')}
             >
               <IconDeviceDesktop class="size-3.5" />
-              <span>System</span>
+              <span>{t('theme.system')}</span>
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Language / Bahasa Card */}
+      <Card>
+        <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0 pb-4">
+          <div>
+            <CardTitle class="text-base font-semibold">{t('language.label')}</CardTitle>
+            <CardDescription>{t('language.description')}</CardDescription>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <Button
+              variant={locale() === 'en' ? 'default' : 'outline'}
+              size="sm"
+              class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
+              onClick={() => setLocale('en')}
+            >
+              <span>English</span>
+            </Button>
+            <Button
+              variant={locale() === 'id' ? 'default' : 'outline'}
+              size="sm"
+              class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
+              onClick={() => setLocale('id')}
+            >
+              <span>Bahasa Indonesia</span>
             </Button>
           </div>
         </CardHeader>
@@ -186,34 +227,34 @@ export const Settings: Component = () => {
             <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
               <IconDeviceDesktop class="size-5 text-primary" />
               <div>
-                <CardTitle class="text-base font-semibold">Server Runtime Information</CardTitle>
-                <CardDescription>Internal backend environment</CardDescription>
+                <CardTitle class="text-base font-semibold">{t('settings.serverInfo')}</CardTitle>
+                <CardDescription>{t('settings.serverInfoDesc')}</CardDescription>
               </div>
             </CardHeader>
             <CardContent class="space-y-3">
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Application Version</span>
+                <span class="text-xs text-muted-foreground">{t('settings.appVersion')}</span>
                 <Show when={!system.loading} fallback={<Skeleton class="h-5 w-20" />}>
                   <span class="font-semibold">{system()?.version || 'v1.0.0'}</span>
                 </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Go Runtime Version</span>
+                <span class="text-xs text-muted-foreground">{t('settings.goRuntime')}</span>
                 <Show when={!system.loading} fallback={<Skeleton class="h-5 w-24" />}>
                   <span class="font-semibold">{system()?.go_version || '-'}</span>
                 </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">HTTP Server Port</span>
+                <span class="text-xs text-muted-foreground">{t('settings.httpPort')}</span>
                 <Show when={!system.loading} fallback={<Skeleton class="h-5 w-16" />}>
                   <span class="font-semibold">:{system()?.port || '8080'}</span>
                 </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">SQLite Database Path</span>
+                <span class="text-xs text-muted-foreground">{t('settings.dbPath')}</span>
                 <Show when={!system.loading} fallback={<Skeleton class="h-5 w-32" />}>
                   <span class="font-mono text-xs font-semibold">
                     {system()?.db_path || 'data/warehouse.db'}
@@ -222,7 +263,7 @@ export const Settings: Component = () => {
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Server Uptime</span>
+                <span class="text-xs text-muted-foreground">{t('settings.serverUptime')}</span>
                 <Show when={!system.loading} fallback={<Skeleton class="h-5 w-20" />}>
                   <span class="font-semibold">{formatUptime(system()?.uptime_seconds)}</span>
                 </Show>
@@ -237,20 +278,20 @@ export const Settings: Component = () => {
             <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
               <IconSettingsIcon class="size-5 text-primary" />
               <div>
-                <CardTitle class="text-base font-semibold">Data Source & Scheduling</CardTitle>
-                <CardDescription>Synchronization parameters and rules</CardDescription>
+                <CardTitle class="text-base font-semibold">{t('settings.dataSource')}</CardTitle>
+                <CardDescription>{t('settings.dataSourceDesc')}</CardDescription>
               </div>
             </CardHeader>
             <CardContent class="space-y-3">
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Sync Interval</span>
+                <span class="text-xs text-muted-foreground">{t('settings.syncInterval')}</span>
                 <Show when={!config.loading} fallback={<Skeleton class="h-5 w-16" />}>
                   <span class="font-semibold">{config()?.sync_interval || '15m'}</span>
                 </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Working Hours Window</span>
+                <span class="text-xs text-muted-foreground">{t('settings.workingHours')}</span>
                 <Show when={!config.loading} fallback={<Skeleton class="h-5 w-28" />}>
                   <span class="font-semibold">
                     {config()?.work_hours_start || '08:00'} – {config()?.work_hours_end || '17:00'}
@@ -259,23 +300,23 @@ export const Settings: Component = () => {
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Timezone</span>
+                <span class="text-xs text-muted-foreground">{t('settings.timezone')}</span>
                 <Show when={!config.loading} fallback={<Skeleton class="h-5 w-28" />}>
                   <span class="font-semibold">{config()?.timezone || 'Asia/Makassar'}</span>
                 </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Active Work Days</span>
+                <span class="text-xs text-muted-foreground">{t('settings.activeWorkDays')}</span>
                 <Show when={!config.loading} fallback={<Skeleton class="h-5 w-32" />}>
                   <span class="font-semibold">
-                    {config()?.work_days ? config()!.work_days.join(', ') : 'Monday – Saturday'}
+                    {config()?.work_days ? config()!.work_days.join(', ') : t('settings.defaultWorkDays')}
                   </span>
                 </Show>
               </div>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
-                <span class="text-xs text-muted-foreground">Worker Status</span>
+                <span class="text-xs text-muted-foreground">{t('settings.workerStatus')}</span>
                 <Show when={!status.loading} fallback={<Skeleton class="h-5 w-20" />}>
                   <span>
                     <Badge status={status()?.status || 'IDLE'} />
@@ -292,9 +333,9 @@ export const Settings: Component = () => {
         <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
           <IconCalendar class="size-5 text-primary" />
           <div>
-            <CardTitle class="text-base font-semibold">Lead Time Workdays</CardTitle>
+            <CardTitle class="text-base font-semibold">{t('settings.leadTimeWorkdays')}</CardTitle>
             <CardDescription>
-              Active weekday schedule used to compute delivery lead times. Changes apply on the current local date and immediately recalculate stored records without altering historical schedules.
+              {t('settings.leadTimeWorkdaysDesc')}
             </CardDescription>
           </div>
         </CardHeader>
@@ -302,10 +343,10 @@ export const Settings: Component = () => {
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <span class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Configured Active Workdays
+                {t('settings.configuredWorkdays')}
               </span>
               <Show when={!canEditLeadTime()}>
-                <span class="text-xs text-muted-foreground">View-only (Admin required to edit)</span>
+                <span class="text-xs text-muted-foreground">{t('settings.viewOnlyAdminRequired')}</span>
               </Show>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
@@ -324,7 +365,7 @@ export const Settings: Component = () => {
                       <Show when={isSelected()}>
                         <IconCheck class="size-3.5 mr-1 text-primary-foreground" />
                       </Show>
-                      <span>{day}</span>
+                      <span>{weekdayName(day)}</span>
                     </Button>
                   );
                 }}
@@ -333,7 +374,7 @@ export const Settings: Component = () => {
             <Show when={canEditLeadTime()}>
               <div class="flex items-center justify-between pt-2">
                 <span class="text-xs text-muted-foreground">
-                  {selectedDays().length} of 7 days selected as active workdays
+                  {t('settings.selectedDaysCount', { count: selectedDays().length })}
                 </span>
                 <Button
                   size="sm"
@@ -344,7 +385,7 @@ export const Settings: Component = () => {
                   <Show when={isSavingPolicy()}>
                     <IconRefresh class="size-3.5 animate-spin" />
                   </Show>
-                  <span>{isSavingPolicy() ? 'Saving...' : 'Save Workday Schedule'}</span>
+                  <span>{isSavingPolicy() ? t('common.saving') : t('settings.saveWorkdaySchedule')}</span>
                 </Button>
               </div>
             </Show>
@@ -367,18 +408,18 @@ export const Settings: Component = () => {
           <div class="space-y-3 pt-2">
             <div>
               <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Effective Schedule History
+                {t('settings.scheduleHistory')}
               </h4>
               <p class="text-xs text-muted-foreground mt-0.5">
-                Historical rules applied to orders based on their placement date
+                {t('settings.scheduleHistoryDesc')}
               </p>
             </div>
             <DataTable>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Effective From</TableHead>
-                  <TableHead>Active Workdays</TableHead>
-                  <TableHead class="text-right">Status</TableHead>
+                  <TableHead>{t('settings.effectiveFrom')}</TableHead>
+                  <TableHead>{t('settings.activeWorkdaysCol')}</TableHead>
+                  <TableHead class="text-right">{t('common.status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -392,14 +433,14 @@ export const Settings: Component = () => {
                       return (
                         <TableRow>
                           <TableCell class="font-mono text-xs font-semibold">
-                            {policy.effective_from === '0001-01-01' ? '0001-01-01 (Baseline)' : policy.effective_from}
+                            {policy.effective_from === '0001-01-01' ? `0001-01-01 ${t('settings.baselineSchedule')}` : policy.effective_from}
                           </TableCell>
                           <TableCell class="text-xs font-medium text-foreground">
                             {policy.work_days.join(', ')}
                           </TableCell>
                           <TableCell class="text-right">
                             <UiBadge variant={isLatest() ? 'default' : 'outline'}>
-                              {isLatest() ? 'Current' : 'Historical'}
+                              {isLatest() ? t('settings.currentSchedule') : t('settings.historicalSchedule')}
                             </UiBadge>
                           </TableCell>
                         </TableRow>
@@ -418,18 +459,18 @@ export const Settings: Component = () => {
         <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
           <IconDatabase class="size-5 text-primary" />
           <div>
-            <CardTitle class="text-base font-semibold">SQLite Database Tables Diagnostics</CardTitle>
-            <CardDescription>Internal tables and record volume</CardDescription>
+            <CardTitle class="text-base font-semibold">{t('settings.dbDiagnosticsTitle')}</CardTitle>
+            <CardDescription>{t('settings.dbDiagnosticsDesc')}</CardDescription>
           </div>
         </CardHeader>
         <CardContent>
           <DataTable>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Table Name</TableHead>
-                  <TableHead class="text-right">Row Count</TableHead>
-                  <TableHead>Storage Engine</TableHead>
-                  <TableHead class="text-right">Status</TableHead>
+                  <TableHead>{t('settings.tableName')}</TableHead>
+                  <TableHead class="text-right">{t('settings.rowCount')}</TableHead>
+                  <TableHead>{t('settings.storageEngine')}</TableHead>
+                  <TableHead class="text-right">{t('common.status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -441,7 +482,7 @@ export const Settings: Component = () => {
                     {([tableName, stat]) => (
                       <TableRow>
                         <TableCell class="font-mono text-xs font-semibold">{tableName}</TableCell>
-                        <TableCell class="text-right font-medium">{stat.row_count.toLocaleString()} rows</TableCell>
+                        <TableCell class="text-right font-medium">{stat.row_count.toLocaleString()} {t('settings.rowsUnit')}</TableCell>
                         <TableCell class="text-xs text-muted-foreground">SQLite 3 (WAL mode)</TableCell>
                         <TableCell class="text-right">
                           <Badge status="READY" />
@@ -460,16 +501,16 @@ export const Settings: Component = () => {
         <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
           <IconTool class="size-5 text-primary" />
           <div>
-            <CardTitle class="text-base font-semibold">Maintenance Operations</CardTitle>
-            <CardDescription>Manual controls and database utilities</CardDescription>
+            <CardTitle class="text-base font-semibold">{t('settings.dbMaintenance')}</CardTitle>
+            <CardDescription>{t('settings.dbMaintenanceDesc')}</CardDescription>
           </div>
         </CardHeader>
         <CardContent class="space-y-4">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border bg-muted/20">
             <div>
-              <h4 class="text-sm font-semibold">Force Full Data Resynchronization</h4>
+              <h4 class="text-sm font-semibold">{t('settings.forceResyncTitle')}</h4>
               <p class="text-xs text-muted-foreground mt-1">
-                Bypasses working hours checks and executes an atomic mirror sync from the configured remote source.
+                {t('settings.forceResyncDesc')}
               </p>
             </div>
             <Button
@@ -479,7 +520,7 @@ export const Settings: Component = () => {
               onClick={handleForceResync}
             >
               <IconRefresh class={`size-4 ${resyncing() ? 'animate-spin' : ''}`} />
-              <span>{resyncing() ? 'Syncing...' : 'Force Resync'}</span>
+              <span>{resyncing() ? t('sync.syncing') : t('settings.forceResyncBtn')}</span>
             </Button>
           </div>
 
@@ -492,9 +533,9 @@ export const Settings: Component = () => {
           <Show when={isAdmin()}>
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border border-destructive/20 bg-destructive/5">
               <div>
-                <h4 class="text-sm font-semibold text-destructive">Clear Local Storage Database</h4>
+                <h4 class="text-sm font-semibold text-destructive">{t('settings.clearDbTitle')}</h4>
                 <p class="text-xs text-muted-foreground mt-1">
-                  Destructive operation: removes all orders, items, and sync history. Customer aliases and users are preserved.
+                  {t('settings.clearDbDesc')}
                 </p>
                 <Show when={clearDbMsg()}>
                   <p class="text-xs font-medium text-emerald-600 dark:text-emerald-400 mt-2">
@@ -513,7 +554,7 @@ export const Settings: Component = () => {
                 disabled={isClearingDb()}
                 onClick={() => setShowClearDbDialog(true)}
               >
-                Clear Database
+                {t('settings.wipeDatabase')}
               </Button>
             </div>
           </Show>
@@ -528,14 +569,13 @@ export const Settings: Component = () => {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Clear Local Database</AlertDialogTitle>
+          <AlertDialogTitle>{t('settings.clearDbConfirmTitle')}</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to clear all synced orders, items, deliveries, and sync history?
-            This action cannot be undone. Customer aliases and users will be preserved.
+            {t('settings.clearDbConfirmDesc')}
           </AlertDialogDescription>
           <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => setShowClearDbDialog(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -547,17 +587,17 @@ export const Settings: Component = () => {
                 setClearDbError(null);
                 try {
                   await clearDatabase();
-                  setClearDbMsg('Database cleared successfully.');
+                  setClearDbMsg(t('settings.clearDbSuccess'));
                   setShowClearDbDialog(false);
                   refetchStatus();
                 } catch (err: unknown) {
-                  setClearDbError(err instanceof Error ? err.message : 'Failed to clear database');
+                  setClearDbError(err instanceof Error ? err.message : t('settings.clearDbError'));
                 } finally {
                   setIsClearingDb(false);
                 }
               }}
             >
-              {isClearingDb() ? 'Clearing...' : 'Clear All Data'}
+              {isClearingDb() ? t('settings.clearing') : t('settings.clearAllData')}
             </Button>
           </div>
         </AlertDialogContent>

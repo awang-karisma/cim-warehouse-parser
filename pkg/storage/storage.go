@@ -326,6 +326,7 @@ func (s *Storage) migrate() error {
 		name TEXT NOT NULL DEFAULT '',
 		picture TEXT NOT NULL DEFAULT '',
 		role TEXT NOT NULL DEFAULT 'guest',
+		locale TEXT NOT NULL DEFAULT 'id',
 		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	);
@@ -435,6 +436,7 @@ func (s *Storage) migrate() error {
 
 	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN provider TEXT NOT NULL DEFAULT 'web';`)
 	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN official_session TEXT NOT NULL DEFAULT '';`)
+	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'id';`)
 	seedPolicyJSON, _ := json.Marshal(normalizer.BaselineWorkDays)
 	_, _ = s.db.Exec(`
 		INSERT OR IGNORE INTO workday_policies (effective_from, work_days, changed_at)
@@ -2539,13 +2541,13 @@ func (s *Storage) GetUserByEmail(ctx context.Context, email string) (*model.User
 		return nil, nil
 	}
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, email, name, picture, role, created_at, updated_at
+		SELECT id, email, name, picture, role, locale, created_at, updated_at
 		FROM users
 		WHERE email = ? COLLATE NOCASE
 	`, trimmedEmail)
 
 	var u model.User
-	if err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Role, &u.Locale, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -2557,7 +2559,7 @@ func (s *Storage) GetUserByEmail(ctx context.Context, email string) (*model.User
 // GetUsers returns all users ordered by created_at DESC.
 func (s *Storage) GetUsers(ctx context.Context) ([]model.User, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, email, name, picture, role, created_at, updated_at
+		SELECT id, email, name, picture, role, locale, created_at, updated_at
 		FROM users
 		ORDER BY created_at DESC
 	`)
@@ -2569,7 +2571,7 @@ func (s *Storage) GetUsers(ctx context.Context) ([]model.User, error) {
 	var users []model.User
 	for rows.Next() {
 		var u model.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Role, &u.Locale, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, u)
@@ -2599,6 +2601,31 @@ func (s *Storage) SetUserRole(ctx context.Context, email, role string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE users SET role = ?, updated_at = ? WHERE email = ? COLLATE NOCASE`, role, now, trimmedEmail)
 	if err != nil {
 		return fmt.Errorf("failed to update user role: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// UpdateUserLocale updates a user's preferred locale and updated_at.
+func (s *Storage) UpdateUserLocale(ctx context.Context, email, locale string) error {
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		return fmt.Errorf("email cannot be empty")
+	}
+	trimmedLocale := strings.ToLower(strings.TrimSpace(locale))
+	if trimmedLocale != "en" && trimmedLocale != "id" {
+		return fmt.Errorf("invalid locale %q: must be en or id", locale)
+	}
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET locale = ?, updated_at = ? WHERE email = ? COLLATE NOCASE`, trimmedLocale, now, trimmedEmail)
+	if err != nil {
+		return fmt.Errorf("failed to update user locale: %w", err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {

@@ -1,4 +1,5 @@
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
 import {
   IconSearch,
@@ -28,6 +29,7 @@ const VALID_TYPES = ['all', 'orders', 'items', 'customers'] as const;
 type SearchType = (typeof VALID_TYPES)[number];
 
 export const Search: Component = () => {
+  const { t } = useI18n();
   const filters = createUrlFilter({
     q: {
       key: 'q',
@@ -121,14 +123,14 @@ export const Search: Component = () => {
                 <div class="relative flex items-center w-full">
                   <IconSearch class="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
                   <TextFieldInput
-                    placeholder="Search across orders, line items, customer names, or item descriptions..."
+                    placeholder={t('searchPage.placeholder')}
                     class="pl-9 h-11 text-base w-full"
                   />
                 </div>
               </TextField>
             </div>
             <Button type="submit" class="h-11 px-6 w-full sm:w-auto">
-              Search
+              {t('common.search')}
             </Button>
           </form>
         </CardContent>
@@ -142,15 +144,15 @@ export const Search: Component = () => {
       >
         <div class="w-full overflow-x-auto pb-1 mb-4">
           <TabsList class="inline-flex w-max">
-            <TabsTrigger value="all">All Results ({totalMatches()})</TabsTrigger>
+            <TabsTrigger value="all">{t('searchPage.allResults', { count: totalMatches() })}</TabsTrigger>
             <TabsTrigger value="orders">
-              Orders ({data()?.orders?.total || 0})
+              {t('searchPage.ordersTab', { count: data()?.orders?.total || 0 })}
             </TabsTrigger>
             <TabsTrigger value="items">
-              Line Items ({data()?.items?.total || 0})
+              {t('searchPage.lineItemsTab', { count: data()?.items?.total || 0 })}
             </TabsTrigger>
             <TabsTrigger value="customers">
-              Customers ({data()?.customers?.total || 0})
+              {t('searchPage.customersTab', { count: data()?.customers?.total || 0 })}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -167,9 +169,9 @@ export const Search: Component = () => {
           <Card>
             <CardContent class="p-12 text-center text-muted-foreground">
               <IconSearch class="size-8 mx-auto mb-3 opacity-40" />
-              <p class="font-medium text-foreground">Type a query to search across the database</p>
+              <p class="font-medium text-foreground">{t('searchPage.emptyPromptTitle')}</p>
               <p class="text-xs text-muted-foreground mt-1">
-                Searches orders, line items, customer names, and notes simultaneously
+                {t('searchPage.emptyPromptDesc')}
               </p>
             </CardContent>
           </Card>
@@ -179,8 +181,16 @@ export const Search: Component = () => {
           <Card>
             <CardContent class="p-12 text-center text-muted-foreground">
               <p>
-                No {filters.values.type() === 'all' ? 'results' : filters.values.type()} found matching{' '}
-                <span class="font-medium text-foreground">"{filters.debouncedValues.q()}"</span>
+                {t('searchPage.noResultsFound', {
+                  type: filters.values.type() === 'all'
+                    ? t('searchPage.results')
+                    : filters.values.type() === 'orders'
+                    ? t('searchPage.orders')
+                    : filters.values.type() === 'items'
+                    ? t('searchPage.items')
+                    : t('searchPage.customers'),
+                  query: filters.debouncedValues.q(),
+                })}
               </p>
             </CardContent>
           </Card>
@@ -210,18 +220,18 @@ export const Search: Component = () => {
                 size="sm"
                 class="gap-1 text-xs text-primary self-start sm:self-auto"
               >
-                View in Orders <IconArrowRight class="size-3.5" />
+                {t('searchPage.viewInOrders')} <IconArrowRight class="size-3.5" />
               </Button>
             </CardHeader>
             <CardContent>
               <DataTable>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Order ID</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Matched Items</TableHead>
-                      <TableHead class="text-right">Action</TableHead>
+                      <TableHead>{t('dashboard.orderId')}</TableHead>
+                      <TableHead>{t('dashboard.customer')}</TableHead>
+                      <TableHead>{t('dashboard.date')}</TableHead>
+                      <TableHead>{t('searchPage.matchedItems')}</TableHead>
+                      <TableHead class="text-right">{t('common.action')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -259,7 +269,7 @@ export const Search: Component = () => {
                               size="sm"
                               class="text-xs"
                             >
-                              Detail
+                              {t('searchPage.detail')}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -295,18 +305,18 @@ export const Search: Component = () => {
                 size="sm"
                 class="gap-1 text-xs text-primary self-start sm:self-auto"
               >
-                View in Items <IconArrowRight class="size-3.5" />
+                {t('searchPage.viewInItems')} <IconArrowRight class="size-3.5" />
               </Button>
             </CardHeader>
             <CardContent>
               <DataTable>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Item Name</TableHead>
-                      <TableHead class="text-right">Qty</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead class="text-right">Action</TableHead>
+                      <TableHead>{t('dashboard.customer')}</TableHead>
+                      <TableHead>{t('items.itemName')}</TableHead>
+                      <TableHead class="text-right">{t('items.qty')}</TableHead>
+                      <TableHead>{t('dashboard.status')}</TableHead>
+                      <TableHead class="text-right">{t('common.action')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -333,7 +343,7 @@ export const Search: Component = () => {
                               size="sm"
                               class="text-xs"
                             >
-                              Catalog
+                              {t('searchPage.catalog')}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -369,7 +379,7 @@ export const Search: Component = () => {
                 size="sm"
                 class="gap-1 text-xs text-primary self-start sm:self-auto"
               >
-                View in Customers <IconArrowRight class="size-3.5" />
+                {t('searchPage.viewInCustomers')} <IconArrowRight class="size-3.5" />
               </Button>
             </CardHeader>
             <CardContent>
@@ -381,9 +391,9 @@ export const Search: Component = () => {
                         <div class="font-semibold text-sm mb-1 break-words">
                           {highlightMatch(cust.name, filters.debouncedValues.q())}
                         </div>
-                        <p class="text-xs text-muted-foreground mb-3 break-words">{cust.area || 'Unknown Area'}</p>
+                        <p class="text-xs text-muted-foreground mb-3 break-words">{cust.area || t('customers.unknownArea')}</p>
                         <div class="flex justify-between text-xs py-1 border-t">
-                          <span class="text-muted-foreground">Total Orders:</span>
+                          <span class="text-muted-foreground">{t('customers.totalOrdersLabel')}</span>
                           <span class="font-medium">{cust.total_orders}</span>
                         </div>
                       </div>
@@ -395,7 +405,7 @@ export const Search: Component = () => {
                           size="sm"
                           class="w-full text-xs h-8"
                         >
-                          View Customer Orders
+                          {t('searchPage.viewCustomerOrders')}
                         </Button>
                       </div>
                     </Card>

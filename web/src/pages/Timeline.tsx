@@ -1,4 +1,5 @@
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { A, useNavigate } from '@solidjs/router';
 import {
   IconTruckDelivery,
@@ -47,6 +48,7 @@ const formatShippedQuantity = (qty?: string, unit?: string): string => {
 const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
 
 export const Timeline: Component = () => {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const filters = createUrlFilter({
     status: {
@@ -131,14 +133,14 @@ export const Timeline: Component = () => {
         <Card>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Deliveries Scheduled
+              {t('timeline.scheduled')}
             </CardTitle>
             <IconTruckDelivery class="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
               <div class="text-2xl font-bold">{statsData()?.total_scheduled ?? 0}</div>
-              <p class="text-xs text-muted-foreground mt-1">Logged delivery dispatches</p>
+              <p class="text-xs text-muted-foreground mt-1">{t('timeline.scheduledDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -146,14 +148,14 @@ export const Timeline: Component = () => {
         <Card>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Completed Deliveries
+              {t('timeline.completed')}
             </CardTitle>
             <IconCircleCheck class="size-4 text-status-selesai" />
           </CardHeader>
           <CardContent>
             <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
               <div class="text-2xl font-bold text-status-selesai">{statsData()?.completed ?? 0}</div>
-              <p class="text-xs text-muted-foreground mt-1">100% fulfilled shipments</p>
+              <p class="text-xs text-muted-foreground mt-1">{t('timeline.completedDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -161,14 +163,14 @@ export const Timeline: Component = () => {
         <Card>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              In-Transit / Pending
+              {t('timeline.pending')}
             </CardTitle>
             <IconClockHour4 class="size-4 text-status-proses" />
           </CardHeader>
           <CardContent>
             <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
               <div class="text-2xl font-bold text-status-proses">{statsData()?.pending ?? 0}</div>
-              <p class="text-xs text-muted-foreground mt-1">Partial or pending orders</p>
+              <p class="text-xs text-muted-foreground mt-1">{t('timeline.pendingDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -176,14 +178,14 @@ export const Timeline: Component = () => {
         <Card>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Avg Lead Time
+              {t('timeline.avgLeadTime')}
             </CardTitle>
             <IconTimeline class="size-4 text-primary" />
           </CardHeader>
           <CardContent>
             <Show when={!statsData.loading} fallback={<Skeleton class="h-8 w-20" />}>
-              <div class="text-2xl font-bold">{(statsData()?.avg_lead_time ?? 0).toFixed(1)} Days</div>
-              <p class="text-xs text-muted-foreground mt-1">Order to dispatch duration</p>
+              <div class="text-2xl font-bold">{(statsData()?.avg_lead_time ?? 0).toFixed(1)} {t('common.days')}</div>
+              <p class="text-xs text-muted-foreground mt-1">{t('timeline.avgLeadTimeDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -194,12 +196,12 @@ export const Timeline: Component = () => {
         <CardContent class="p-4 md:p-6">
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end gap-4">
             <div class="w-full lg:w-auto lg:min-w-[160px] flex flex-col gap-1">
-              <label class="text-xs font-semibold text-muted-foreground">Delivery Status</label>
+              <label class="text-xs font-semibold text-muted-foreground">{t('timeline.deliveryStatus')}</label>
               <Select<string>
-                options={['All Statuses', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
-                value={filters.values.status() || 'All Statuses'}
+                options={[t('orders.allStatuses'), 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                value={filters.values.status() || t('orders.allStatuses')}
                 onChange={(val) => {
-                  filters.setters.status(!val || val === 'All Statuses' ? '' : val);
+                  filters.setters.status(!val || val === t('orders.allStatuses') ? '' : val);
                   filters.setters.offset(0);
                 }}
                 itemComponent={(props) => (
@@ -207,7 +209,7 @@ export const Timeline: Component = () => {
                 )}
               >
                 <SelectTrigger class="h-9 w-full">
-                  <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
+                  <SelectValue<string>>{(state) => state.selectedOption() || t('orders.allStatuses')}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
@@ -222,7 +224,7 @@ export const Timeline: Component = () => {
                 }}
               >
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
-                  Delivery Date
+                  {t('timeline.deliveryDate')}
                 </TextFieldLabel>
                 <TextFieldInput type="date" class="h-9 w-full" />
               </TextField>
@@ -236,7 +238,7 @@ export const Timeline: Component = () => {
                 class="h-9 w-full sm:w-auto"
                 onClick={filters.reset}
               >
-                Reset Filters
+                {t('timeline.resetFilters')}
               </Button>
             </div>
           </div>
@@ -247,9 +249,9 @@ export const Timeline: Component = () => {
       <Card>
         <CardHeader class="flex flex-row items-center justify-between space-y-0">
           <div>
-            <CardTitle class="text-base font-semibold">Delivery Shipments & Schedule</CardTitle>
+            <CardTitle class="text-base font-semibold">{t('timeline.title')}</CardTitle>
             <CardDescription>
-              {deliveriesData()?.total ?? 0} tracked shipments across logistics operations
+              {t('timeline.subtitle', { count: deliveriesData()?.total ?? 0 })}
             </CardDescription>
           </div>
         </CardHeader>
@@ -259,25 +261,25 @@ export const Timeline: Component = () => {
                 <TableRow>
                   <SortableTableHead
                     field="date"
-                    label="Delivery Date"
+                    label={t('timeline.deliveryDate')}
                     direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="customer"
-                    label="Customer"
+                    label={t('timeline.customer')}
                     direction={filters.values.sort() === 'customer' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
-                  <TableHead>Area</TableHead>
-                  <TableHead>Item Name</TableHead>
-                  <TableHead>Lead Time</TableHead>
-                  <TableHead>Delivered Qty</TableHead>
-                  <TableHead class="min-w-[120px]">Delivery Progress</TableHead>
-                  <TableHead>Remaining</TableHead>
+                  <TableHead>{t('timeline.area')}</TableHead>
+                  <TableHead>{t('timeline.itemName')}</TableHead>
+                  <TableHead>{t('timeline.leadTime')}</TableHead>
+                  <TableHead>{t('timeline.deliveredQty')}</TableHead>
+                  <TableHead class="min-w-[120px]">{t('timeline.deliveryProgress')}</TableHead>
+                  <TableHead>{t('timeline.remaining')}</TableHead>
                   <SortableTableHead
                     field="status"
-                    label="Status"
+                    label={t('timeline.status')}
                     direction={filters.values.sort() === 'status' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
@@ -295,7 +297,7 @@ export const Timeline: Component = () => {
                     fallback={
                       <TableRow>
                         <TableCell colspan={9} class="h-24 text-center text-muted-foreground">
-                          No shipments with delivery dates recorded
+                          {t('timeline.noShipmentsFound')}
                         </TableCell>
                       </TableRow>
                     }
@@ -337,7 +339,7 @@ export const Timeline: Component = () => {
                           <TableCell>
                             <Show when={del.item.lead_time_pengiriman} fallback={<span class="text-muted-foreground">-</span>}>
                               <UiBadge variant="secondary" class="font-mono text-xs">
-                                {del.item.lead_time_pengiriman} Days
+                                {del.item.lead_time_pengiriman} {t('common.days')}
                               </UiBadge>
                             </Show>
                           </TableCell>
@@ -362,7 +364,7 @@ export const Timeline: Component = () => {
                             >
                               <Show
                                 when={parseFloat(del.item.belum_terkirim) > 0}
-                                fallback={<span class="text-status-selesai font-medium">Completed</span>}
+                                fallback={<span class="text-status-selesai font-medium">{t('status.selesai')}</span>}
                               >
                                 <span class="text-status-pending font-semibold">
                                   {del.item.belum_terkirim} {del.item.satuan}

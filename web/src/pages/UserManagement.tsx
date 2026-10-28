@@ -1,4 +1,5 @@
 import { type Component, createSignal, createResource, createMemo, Show, For } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import { getUsers, setUserRole, deleteUser } from '~/api';
 import type { User } from '~/types';
@@ -32,6 +33,7 @@ import {
 } from '@tabler/icons-solidjs';
 
 export const UserManagement: Component = () => {
+  const { t, formatDate } = useI18n();
   const auth = useAuth();
   const [data, { refetch }] = createResource(getUsers);
   const [search, setSearch] = createSignal('');
@@ -92,18 +94,6 @@ export const UserManagement: Component = () => {
     }
   };
 
-  const formatDate = (isoString: string) => {
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      return isoString;
-    }
-  };
 
   const getRoleBadgeVariant = (
     role: string
@@ -126,7 +116,7 @@ export const UserManagement: Component = () => {
     <div class="space-y-6">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold tracking-tight text-foreground">User Management</h1>
+          <h1 class="text-2xl font-bold tracking-tight text-foreground">{t('userManagement.title')}</h1>
           <p class="text-sm text-muted-foreground mt-1">
             Manage authorized users, review pending requests, and configure roles.
           </p>
@@ -134,7 +124,7 @@ export const UserManagement: Component = () => {
         <div class="flex items-center gap-2">
           <Button variant="outline" size="sm" class="gap-1.5" onClick={() => refetch()}>
             <IconRefresh class="h-4 w-4" />
-            Refresh
+            {t('common.refresh')}
           </Button>
         </div>
       </div>
@@ -157,7 +147,7 @@ export const UserManagement: Component = () => {
         <CardHeader class="pb-3 border-b border-border/60">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <CardTitle class="text-base font-semibold">Registered Users</CardTitle>
+              <CardTitle class="text-base font-semibold">{t('userManagement.registeredUsers')}</CardTitle>
               <CardDescription class="text-xs">
                 {filteredUsers().length} user{filteredUsers().length === 1 ? '' : 's'} total
               </CardDescription>
@@ -167,7 +157,7 @@ export const UserManagement: Component = () => {
                 <div class="relative">
                   <IconSearch class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <TextFieldInput
-                    placeholder="Filter by name or email..."
+                    placeholder={t('userManagement.filterPlaceholder')}
                     class="h-9 pl-8 text-xs bg-background"
                   />
                 </div>
@@ -179,10 +169,10 @@ export const UserManagement: Component = () => {
           <DataTable>
               <TableHeader>
                 <TableRow class="hover:bg-transparent">
-                  <TableHead class="w-[300px]">User</TableHead>
-                  <TableHead class="w-[140px]">Role</TableHead>
-                  <TableHead class="w-[140px]">Joined</TableHead>
-                  <TableHead class="text-right w-[200px]">Actions</TableHead>
+                  <TableHead class="w-[300px]">{t('userManagement.userCol')}</TableHead>
+                  <TableHead class="w-[140px]">{t('userManagement.role')}</TableHead>
+                  <TableHead class="w-[140px]">{t('userManagement.joined')}</TableHead>
+                  <TableHead class="text-right w-[200px]">{t('userManagement.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -256,7 +246,7 @@ export const UserManagement: Component = () => {
                                     onClick={() => handleApprove(u)}
                                   >
                                     <IconUserCheck class="h-3.5 w-3.5" />
-                                    Approve
+                                    {t('userManagement.approve')}
                                   </Button>
                                 </Show>
 
@@ -317,7 +307,7 @@ export const UserManagement: Component = () => {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete User</AlertDialogTitle>
+          <AlertDialogTitle>{t('userManagement.deleteUser')}</AlertDialogTitle>
           <AlertDialogDescription>
             Are you sure you want to permanently delete user{' '}
             <strong class="text-foreground">{userToDelete()?.email}</strong>? They will immediately
@@ -325,10 +315,10 @@ export const UserManagement: Component = () => {
           </AlertDialogDescription>
           <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => setUserToDelete(null)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="destructive" size="sm" onClick={confirmDelete}>
-              Delete
+              {t('common.delete')}
             </Button>
           </div>
         </AlertDialogContent>

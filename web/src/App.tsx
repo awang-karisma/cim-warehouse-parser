@@ -15,6 +15,8 @@ import {
   BreadcrumbSeparator,
 } from '~/components/ui/breadcrumb';
 import { ModeToggle } from '~/components/mode-toggle';
+import { LanguageToggle } from '~/components/language-toggle';
+import { useI18n } from '~/i18n';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -29,25 +31,27 @@ import { Spinner } from '~/components/Spinner';
 export const App: Component<RouteSectionProps> = (props) => {
   const location = useLocation();
 
+  const { t } = useI18n();
+
   const routeTitle = createMemo(() => {
     const path = location.pathname;
-    if (path === '/' || path === '/dashboard') return 'Dashboard';
-    if (path.startsWith('/orders/')) return 'Order Details';
-    if (path.startsWith('/orders')) return 'Orders';
-    if (path.startsWith('/items')) return 'Items';
-    if (path.startsWith('/customers')) return 'Customer View';
-    if (path.startsWith('/customer-aliases')) return 'Customer Aliases';
-    if (path.startsWith('/areas')) return 'Area Map';
-    if (path.startsWith('/delivery-flow')) return 'Delivery Flow';
-    if (path.startsWith('/timeline')) return 'Delivery Timeline';
-    if (path.startsWith('/barcode')) return 'Barcode Printer';
-    if (path.startsWith('/sync')) return 'Sync Manager';
-    if (path.startsWith('/search')) return 'Search';
-    if (path.startsWith('/settings')) return 'Settings';
-    if (path.startsWith('/admin/users')) return 'User Management';
-    if (path.startsWith('/privacy')) return 'Privacy Policy';
-    if (path.startsWith('/terms')) return 'Terms of Service';
-    return 'Console';
+    if (path === '/' || path === '/dashboard') return t('nav.dashboard');
+    if (path.startsWith('/orders/')) return t('routes.orderDetails');
+    if (path.startsWith('/orders')) return t('nav.orders');
+    if (path.startsWith('/items')) return t('nav.items');
+    if (path.startsWith('/customers')) return t('nav.customerView');
+    if (path.startsWith('/customer-aliases')) return t('nav.customerAliases');
+    if (path.startsWith('/areas')) return t('nav.areaMap');
+    if (path.startsWith('/delivery-flow')) return t('nav.deliveryFlow');
+    if (path.startsWith('/timeline')) return t('nav.deliveryTimeline');
+    if (path.startsWith('/barcode')) return t('nav.barcodePrinter');
+    if (path.startsWith('/sync')) return t('nav.syncManager');
+    if (path.startsWith('/search')) return t('nav.search');
+    if (path.startsWith('/settings')) return t('nav.settings');
+    if (path.startsWith('/admin/users')) return t('nav.userManagement');
+    if (path.startsWith('/privacy')) return t('nav.privacyPolicy');
+    if (path.startsWith('/terms')) return t('nav.termsOfService');
+    return t('routes.console');
   });
 
   const auth = useAuth();
@@ -64,7 +68,7 @@ export const App: Component<RouteSectionProps> = (props) => {
         <div class="min-h-screen w-full flex items-center justify-center bg-background">
           <div class="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <span class="text-sm text-muted-foreground font-medium">Loading session...</span>
+            <span class="text-sm text-muted-foreground font-medium">{t('common.loadingSession')}</span>
           </div>
         </div>
       }
@@ -81,7 +85,7 @@ export const App: Component<RouteSectionProps> = (props) => {
                   <Breadcrumb class="min-w-0">
                     <BreadcrumbList class="flex-nowrap">
                       <BreadcrumbItem class="hidden sm:inline-flex shrink-0">
-                        <BreadcrumbLink href="/">Warehouse</BreadcrumbLink>
+                        <BreadcrumbLink href="/">{t('common.warehouse')}</BreadcrumbLink>
                       </BreadcrumbItem>
                       <BreadcrumbSeparator class="hidden sm:inline-flex shrink-0" />
                       <BreadcrumbItem class="min-w-0">
@@ -91,12 +95,13 @@ export const App: Component<RouteSectionProps> = (props) => {
                   </Breadcrumb>
                 </div>
                 <div class="flex items-center gap-3 shrink-0">
+                  <LanguageToggle />
                   <ModeToggle />
                   <Show when={currentUser() && currentUser()?.email}>
                     <div class="flex items-center gap-2">
                       <div class="hidden sm:flex flex-col items-end text-right">
                         <span class="text-sm font-medium leading-tight truncate max-w-[140px]">
-                          {currentUser()?.name || 'User'}
+                          {currentUser()?.name || t('common.user')}
                         </span>
                         <span class="text-[10px] font-mono uppercase text-muted-foreground">
                           {currentUser()?.role}
@@ -125,7 +130,7 @@ export const App: Component<RouteSectionProps> = (props) => {
                             onSelect={() => auth.logout()}
                           >
                             <IconLogout class="h-4 w-4" />
-                            <span>Sign Out</span>
+                            <span>{t('common.signOut')}</span>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

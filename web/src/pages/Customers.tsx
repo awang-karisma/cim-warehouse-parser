@@ -1,3 +1,4 @@
+import { useI18n } from '~/i18n';
 import {
   type Component,
   createSignal,
@@ -46,6 +47,7 @@ import { Badge } from '../components/Badge';
 import { createUrlFilter } from '../utils/tableFilters';
 
 export const Customers: Component = () => {
+  const { t } = useI18n();
   const filters = createUrlFilter({
     search: {
       key: 'search',
@@ -92,7 +94,7 @@ export const Customers: Component = () => {
       setTotal(res.total);
     } catch (err: unknown) {
       if (gen !== searchGeneration) return;
-      const msg = err instanceof Error ? err.message : 'Failed to load customers';
+      const msg = err instanceof Error ? err.message : t('customers.loadError');
       setInitialError(msg);
       setCustomers([]);
       setTotal(0);
@@ -164,7 +166,7 @@ export const Customers: Component = () => {
       }
     } catch (err: unknown) {
       if (currentGen !== searchGeneration) return;
-      const msg = err instanceof Error ? err.message : 'Failed to load more customers';
+      const msg = err instanceof Error ? err.message : t('customers.loadMoreError');
       setLoadError(msg);
     } finally {
       if (currentGen === searchGeneration) {
@@ -295,7 +297,7 @@ export const Customers: Component = () => {
 
     const alias = aliasSpelling().trim();
     if (!alias) {
-      setErrorMessage('Alias spelling cannot be empty');
+      setErrorMessage(t('customers.aliasEmptyError'));
       return;
     }
 
@@ -303,7 +305,7 @@ export const Customers: Component = () => {
     if (canonical === '__NEW__') {
       canonical = newCanonicalName().trim();
       if (!canonical) {
-        setErrorMessage('Canonical customer name cannot be empty');
+        setErrorMessage(t('customers.canonicalEmptyError'));
         return;
       }
     }
@@ -316,7 +318,7 @@ export const Customers: Component = () => {
       setModalOpen(false);
       await Promise.all([refetchCustomers(), refetchAliases()]);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to save customer alias';
+      const msg = err instanceof Error ? err.message : t('customers.saveAliasError');
       setErrorMessage(msg);
     } finally {
       setIsSubmitting(false);
@@ -325,7 +327,7 @@ export const Customers: Component = () => {
 
   const canonicalOptions = createMemo(() => {
     const list = (aliasesData()?.groups || []).map((g) => g.canonical);
-    return [...list, '+ New Canonical Name'];
+    return [...list, t('customers.newCanonicalOption')];
   });
 
   return (
@@ -338,7 +340,7 @@ export const Customers: Component = () => {
               <div class="relative flex items-center">
                 <IconSearch class="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
                 <TextFieldInput
-                  placeholder="Search customers by name (e.g. RSUD, Puskesmas, Klinik)..."
+                  placeholder={t('customers.searchPlaceholder')}
                   class="pl-9 h-11 text-base"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
@@ -401,10 +403,10 @@ export const Customers: Component = () => {
               <CardContent class="p-12 text-center text-muted-foreground">
                 {filters.debouncedValues.search() ? (
                   <p>
-                    No customers found matching <span class="font-medium text-foreground">{filters.debouncedValues.search()}</span>
+                    {t('customers.noCustomersMatch', { query: filters.debouncedValues.search() })}
                   </p>
                 ) : (
-                  <p>No customers recorded in database yet</p>
+                  <p>{t('customers.noCustomersRecorded')}</p>
                 )}
               </CardContent>
             </Card>
@@ -428,27 +430,27 @@ export const Customers: Component = () => {
                               <IconBuildingHospital class="size-4 text-primary shrink-0" />
                               <span class="truncate">{cust.name}</span>
                             </CardTitle>
-                            <p class="text-xs text-muted-foreground truncate">{cust.area || 'Unknown Area'}</p>
+                            <p class="text-xs text-muted-foreground truncate">{cust.area || t('customers.unknownArea')}</p>
                           </div>
-                          <Badge status={`${cust.total_orders} Orders`} pill class="shrink-0" />
+                          <Badge status={t('customers.orders', { count: cust.total_orders })} pill class="shrink-0" />
                         </div>
                       </CardHeader>
 
                       <CardContent class="space-y-3 pb-3">
                         <div class="rounded-md bg-muted/40 p-2.5 space-y-1.5 text-xs">
                           <div class="flex justify-between">
-                            <span class="text-muted-foreground">Total Line Items:</span>
+                            <span class="text-muted-foreground">{t('customers.totalLineItems')}</span>
                             <span class="font-medium text-foreground">{cust.total_items.toLocaleString()}</span>
                           </div>
                           <div class="flex justify-between">
-                            <span class="text-muted-foreground">Latest Order:</span>
+                            <span class="text-muted-foreground">{t('customers.latestOrder')}</span>
                             <span class="font-medium text-foreground">{cust.last_order_date || '-'}</span>
                           </div>
                         </div>
 
                         <div class="space-y-1">
                           <div class="flex justify-between text-xs">
-                            <span class="text-muted-foreground">Fulfillment Rate</span>
+                            <span class="text-muted-foreground">{t('customers.fulfillmentRate')}</span>
                             <span class="font-semibold">{fulfillmentPct}%</span>
                           </div>
                           <div class="h-2 w-full overflow-hidden rounded-full bg-secondary">
@@ -471,7 +473,7 @@ export const Customers: Component = () => {
                           onClick={() => openEditModal(cust)}
                         >
                           <IconEdit class="size-3.5" />
-                          <span>Edit Alias</span>
+                          <span>{t('customers.editAlias')}</span>
                         </Button>
                         <Button
                           as={A}
@@ -480,7 +482,7 @@ export const Customers: Component = () => {
                           size="sm"
                           class="flex-1 gap-1 text-xs h-8 text-primary"
                         >
-                          <span>Orders</span>
+                          <span>{t('common.orders')}</span>
                           <IconArrowRight class="size-3.5" />
                         </Button>
                       </CardFooter>
@@ -497,20 +499,20 @@ export const Customers: Component = () => {
               <div class="inline-flex items-center justify-center gap-2">
                 <IconLoader2 class="size-4 animate-spin text-primary" />
                 <span>
-                  Loading more customers... ({customers().length} of {total()} loaded)
+                  {t('customers.loadingMore', { count: customers().length, total: total() ?? 0 })}
                 </span>
               </div>
             </Show>
 
             <Show when={!isLoadingMore() && (total() ?? 0) > customers().length}>
               <div class="text-xs text-muted-foreground">
-                Showing {customers().length} of {total()} customers ({Math.max(0, (total() ?? 0) - customers().length)} remaining)
+                {t('customers.showingCount', { count: customers().length, total: total() ?? 0, remaining: Math.max(0, (total() ?? 0) - customers().length) })}
               </div>
             </Show>
 
             <Show when={!isLoadingMore() && (total() ?? 0) <= customers().length}>
               <div class="text-xs text-muted-foreground font-medium">
-                All {total()} customers loaded
+                {t('customers.allLoaded', { total: total() ?? 0 })}
               </div>
             </Show>
 
@@ -518,7 +520,7 @@ export const Customers: Component = () => {
               <div class="mt-2 text-sm text-destructive flex items-center justify-center gap-2">
                 <span>{loadError()}</span>
                 <Button variant="outline" size="sm" class="h-7 text-xs" onClick={() => loadMore()}>
-                  Retry
+                  {t('common.retry')}
                 </Button>
               </div>
             </Show>
@@ -531,37 +533,37 @@ export const Customers: Component = () => {
         <DialogContent class="sm:max-w-md">
           <form onSubmit={handleSaveAlias} class="space-y-4">
             <DialogHeader>
-              <DialogTitle>Edit Customer Alias</DialogTitle>
+              <DialogTitle>{t('customers.editAliasTitle')}</DialogTitle>
               <DialogDescription>
-                Map variation spellings to a single canonical customer record.
+                {t('customers.editAliasDesc')}
               </DialogDescription>
             </DialogHeader>
 
             <Show when={errorMessage()}>
               <Alert variant="destructive">
                 <IconAlertCircle class="size-4" />
-                <AlertTitle>Validation Error</AlertTitle>
+                <AlertTitle>{t('common.validationError')}</AlertTitle>
                 <AlertDescription>{errorMessage()}</AlertDescription>
               </Alert>
             </Show>
 
             <div class="space-y-3">
               <TextField value={aliasSpelling()} onChange={setAliasSpelling} class="w-full">
-                <TextFieldLabel class="text-xs font-semibold">Alias Spelling (Source Name)</TextFieldLabel>
-                <TextFieldInput placeholder="Source spelling in spreadsheet..." class="h-9 w-full" />
+                <TextFieldLabel class="text-xs font-semibold">{t('customers.aliasSpelling')}</TextFieldLabel>
+                <TextFieldInput placeholder={t('customers.sourceSpellingPlaceholder')} class="h-9 w-full" />
               </TextField>
 
               <div class="space-y-1 flex flex-col w-full">
-                <label class="text-xs font-semibold">Canonical Group</label>
+                <label class="text-xs font-semibold">{t('customers.canonicalGroup')}</label>
                 <Select<string>
                   options={canonicalOptions()}
                   value={
                     selectedCanonical() === '__NEW__'
-                      ? '+ New Canonical Name'
+                      ? t('customers.newCanonicalOption')
                       : selectedCanonical() || canonicalOptions()[0]
                   }
                   onChange={(val) => {
-                    if (val === '+ New Canonical Name') {
+                    if (val === t('customers.newCanonicalOption')) {
                       setSelectedCanonical('__NEW__');
                       if (!newCanonicalName()) setNewCanonicalName(aliasSpelling());
                     } else {
@@ -574,7 +576,7 @@ export const Customers: Component = () => {
                 >
                   <SelectTrigger class="h-9 w-full">
                     <SelectValue<string>>
-                      {(state) => state.selectedOption() || 'Select canonical...'}
+                      {(state) => state.selectedOption() || t('customers.selectCanonical')}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent />
@@ -587,18 +589,18 @@ export const Customers: Component = () => {
                   onChange={setNewCanonicalName}
                   class="w-full"
                 >
-                  <TextFieldLabel class="text-xs font-semibold">New Canonical Customer Name</TextFieldLabel>
-                  <TextFieldInput placeholder="Official customer name..." class="h-9 w-full" />
+                  <TextFieldLabel class="text-xs font-semibold">{t('customers.newCanonicalName')}</TextFieldLabel>
+                  <TextFieldInput placeholder={t('customers.officialCustomerPlaceholder')} class="h-9 w-full" />
                 </TextField>
               </Show>
 
               <div class="space-y-1 flex flex-col w-full">
-                <label class="text-xs font-semibold">Assigned Area (Optional)</label>
+                <label class="text-xs font-semibold">{t('customers.deliveryArea')}</label>
                 <AreaCombobox
                   value={aliasArea()}
                   onChange={setAliasArea}
                   areas={() => areasData()?.areas}
-                  placeholder="e.g. Denpasar, Badung..."
+                  placeholder={t('customers.areaPlaceholder')}
                   class="w-full"
                 />
               </div>
@@ -612,12 +614,12 @@ export const Customers: Component = () => {
                 onClick={() => setModalOpen(false)}
                 disabled={isSubmitting()}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" size="sm" disabled={isSubmitting()}>
-                <Show when={isSubmitting()} fallback="Save Alias">
+                <Show when={isSubmitting()} fallback={t('customers.saveAlias')}>
                   <span class="flex items-center gap-1.5">
-                    <IconLoader2 class="size-3.5 animate-spin" /> Saving...
+                    <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}
                   </span>
                 </Show>
               </Button>

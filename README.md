@@ -68,6 +68,12 @@ Automated order ingestion, normalization, and visualization system.
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
+  - **Indonesian & English Multi-Language Support**:
+    - Powered by `@solid-primitives/i18n` with type-safe dictionaries (`web/src/i18n/`).
+    - Defaults to Bahasa Indonesia (`id`) to serve Indonesian warehouse staff, with full English (`en`) support.
+    - Instant language switching via the header dropdown toggle (`LanguageToggle`) and dedicated Settings card.
+    - Per-user locale preference persistence in `localStorage` (`warehouse-ui-locale:<email>`) and embedded SQLite database (`users.locale` via `PUT /api/v1/user/locale`).
+    - Status badge text localizes dynamically while preserving exact status color mapping.
   - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Flow, Delivery Timeline, Barcode Printer, Sync Manager, Search, and Settings.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, interactive hover/focus tooltips for item notes, and multi-column client-side sorting.

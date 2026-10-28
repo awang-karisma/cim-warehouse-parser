@@ -1,4 +1,5 @@
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
 import { IconMapPin, IconArrowRight } from '@tabler/icons-solidjs';
 import { getAreas, getCustomers } from '../api';
@@ -69,6 +70,7 @@ const MiniStatusBreakdown: Component<{ counts?: Record<string, number> }> = (pro
 };
 
 export const Areas: Component = () => {
+  const { t } = useI18n();
   const [areasData] = createResource(getAreas);
   const [selectedArea, setSelectedArea] = createSignal<string>('');
 
@@ -111,15 +113,15 @@ export const Areas: Component = () => {
                     <IconMapPin class="size-4 text-primary shrink-0" />
                     <span class="truncate">{area.name}</span>
                   </CardTitle>
-                  <Badge status={`${area.total_orders} Orders`} pill class="shrink-0" />
+                  <Badge status={t('areas.ordersCount', { count: area.total_orders })} pill class="shrink-0" />
                 </CardHeader>
                 <CardContent class="space-y-2">
                   <div class="text-xs text-muted-foreground flex justify-between">
-                    <span>Customers:</span>
+                    <span>{t('areas.cardCustomers')}</span>
                     <span class="font-medium text-foreground">{area.unique_customers}</span>
                   </div>
                   <div class="text-xs text-muted-foreground flex justify-between">
-                    <span>Line Items:</span>
+                    <span>{t('areas.cardLineItems')}</span>
                     <span class="font-medium text-foreground">{area.total_items.toLocaleString()}</span>
                   </div>
                   <div class="pt-1">
@@ -136,9 +138,9 @@ export const Areas: Component = () => {
       <Card>
         <CardHeader class="flex flex-row items-center justify-between space-y-0">
           <div>
-            <CardTitle class="text-base font-semibold">Regional Coverage Breakdown</CardTitle>
+            <CardTitle class="text-base font-semibold">{t('areas.title')}</CardTitle>
             <CardDescription>
-              {areasData()?.areas?.length || 0} active administrative delivery areas
+              {t('areas.subtitle', { count: areasData()?.areas?.length || 0 })}
             </CardDescription>
           </div>
         </CardHeader>
@@ -146,12 +148,12 @@ export const Areas: Component = () => {
           <DataTable>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Area Name</TableHead>
-                  <TableHead class="text-right">Customers</TableHead>
-                  <TableHead class="text-right">Total Orders</TableHead>
-                  <TableHead class="text-right">Total Items</TableHead>
-                  <TableHead class="min-w-[160px]">Status Breakdown</TableHead>
-                  <TableHead class="text-right">Action</TableHead>
+                  <TableHead>{t('areas.areaName')}</TableHead>
+                  <TableHead class="text-right">{t('areas.customers')}</TableHead>
+                  <TableHead class="text-right">{t('areas.totalOrders')}</TableHead>
+                  <TableHead class="text-right">{t('areas.totalItems')}</TableHead>
+                  <TableHead class="min-w-[160px]">{t('areas.statusBreakdown')}</TableHead>
+                  <TableHead class="text-right">{t('areas.action')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -189,7 +191,7 @@ export const Areas: Component = () => {
                               size="sm"
                               class="text-xs"
                             >
-                              Orders
+                              {t('nav.orders')}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -208,9 +210,9 @@ export const Areas: Component = () => {
           <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
             <div>
               <CardTitle class="text-base font-semibold">
-                Top Customers in <span class="text-primary">{currentArea()}</span>
+                {t('areas.topCustomers', { area: currentArea() })}
               </CardTitle>
-              <CardDescription>Major recipient accounts in this zone</CardDescription>
+              <CardDescription>{t('areas.topCustomersDesc')}</CardDescription>
             </div>
             <Button
               as={A}
@@ -219,7 +221,7 @@ export const Areas: Component = () => {
               size="sm"
               class="gap-1 text-xs self-start sm:self-auto"
             >
-              <span>View All Area Orders</span>
+              <span>{t('areas.viewAllAreaOrders')}</span>
               <IconArrowRight class="size-3.5" />
             </Button>
           </CardHeader>
@@ -227,11 +229,11 @@ export const Areas: Component = () => {
             <DataTable>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Customer Name</TableHead>
-                    <TableHead class="text-right">Orders</TableHead>
-                    <TableHead class="text-right">Items</TableHead>
-                    <TableHead class="min-w-[140px]">Status Breakdown</TableHead>
-                    <TableHead class="text-right">Action</TableHead>
+                    <TableHead>{t('orders.customerName')}</TableHead>
+                    <TableHead class="text-right">{t('areas.totalOrders')}</TableHead>
+                    <TableHead class="text-right">{t('areas.totalItems')}</TableHead>
+                    <TableHead class="min-w-[140px]">{t('areas.statusBreakdown')}</TableHead>
+                    <TableHead class="text-right">{t('areas.action')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -244,7 +246,7 @@ export const Areas: Component = () => {
                       fallback={
                         <TableRow>
                           <TableCell colspan={5} class="h-20 text-center text-muted-foreground">
-                            No customers found for {currentArea()}
+                            {t('areas.noCustomersForArea', { area: currentArea() })}
                           </TableCell>
                         </TableRow>
                       }
@@ -266,7 +268,7 @@ export const Areas: Component = () => {
                               size="sm"
                               class="text-xs"
                             >
-                              Orders
+                              {t('nav.orders')}
                             </Button>
                           </TableCell>
                         </TableRow>

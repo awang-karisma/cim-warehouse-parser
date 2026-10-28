@@ -1,3 +1,4 @@
+import { useI18n } from '~/i18n';
 import {
   type Component,
   createEffect,
@@ -109,6 +110,7 @@ import {
 } from '~/components/ui/table';
 
 export const Barcode: Component = () => {
+  const { t } = useI18n();
   const [isInspectorOpen, setIsInspectorOpen] = createSignal(true);
   const [isSearchOpen, setIsSearchOpen] = createSignal(false);
   const [isTransactionOpen, setIsTransactionOpen] = createSignal(false);
@@ -176,7 +178,7 @@ export const Barcode: Component = () => {
     const cfg = customConfig();
     const name = cfg.name.trim();
     if (!name || name === PRESETS.custom.name) {
-      setStatusMessage({ type: 'error', text: 'Please enter a preset name' });
+      setStatusMessage({ type: 'error', text: t('barcode.enterPresetName') });
       return;
     }
     setIsSaving(true);
@@ -186,9 +188,9 @@ export const Barcode: Component = () => {
       await refetchDesigns();
       setIsCreating(false);
       selectPreset(`server-${res.id}`);
-      setStatusMessage({ type: 'success', text: `Saved preset "${name}"` });
+      setStatusMessage({ type: 'success', text: t('barcode.presetSaved', { name }) });
     } catch (err: unknown) {
-      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save preset' });
+      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.savePresetFailed') });
     } finally {
       setIsSaving(false);
     }
@@ -201,7 +203,7 @@ export const Barcode: Component = () => {
     const cfg = customConfig();
     const name = cfg.name.trim();
     if (!name) {
-      setStatusMessage({ type: 'error', text: 'Preset name cannot be empty' });
+      setStatusMessage({ type: 'error', text: t('barcode.presetNameRequired') });
       return;
     }
     setIsSaving(true);
@@ -210,9 +212,9 @@ export const Barcode: Component = () => {
       await updatePageDesign(id, fromPresetConfig(cfg));
       await refetchDesigns();
       setIsEditing(false);
-      setStatusMessage({ type: 'success', text: 'Changes saved!' });
+      setStatusMessage({ type: 'success', text: t('barcode.changesSaved') });
     } catch (err: unknown) {
-      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update preset' });
+      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.updatePresetFailed') });
     } finally {
       setIsSaving(false);
     }
@@ -220,8 +222,8 @@ export const Barcode: Component = () => {
 
   const handleSaveAsCopy = async () => {
     const cfg = customConfig();
-    const baseName = cfg.name.trim() || 'Custom Label';
-    const name = baseName.includes('Copy') ? `${baseName} 2` : `${baseName} (Copy)`;
+    const baseName = cfg.name.trim() || t('barcode.customLabel');
+    const name = baseName.includes('Copy') || baseName.includes('Salinan') ? `${baseName} 2` : `${baseName}${t('barcode.copySuffix')}`;
     setIsSaving(true);
     setStatusMessage(null);
     try {
@@ -230,9 +232,9 @@ export const Barcode: Component = () => {
       await refetchDesigns();
       setIsEditing(false);
       selectPreset(`server-${res.id}`);
-      setStatusMessage({ type: 'success', text: `Created copy "${name}"` });
+      setStatusMessage({ type: 'success', text: t('barcode.copyCreated', { name }) });
     } catch (err: unknown) {
-      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to create copy' });
+      setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.createCopyFailed') });
     } finally {
       setIsSaving(false);
     }
@@ -502,7 +504,7 @@ export const Barcode: Component = () => {
             <div ref={searchContainerRef} class="relative w-full sm:flex-1 sm:max-w-md">
               <div class="text-xs font-semibold text-muted-foreground flex items-center gap-1 mb-1.5">
                 <IconScan class="size-3 text-primary" />
-                <span>Quick Scan / Add Barcode</span>
+                <span>{t('barcode.quickScan')}</span>
               </div>
               <div class="relative">
                 <input
@@ -513,8 +515,8 @@ export const Barcode: Component = () => {
                   onKeyDown={handleSearchKeyDown}
                   placeholder={
                     status().connected
-                      ? 'Scan barcode or search Accurate item...'
-                      : 'Add barcode or item code directly...'
+                      ? t('barcode.scanPlaceholder')
+                      : t('barcode.scanPlaceholderOffline')
                   }
                   class="h-9 w-full px-3 pr-8 font-mono text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                 />
@@ -544,7 +546,7 @@ export const Barcode: Component = () => {
                         <div>
                           <div class="font-medium text-foreground">{it.name}</div>
                           <div class="text-[10px] text-muted-foreground font-mono">
-                            {it.no} • {it.upcNo || 'No Barcode'}
+                            {it.no} • {it.upcNo || t('barcode.noBarcode')}
                           </div>
                         </div>
                         <div class="text-right text-[11px] font-semibold text-primary">
@@ -567,7 +569,7 @@ export const Barcode: Component = () => {
                   class="h-9 gap-1 text-xs"
                 >
                   <IconPackage class="size-3.5" />
-                  <span>Accurate Items</span>
+                  <span>{t('barcode.accurateItems')}</span>
                 </Button>
 
                 <Button
@@ -577,7 +579,7 @@ export const Barcode: Component = () => {
                   class="h-9 gap-1 text-xs"
                 >
                   <IconFileInvoice class="size-3.5" />
-                  <span>Load PO / DO</span>
+                  <span>{t('barcode.loadPoDo')}</span>
                 </Button>
               </Show>
 
@@ -586,7 +588,7 @@ export const Barcode: Component = () => {
                 when={status().enabled}
                 fallback={
                   <Badge variant="outline" class="text-xs text-muted-foreground border-dashed h-9 px-3">
-                    Offline Mode
+                    {t('barcode.offlineMode')}
                   </Badge>
                 }
               >
@@ -599,7 +601,7 @@ export const Barcode: Component = () => {
                       class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
                     >
                       <IconPlugConnectedX class="size-3.5" />
-                      <span>Accurate Disconnected</span>
+                      <span>{t('barcode.accurateDisconnected')}</span>
                     </button>
                   }
                 >
@@ -610,7 +612,7 @@ export const Barcode: Component = () => {
                   >
                     <IconPlugConnected class="size-3.5" />
                     <span class="truncate max-w-[140px] font-semibold">
-                      {status().database?.alias || 'Connected'}
+                      {status().database?.alias || t('barcode.connected')}
                     </span>
                   </button>
                 </Show>
@@ -624,9 +626,9 @@ export const Barcode: Component = () => {
       <Card class="no-print">
         <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0 pb-4">
           <div>
-            <CardTitle class="text-base font-semibold">Print Queue Items</CardTitle>
+            <CardTitle class="text-base font-semibold">{t('barcode.printQueue')}</CardTitle>
             <CardDescription>
-              {items().length.toLocaleString()} total queued line items • {selectedItems().length} selected for printing ({totalLabels()} labels)
+              {t('barcode.queueSummary', { total: items().length.toLocaleString(), selected: selectedItems().length, labels: totalLabels() })}
             </CardDescription>
           </div>
 
@@ -637,7 +639,7 @@ export const Barcode: Component = () => {
               class="text-xs h-8 gap-1"
             >
               <IconPlus class="size-3.5" />
-              <span>Add Row</span>
+              <span>{t('barcode.addRow')}</span>
             </Button>
 
             <Button
@@ -646,7 +648,7 @@ export const Barcode: Component = () => {
               onClick={() => toggleSelectAll(!isAllSelected())}
               class="text-xs h-8"
             >
-              {isAllSelected() ? 'Deselect All' : 'Select All'}
+              {isAllSelected() ? t('barcode.deselectAll') : t('barcode.selectAll')}
             </Button>
 
             <Show when={items().length > 0}>
@@ -657,7 +659,7 @@ export const Barcode: Component = () => {
                 class="text-xs h-8 text-destructive hover:bg-destructive/10 gap-1"
               >
                 <IconTrash class="size-3.5" />
-                <span>Clear All</span>
+                <span>{t('barcode.clearAll')}</span>
               </Button>
             </Show>
           </div>
@@ -675,12 +677,12 @@ export const Barcode: Component = () => {
                     class="rounded border-border text-primary"
                   />
                 </TableHead>
-                <TableHead class="w-32">Item Code</TableHead>
-                <TableHead class="min-w-[180px]">Item Name</TableHead>
-                <TableHead class="w-36">Barcode / UPC</TableHead>
-                <TableHead class="w-28 text-center">Quantity</TableHead>
-                <TableHead class="w-20 text-center">Unit</TableHead>
-                <TableHead class="w-28 text-right">Price</TableHead>
+                <TableHead class="w-32">{t('barcode.colItemCode')}</TableHead>
+                <TableHead class="min-w-[180px]">{t('barcode.colItemName')}</TableHead>
+                <TableHead class="w-36">{t('barcode.colBarcode')}</TableHead>
+                <TableHead class="w-28 text-center">{t('barcode.colQuantity')}</TableHead>
+                <TableHead class="w-20 text-center">{t('barcode.colUnit')}</TableHead>
+                <TableHead class="w-28 text-right">{t('barcode.colPrice')}</TableHead>
                 <TableHead class="w-12 text-center"></TableHead>
               </TableRow>
             </TableHeader>
@@ -789,7 +791,7 @@ export const Barcode: Component = () => {
                         type="button"
                         onClick={() => deleteItem(item.id)}
                         class="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
-                        title="Delete row"
+                        title={t('barcode.deleteRow')}
                       >
                         <IconTrash class="size-3.5" />
                       </button>
@@ -801,7 +803,7 @@ export const Barcode: Component = () => {
               <Show when={items().length === 0}>
                 <TableRow>
                   <TableCell colspan={8} class="h-32 text-center text-muted-foreground text-xs">
-                    No items in the print queue. Scan barcode or use the import actions above.
+                    {t('barcode.emptyQueue')}
                   </TableCell>
                 </TableRow>
               </Show>
@@ -816,10 +818,10 @@ export const Barcode: Component = () => {
           <div>
             <CardTitle class="text-base font-semibold flex items-center gap-2">
               <IconPrinter class="size-5 text-primary" />
-              Print Preview Canvas
+              {t('barcode.printPreview')}
             </CardTitle>
             <CardDescription>
-              Rendering {selectedItems().length} selected items ({totalLabels()} labels) on {getEffectiveConfig().name}
+              {t('barcode.renderingSummary', { count: selectedItems().length, labels: totalLabels(), preset: getEffectiveConfig().name })}
             </CardDescription>
           </div>
 
@@ -833,7 +835,7 @@ export const Barcode: Component = () => {
               <Show when={isInspectorOpen()} fallback={<IconEye class="size-4" />}>
                 <IconEyeOff class="size-4" />
               </Show>
-              <span>{isInspectorOpen() ? 'Hide Settings' : 'Show Settings'}</span>
+              <span>{isInspectorOpen() ? t('barcode.hideSettings') : t('barcode.showSettings')}</span>
             </Button>
           </div>
         </CardHeader>
@@ -845,7 +847,7 @@ export const Barcode: Component = () => {
               {/* Section 1: Paper & Preset */}
               <div class="space-y-1.5">
                 <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
-                  Sticker Paper Preset
+                  {t('barcode.stickerPaperPreset')}
                 </label>
                 <select
                   value={presetKey()}
@@ -860,15 +862,15 @@ export const Barcode: Component = () => {
                   class="w-full h-8 text-xs px-2.5 border rounded-md bg-background font-medium"
                 >
                   <option value="custom" disabled class="hidden">
-                    + New Preset (Unsaved)
+                    {t('barcode.newPresetUnsaved')}
                   </option>
-                  <optgroup label="Built-in Presets">
+                  <optgroup label={t('barcode.builtinPresets')}>
                     <For each={Object.entries(PRESETS).filter(([k]) => k !== 'custom')}>
                       {([k, p]) => <option value={k}>{p.name}</option>}
                     </For>
                   </optgroup>
                   <Show when={(serverDesigns() ?? []).length > 0}>
-                    <optgroup label="Custom Presets">
+                    <optgroup label={t('barcode.customPresets')}>
                       <For each={serverDesigns() ?? []}>
                         {(d) => <option value={`server-${d.id}`}>{d.name}</option>}
                       </For>
@@ -895,16 +897,16 @@ export const Barcode: Component = () => {
                         }}
                         title={
                           !presetKey().startsWith('server-')
-                            ? 'Built-in presets cannot be edited'
+                            ? t('barcode.builtinCannotEdit')
                             : isEditing()
-                            ? 'Close preset editor'
-                            : 'Edit this custom preset'
+                            ? t('barcode.closePresetEditor')
+                            : t('barcode.editCustomPreset')
                         }
                       >
                         <Show when={isEditing()} fallback={<IconEdit class="size-3.5" />}>
                           <IconX class="size-3.5" />
                         </Show>
-                        <span>{isEditing() ? 'Cancel' : 'Edit'}</span>
+                        <span>{isEditing() ? t('common.cancel') : t('barcode.editPreset')}</span>
                       </Button>
                       <Button
                         type="button"
@@ -915,12 +917,12 @@ export const Barcode: Component = () => {
                         onClick={handleDeleteCurrentDesign}
                         title={
                           !presetKey().startsWith('server-')
-                            ? 'Built-in presets cannot be deleted'
-                            : 'Delete this custom preset'
+                            ? t('barcode.builtinCannotDelete')
+                            : t('barcode.deleteCustomPreset')
                         }
                       >
                         <IconTrash class="size-3.5" />
-                        <span>Delete</span>
+                        <span>{t('common.delete')}</span>
                       </Button>
                       <Button
                         type="button"
@@ -931,12 +933,12 @@ export const Barcode: Component = () => {
                           if (isCreating()) cancelCreating();
                           else startCreating();
                         }}
-                        title={isCreating() ? 'Cancel new preset' : 'Create new custom preset'}
+                        title={isCreating() ? t('barcode.cancelNewPreset') : t('barcode.createNewPreset')}
                       >
                         <Show when={isCreating()} fallback={<IconPlus class="size-3.5" />}>
                           <IconX class="size-3.5" />
                         </Show>
-                        <span>{isCreating() ? 'Cancel' : 'New'}</span>
+                        <span>{isCreating() ? t('common.cancel') : t('barcode.newPreset')}</span>
                       </Button>
                     </div>
                   </div>
@@ -946,7 +948,7 @@ export const Barcode: Component = () => {
                     {/* Header with Title */}
                     <div class="flex items-center justify-between gap-1">
                       <span class="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">
-                        Custom Dimensions (mm)
+                        {t('barcode.customDimensions')}
                       </span>
                     </div>
 
@@ -973,12 +975,12 @@ export const Barcode: Component = () => {
                     {/* Design Name */}
                     <Show when={isAdmin() || presetKey() === 'custom'}>
                       <div>
-                        <label class="block text-muted-foreground text-[10px]">Design Name</label>
+                        <label class="block text-muted-foreground text-[10px]">{t('barcode.designName')}</label>
                         <input
                           type="text"
                           value={customConfig().name}
                           onInput={(e) => setCustomConfig({ ...customConfig(), name: e.currentTarget.value })}
-                          placeholder="e.g. Zebra 100x50"
+                          placeholder={t('barcode.designNamePlaceholder')}
                           class="w-full px-2 py-1 border rounded bg-background text-xs"
                         />
                       </div>
@@ -986,10 +988,10 @@ export const Barcode: Component = () => {
 
                     {/* Label Dimensions */}
                     <div>
-                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Label Size (mm)</div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">{t('barcode.labelSize')}</div>
                       <div class="grid grid-cols-2 gap-1.5">
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Width</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.width')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1005,7 +1007,7 @@ export const Barcode: Component = () => {
                           />
                         </div>
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Height</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.height')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1025,10 +1027,10 @@ export const Barcode: Component = () => {
 
                     {/* Grid: Columns & Rows */}
                     <div>
-                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Grid Layout</div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">{t('barcode.gridLayout')}</div>
                       <div class="grid grid-cols-2 gap-1.5">
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Columns</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.columns')}</label>
                           <input
                             type="number"
                             min="1"
@@ -1044,7 +1046,7 @@ export const Barcode: Component = () => {
                           />
                         </div>
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Rows</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.rows')}</label>
                           <input
                             type="number"
                             min="1"
@@ -1064,10 +1066,10 @@ export const Barcode: Component = () => {
 
                     {/* Gaps: Horizontal & Vertical */}
                     <div>
-                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Gaps (mm)</div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">{t('barcode.gaps')}</div>
                       <div class="grid grid-cols-2 gap-1.5">
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Gap X (Horiz)</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.gapX')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1083,7 +1085,7 @@ export const Barcode: Component = () => {
                           />
                         </div>
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Gap Y (Vert)</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.gapY')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1103,10 +1105,10 @@ export const Barcode: Component = () => {
 
                     {/* Margins: Top & Left */}
                     <div>
-                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Margins (mm)</div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">{t('barcode.margins')}</div>
                       <div class="grid grid-cols-2 gap-1.5">
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Margin Top</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.marginTop')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1122,7 +1124,7 @@ export const Barcode: Component = () => {
                           />
                         </div>
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Margin Left</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.marginLeft')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1142,10 +1144,10 @@ export const Barcode: Component = () => {
 
                     {/* Paper Sheet */}
                     <div>
-                      <div class="text-muted-foreground text-[10px] font-medium mb-1">Paper Sheet (mm)</div>
+                      <div class="text-muted-foreground text-[10px] font-medium mb-1">{t('barcode.paperSheet')}</div>
                       <div class="grid grid-cols-3 gap-1">
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Paper</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.paper')}</label>
                           <select
                             value={selectedPaper()}
                             onChange={(e) => handlePaperChange(e.currentTarget.value)}
@@ -1155,11 +1157,11 @@ export const Barcode: Component = () => {
                             <option value="A5">A5</option>
                             <option value="Letter">Letter</option>
                             <option value="Custom">Custom</option>
-                            <option value="Roll">Roll</option>
+                            <option value="Roll">{t('barcode.paperRoll')}</option>
                           </select>
                         </div>
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Width</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.width')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1176,7 +1178,7 @@ export const Barcode: Component = () => {
                           />
                         </div>
                         <div>
-                          <label class="block text-muted-foreground text-[9px]">Height</label>
+                          <label class="block text-muted-foreground text-[9px]">{t('barcode.height')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -1208,7 +1210,7 @@ export const Barcode: Component = () => {
                         }
                         class="rounded border-border text-primary"
                       />
-                      <span>Stock Opname Audit Sheet Mode</span>
+                      <span>{t('barcode.auditSheetMode')}</span>
                     </label>
 
                     {/* Bottom Action Buttons */}
@@ -1225,10 +1227,10 @@ export const Barcode: Component = () => {
                                 class="h-7 px-2 text-xs gap-1"
                                 disabled={isSaving()}
                                 onClick={handleSaveAsCopy}
-                                title="Save as a new copy"
+                                title={t('barcode.saveAsCopyTitle')}
                               >
                                 <IconCopy class="size-3.5" />
-                                <span>Create Copy</span>
+                                <span>{t('barcode.createCopy')}</span>
                               </Button>
                               <Button
                                 type="button"
@@ -1236,10 +1238,10 @@ export const Barcode: Component = () => {
                                 class="h-7 px-2.5 text-xs gap-1"
                                 disabled={isSaving()}
                                 onClick={handleUpdateDesign}
-                                title="Save changes to this preset"
+                                title={t('barcode.saveChangesTitle')}
                               >
                                 <IconDeviceFloppy class="size-3.5" />
-                                <span>{isSaving() ? 'Saving...' : 'Save'}</span>
+                                <span>{isSaving() ? t('common.saving') : t('common.save')}</span>
                               </Button>
                             </>
                           }
@@ -1250,10 +1252,10 @@ export const Barcode: Component = () => {
                             class="h-7 px-2.5 text-xs gap-1"
                             disabled={isSaving()}
                             onClick={handleSaveNewDesign}
-                            title="Save as reusable preset"
+                            title={t('barcode.saveReusablePresetTitle')}
                           >
                             <IconDeviceFloppy class="size-3.5" />
-                            <span>{isSaving() ? 'Saving...' : 'Save Preset'}</span>
+                            <span>{isSaving() ? t('common.saving') : t('barcode.savePreset')}</span>
                           </Button>
                         </Show>
                       </div>
@@ -1265,42 +1267,42 @@ export const Barcode: Component = () => {
               {/* Section 2: Symbology & Dimensions */}
               <div class="space-y-1.5">
                 <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
-                  Symbology & Sizing
+                  {t('barcode.symbologySizing')}
                 </label>
                 <select
                   value={symbology()}
                   onChange={(e) => setSymbology(e.currentTarget.value as Symbology)}
                   class="w-full h-8 text-xs px-2.5 border rounded-md bg-background"
                 >
-                  <option value="CODE128">Code 128 (Standard)</option>
-                  <option value="CODE39">Code 39</option>
-                  <option value="EAN13">EAN-13 (13 digits)</option>
-                  <option value="QRCODE">QR Code (2D)</option>
+                  <option value="CODE128">{t('barcode.code128')}</option>
+                  <option value="CODE39">{t('barcode.code39')}</option>
+                  <option value="EAN13">{t('barcode.ean13')}</option>
+                  <option value="QRCODE">{t('barcode.qrCode')}</option>
                 </select>
 
                 <div class="grid grid-cols-2 gap-1.5 pt-0.5">
                   <div>
-                    <label class="block text-[10px] text-muted-foreground">Height</label>
+                    <label class="block text-[10px] text-muted-foreground">{t('barcode.height')}</label>
                     <select
                       value={barcodeHeight()}
                       onChange={(e) => setBarcodeHeight(e.currentTarget.value as BarcodeHeight)}
                       class="w-full h-7 text-xs px-2 border rounded bg-background"
                     >
-                      <option value="compact">Compact (18px)</option>
-                      <option value="medium">Medium (24px)</option>
-                      <option value="large">Large (32px)</option>
+                      <option value="compact">{t('barcode.heightCompact')}</option>
+                      <option value="medium">{t('barcode.heightMedium')}</option>
+                      <option value="large">{t('barcode.heightLarge')}</option>
                     </select>
                   </div>
                   <div>
-                    <label class="block text-[10px] text-muted-foreground">Font</label>
+                    <label class="block text-[10px] text-muted-foreground">{t('barcode.font')}</label>
                     <select
                       value={fontSize()}
                       onChange={(e) => setFontSize(e.currentTarget.value as FontSize)}
                       class="w-full h-7 text-xs px-2 border rounded bg-background"
                     >
-                      <option value="small">Small (0.55rem)</option>
-                      <option value="medium">Medium (0.65rem)</option>
-                      <option value="large">Large (0.75rem)</option>
+                      <option value="small">{t('barcode.fontSmall')}</option>
+                      <option value="medium">{t('barcode.fontMedium')}</option>
+                      <option value="large">{t('barcode.fontLarge')}</option>
                     </select>
                   </div>
                 </div>
@@ -1309,7 +1311,7 @@ export const Barcode: Component = () => {
               {/* Section 3: Quantity Mode & Offset */}
               <div class="space-y-1.5">
                 <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
-                  Quantity Mode & Offset
+                  {t('barcode.qtyModeOffset')}
                 </label>
                 <div class="grid grid-cols-2 gap-1.5">
                   <button
@@ -1320,9 +1322,9 @@ export const Barcode: Component = () => {
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background hover:bg-muted'
                     }`}
-                    title="Print quantity from item (N labels)"
+                    title={t('barcode.byQtyTooltip')}
                   >
-                    By Qty (N)
+                    {t('barcode.byQtyBtn')}
                   </button>
                   <button
                     type="button"
@@ -1332,15 +1334,15 @@ export const Barcode: Component = () => {
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background hover:bg-muted'
                     }`}
-                    title="Print exactly 1 label per item"
+                    title={t('barcode.singleTooltip')}
                   >
-                    Single (1x)
+                    {t('barcode.singleBtn')}
                   </button>
                 </div>
 
                 <div class="pt-0.5">
                   <label class="block text-[10px] text-muted-foreground">
-                    Skip Used Slots on Sheet
+                    {t('barcode.skipUsedSlots')}
                   </label>
                   <input
                     type="number"
@@ -1356,7 +1358,7 @@ export const Barcode: Component = () => {
               {/* Section 4: Label Elements */}
               <div class="space-y-1.5">
                 <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
-                  Label Elements
+                  {t('barcode.labelElements')}
                 </label>
                 <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
                   <label class="flex items-center gap-1.5 cursor-pointer">
@@ -1366,7 +1368,7 @@ export const Barcode: Component = () => {
                       onChange={(e) => setShowBarcodeImg(e.currentTarget.checked)}
                       class="rounded border-border text-primary"
                     />
-                    <span>Graphic</span>
+                    <span>{t('barcode.elemGraphic')}</span>
                   </label>
                   <label class="flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -1375,7 +1377,7 @@ export const Barcode: Component = () => {
                       onChange={(e) => setShowBarcodeTxt(e.currentTarget.checked)}
                       class="rounded border-border text-primary"
                     />
-                    <span>Barcode</span>
+                    <span>{t('barcode.elemBarcode')}</span>
                   </label>
                   <label class="flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -1384,7 +1386,7 @@ export const Barcode: Component = () => {
                       onChange={(e) => setShowName(e.currentTarget.checked)}
                       class="rounded border-border text-primary"
                     />
-                    <span>Name</span>
+                    <span>{t('barcode.elemName')}</span>
                   </label>
                   <label class="flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -1393,7 +1395,7 @@ export const Barcode: Component = () => {
                       onChange={(e) => setShowCode(e.currentTarget.checked)}
                       class="rounded border-border text-primary"
                     />
-                    <span>Code</span>
+                    <span>{t('barcode.elemCode')}</span>
                   </label>
                   <label class="flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -1402,7 +1404,7 @@ export const Barcode: Component = () => {
                       onChange={(e) => setShowPrice(e.currentTarget.checked)}
                       class="rounded border-border text-primary"
                     />
-                    <span>Price</span>
+                    <span>{t('barcode.elemPrice')}</span>
                   </label>
                   <label class="flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -1411,7 +1413,7 @@ export const Barcode: Component = () => {
                       onChange={(e) => setShowUnit(e.currentTarget.checked)}
                       class="rounded border-border text-primary"
                     />
-                    <span>Unit</span>
+                    <span>{t('barcode.elemUnit')}</span>
                   </label>
                 </div>
 
@@ -1423,14 +1425,14 @@ export const Barcode: Component = () => {
                       onChange={(e) => setShowCompany(e.currentTarget.checked)}
                       class="rounded border-border text-primary"
                     />
-                    <span>Header / Company Name</span>
+                    <span>{t('barcode.elemCompany')}</span>
                   </label>
                   <Show when={showCompany()}>
                     <input
                       type="text"
                       value={companyName()}
                       onInput={(e) => setCompanyName(e.currentTarget.value)}
-                      placeholder="Company Name"
+                      placeholder={t('barcode.companyNamePlaceholder')}
                       class="w-full px-2 py-1 text-xs border rounded bg-background"
                     />
                   </Show>
@@ -1440,7 +1442,7 @@ export const Barcode: Component = () => {
               {/* Section 5: Canvas Settings */}
               <div class="space-y-1.5 sm:col-span-2 lg:col-span-4 xl:col-span-1">
                 <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
-                  Canvas Settings
+                  {t('barcode.canvasSettings')}
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer text-xs">
                   <input
@@ -1449,12 +1451,12 @@ export const Barcode: Component = () => {
                     onChange={(e) => setShowScreenBorder(e.currentTarget.checked)}
                     class="rounded border-border text-primary"
                   />
-                  <span>Screen Dashed Grid Lines</span>
+                  <span>{t('barcode.screenDashedGrid')}</span>
                 </label>
 
                 <div class="space-y-1 pt-1">
                   <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>Zoom Scale</span>
+                    <span>{t('barcode.zoomScale')}</span>
                     <span>{Math.round(zoom() * 100)}%</span>
                   </div>
                   <input
@@ -1489,9 +1491,9 @@ export const Barcode: Component = () => {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete Page Design</AlertDialogTitle>
+          <AlertDialogTitle>{t('barcode.deleteDialogTitle')}</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to remove the page design "{designToDelete()?.name}"? Users will no longer be able to select this layout for barcode printing.
+            {t('barcode.deleteDialogDesc', { name: designToDelete()?.name ?? '' })}
           </AlertDialogDescription>
           <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button
@@ -1500,7 +1502,7 @@ export const Barcode: Component = () => {
               disabled={isDeletingDesign()}
               onClick={() => setDesignToDelete(null)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -1508,7 +1510,7 @@ export const Barcode: Component = () => {
               disabled={isDeletingDesign()}
               onClick={handleConfirmDelete}
             >
-              {isDeletingDesign() ? 'Deleting...' : 'Delete'}
+              {isDeletingDesign() ? t('common.deleting') : t('common.delete')}
             </Button>
           </div>
         </AlertDialogContent>

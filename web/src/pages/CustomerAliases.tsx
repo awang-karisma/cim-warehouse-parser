@@ -1,4 +1,5 @@
 import { type Component, createSignal, createResource, createMemo, Show, For } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
 import {
   IconPlus,
@@ -53,6 +54,7 @@ import { AreaCombobox } from '~/components/AreaCombobox';
 import { Skeleton } from '~/components/ui/skeleton';
 
 export const CustomerAliases: Component = () => {
+  const { t } = useI18n();
   const auth = useAuth();
   const isAdmin = () => {
     const role = auth.user()?.role;
@@ -187,11 +189,11 @@ export const CustomerAliases: Component = () => {
       return;
     }
     if (val.toLowerCase() === grp.canonical.toLowerCase()) {
-      setInlineAddError(`Alias cannot be identical to canonical name "${grp.canonical}"`);
+      setInlineAddError(t('customerAliases.aliasIdenticalError', { canonical: grp.canonical }));
       return;
     }
     if (grp.aliases.some((a) => a.toLowerCase() === val.toLowerCase())) {
-      setInlineAddError(`Alias "${val}" already exists`);
+      setInlineAddError(t('customerAliases.aliasExistsError', { val }));
       return;
     }
     setIsInlineAdding(true);
@@ -202,9 +204,7 @@ export const CustomerAliases: Component = () => {
       setActiveInlineAdd(null);
       refetchAliases();
     } catch (err: unknown) {
-      setInlineAddError(err instanceof Error ? err.message : 'Failed to add alias');
-    } finally {
-      setIsInlineAdding(false);
+      setInlineAddError(err instanceof Error ? err.message : t('customerAliases.failedAdd'));
     }
   };
 
@@ -214,11 +214,11 @@ export const CustomerAliases: Component = () => {
     const a = modalAliasInput().trim();
     const c = modalCanonicalInput().trim();
     if (!a || !c) {
-      setModalError('Both Variant Name and Canonical Name are required');
+      setModalError(t('customerAliases.bothRequiredError'));
       return;
     }
     if (a.toLowerCase() === c.toLowerCase()) {
-      setModalError('Alias cannot be equal to canonical name');
+      setModalError(t('customerAliases.aliasEqualError'));
       return;
     }
     setIsModalAdding(true);
@@ -231,7 +231,7 @@ export const CustomerAliases: Component = () => {
       setShowAddModal(false);
       refetchAliases();
     } catch (err: unknown) {
-      setModalError(err instanceof Error ? err.message : 'Failed to add alias');
+      setModalError(err instanceof Error ? err.message : t('customerAliases.failedAdd'));
     } finally {
       setIsModalAdding(false);
     }
@@ -245,12 +245,12 @@ export const CustomerAliases: Component = () => {
     const newCanonical = editCanonical().trim();
     const newArea = editArea().trim() || undefined;
     if (!newCanonical) {
-      setEditGroupError('Canonical name cannot be empty');
+      setEditGroupError(t('customerAliases.canonicalEmptyError'));
       return;
     }
     for (const alias of grp.aliases) {
       if (alias.toLowerCase() === newCanonical.toLowerCase()) {
-        setEditGroupError(`Alias "${alias}" cannot be identical to canonical name "${newCanonical}"`);
+        setEditGroupError(t('customerAliases.aliasIdenticalError', { alias, canonical: newCanonical }));
         return;
       }
     }
@@ -263,7 +263,7 @@ export const CustomerAliases: Component = () => {
       setShowEditGroupDialog(false);
       refetchAliases();
     } catch (err: unknown) {
-      setEditGroupError(err instanceof Error ? err.message : 'Failed to update group');
+      setEditGroupError(err instanceof Error ? err.message : t('customerAliases.failedUpdateGroup'));
     } finally {
       setIsEditingGroup(false);
     }
@@ -278,11 +278,11 @@ export const CustomerAliases: Component = () => {
     const area = editAliasArea().trim() || undefined;
 
     if (!spelling || !canonical) {
-      setEditAliasError('Both Variant Name and Canonical Name are required');
+      setEditAliasError(t('customerAliases.bothRequiredError'));
       return;
     }
     if (spelling.toLowerCase() === canonical.toLowerCase()) {
-      setEditAliasError('Alias cannot be equal to canonical name');
+      setEditAliasError(t('customerAliases.aliasEqualError'));
       return;
     }
 
@@ -296,7 +296,7 @@ export const CustomerAliases: Component = () => {
       setShowEditAliasDialog(false);
       refetchAliases();
     } catch (err: unknown) {
-      setEditAliasError(err instanceof Error ? err.message : 'Failed to update alias');
+      setEditAliasError(err instanceof Error ? err.message : t('customerAliases.failedUpdateAlias'));
     } finally {
       setIsEditingAlias(false);
     }
@@ -313,7 +313,7 @@ export const CustomerAliases: Component = () => {
       setAliasToDelete('');
       refetchAliases();
     } catch (err: unknown) {
-      setPageError(err instanceof Error ? err.message : 'Failed to delete alias');
+      setPageError(err instanceof Error ? err.message : t('customerAliases.failedDeleteAlias'));
     } finally {
       setIsDeleting(false);
     }
@@ -333,7 +333,7 @@ export const CustomerAliases: Component = () => {
       setPendingFile(null);
       refetchAliases();
     } catch (err: unknown) {
-      setPageError(err instanceof Error ? err.message : 'Failed to import customer aliases');
+      setPageError(err instanceof Error ? err.message : t('customerAliases.failedImport'));
       setShowImportModeDialog(false);
       setPendingFile(null);
     } finally {
@@ -369,9 +369,9 @@ export const CustomerAliases: Component = () => {
       {/* Page Header */}
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Customer Aliases</h1>
+          <h1 class="text-2xl font-bold tracking-tight">{t('customerAliases.title')}</h1>
           <p class="text-sm text-muted-foreground mt-0.5">
-            Manage customer spelling variants, abbreviations, and their canonical name & area mappings.
+            {t('customerAliases.subtitle')}
           </p>
         </div>
 
@@ -386,7 +386,7 @@ export const CustomerAliases: Component = () => {
             disabled={aliasesData.loading}
           >
             <IconDownload class="size-4" />
-            <span>Export JSON</span>
+            <span>{t('customerAliases.exportJson')}</span>
           </Button>
 
           <Show when={isAdmin()}>
@@ -414,7 +414,7 @@ export const CustomerAliases: Component = () => {
               disabled={isImporting()}
             >
               <IconUpload class="size-4" />
-              <span>Import JSON</span>
+              <span>{t('customerAliases.importJson')}</span>
             </Button>
 
             <Button
@@ -430,7 +430,7 @@ export const CustomerAliases: Component = () => {
               }}
             >
               <IconPlus class="size-4" />
-              <span>Add Customer</span>
+              <span>{t('customerAliases.addCustomer')}</span>
             </Button>
           </Show>
         </div>
@@ -441,7 +441,7 @@ export const CustomerAliases: Component = () => {
         <Card class="bg-card">
           <CardContent class="p-3.5 flex items-center justify-between">
             <div>
-              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Canonical Customers</p>
+              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('customerAliases.kpiCanonical')}</p>
               <p class="text-xl font-bold mt-0.5">
                 <Show when={!aliasesData.loading} fallback="--">
                   {totalGroups()}
@@ -457,7 +457,7 @@ export const CustomerAliases: Component = () => {
         <Card class="bg-card">
           <CardContent class="p-3.5 flex items-center justify-between">
             <div>
-              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total Active Aliases</p>
+              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('customerAliases.kpiActiveAliases')}</p>
               <p class="text-xl font-bold mt-0.5">
                 <Show when={!aliasesData.loading} fallback="--">
                   {totalAliases()}
@@ -473,7 +473,7 @@ export const CustomerAliases: Component = () => {
         <Card class="bg-card">
           <CardContent class="p-3.5 flex items-center justify-between">
             <div>
-              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Areas Covered</p>
+              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('customerAliases.kpiAreasCovered')}</p>
               <p class="text-xl font-bold mt-0.5">
                 <Show when={!aliasesData.loading} fallback="--">
                   {distinctAreas().filter(([a]) => a !== 'Unassigned').length}
@@ -489,7 +489,7 @@ export const CustomerAliases: Component = () => {
         <Card class="bg-card">
           <CardContent class="p-3.5 flex items-center justify-between">
             <div>
-              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Unassigned Area</p>
+              <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('customerAliases.kpiUnassignedArea')}</p>
               <p class="text-xl font-bold mt-0.5">
                 <Show when={!aliasesData.loading} fallback="--">
                   {unassignedCount()}
@@ -506,11 +506,11 @@ export const CustomerAliases: Component = () => {
       {/* Sync impact alert */}
       <Alert class="bg-muted/40 border-border">
         <IconInfoCircle class="size-4 text-primary shrink-0" />
-        <AlertTitle class="text-xs font-semibold">Synchronization Pipeline Notice</AlertTitle>
+        <AlertTitle class="text-xs font-semibold">{t('customerAliases.syncNoticeTitle')}</AlertTitle>
         <AlertDescription class="text-xs text-muted-foreground mt-0.5">
-          Aliases resolve raw Google Sheets entries during worker ingestion. Modifying alias mappings does not rewrite stored database records immediately; changes take effect on the next scheduled sync or when triggering a full resync in{' '}
+          {t('customerAliases.syncNoticeDesc')}{' '}
           <A href="/sync" class="underline text-foreground font-medium hover:text-primary">
-            Sync Manager
+            {t('nav.syncManager')}
           </A>
           .
         </AlertDescription>
@@ -523,7 +523,7 @@ export const CustomerAliases: Component = () => {
             <IconCheck class="size-4 text-primary shrink-0" />
             <div class="flex flex-1 items-center justify-between">
               <div>
-                <AlertTitle class="text-primary font-semibold text-xs">Import Complete</AlertTitle>
+                <AlertTitle class="text-primary font-semibold text-xs">{t('customerAliases.importComplete')}</AlertTitle>
                 <AlertDescription class="text-xs text-muted-foreground">
                   Successfully imported <strong>{res().imported}</strong> alias{res().imported === 1 ? '' : 'es'}
                   <Show when={res().skipped > 0}> ({res().skipped} skipped)</Show>.
@@ -535,7 +535,7 @@ export const CustomerAliases: Component = () => {
                 class="h-7 px-2 text-xs"
                 onClick={() => setImportResult(null)}
               >
-                Dismiss
+                {t('common.dismiss')}
               </Button>
             </div>
           </Alert>
@@ -549,7 +549,7 @@ export const CustomerAliases: Component = () => {
           <div class="flex flex-1 items-center justify-between">
             <span class="text-xs font-medium">{pageError()}</span>
             <Button variant="ghost" size="sm" class="h-6 px-2 text-xs" onClick={() => setPageError('')}>
-              Dismiss
+              {t('common.dismiss')}
             </Button>
           </div>
         </Alert>
@@ -562,7 +562,7 @@ export const CustomerAliases: Component = () => {
             <IconSearch class="absolute left-3 top-2.5 size-4 text-muted-foreground pointer-events-none" />
             <input
               type="text"
-              placeholder="Search customer, variant spelling, or area..."
+              placeholder={t('customerAliases.searchPlaceholder')}
               value={search()}
               onInput={(e) => setSearch(e.currentTarget.value)}
               class="w-full pl-9 pr-8 h-9 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
@@ -579,15 +579,15 @@ export const CustomerAliases: Component = () => {
           </div>
 
           <div class="flex items-center gap-2">
-            <span class="text-xs text-muted-foreground shrink-0">Sort by:</span>
+            <span class="text-xs text-muted-foreground shrink-0">{t('customerAliases.sortBy')}</span>
             <select
               value={sortBy()}
-              onChange={(e) => setSortBy(e.currentTarget.value as any)}
+              onChange={(e) => setSortBy(e.currentTarget.value as 'name' | 'aliases-desc' | 'aliases-asc')}
               class="h-9 px-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
             >
-              <option value="name">Customer Name (A-Z)</option>
-              <option value="aliases-desc">Most Aliases</option>
-              <option value="aliases-asc">Least Aliases</option>
+              <option value="name">{t('customerAliases.sortName')}</option>
+              <option value="aliases-desc">{t('customerAliases.sortAliasesDesc')}</option>
+              <option value="aliases-asc">{t('customerAliases.sortAliasesAsc')}</option>
             </select>
           </div>
         </div>
@@ -603,7 +603,7 @@ export const CustomerAliases: Component = () => {
             }`}
             onClick={() => setSelectedArea('all')}
           >
-            All Customers ({totalGroups()})
+            {t('customerAliases.allCustomers', { total: totalGroups() })}
           </button>
 
           <For each={distinctAreas()}>
@@ -649,9 +649,9 @@ export const CustomerAliases: Component = () => {
           <IconAlertCircle class="size-4 shrink-0" />
           <div class="flex flex-1 items-center justify-between flex-wrap gap-2">
             <div>
-              <AlertTitle>Failed to load customer aliases</AlertTitle>
+              <AlertTitle>{t('customerAliases.loadError')}</AlertTitle>
               <AlertDescription class="text-xs">
-                {aliasesData.error instanceof Error ? aliasesData.error.message : 'Unknown error'}
+                {aliasesData.error instanceof Error ? aliasesData.error.message : t('common.unknownError')}
               </AlertDescription>
             </div>
             <Button
@@ -661,7 +661,7 @@ export const CustomerAliases: Component = () => {
               onClick={() => refetchAliases()}
             >
               <IconRefresh class="size-3.5" />
-              <span>Retry</span>
+              <span>{t('common.retry')}</span>
             </Button>
           </div>
         </Alert>
@@ -671,7 +671,7 @@ export const CustomerAliases: Component = () => {
       <Show when={!aliasesData.loading && !aliasesData.error && totalAliases() === 0}>
         <div class="p-10 text-center text-muted-foreground text-xs border border-dashed rounded-xl space-y-2">
           <IconBuildingStore class="size-8 mx-auto opacity-40" />
-          <p>No customer aliases configured yet. Add your first customer mapping above.</p>
+          <p>{t('customerAliases.noAliasesConfigured')}</p>
         </div>
       </Show>
 
@@ -687,7 +687,7 @@ export const CustomerAliases: Component = () => {
         <div class="p-10 text-center text-muted-foreground text-xs border border-dashed rounded-xl space-y-2">
           <IconBuildingStore class="size-8 mx-auto opacity-40" />
           <p>
-            No aliases found matching <span class="font-semibold text-foreground">"{search()}"</span>.
+            {t('customerAliases.noAliasesMatch', { search: search() })}
           </p>
           <Button
             variant="outline"
@@ -698,7 +698,7 @@ export const CustomerAliases: Component = () => {
               setSelectedArea('all');
             }}
           >
-            Clear Filters
+            {t('customerAliases.clearFilters')}
           </Button>
         </div>
       </Show>
@@ -732,7 +732,7 @@ export const CustomerAliases: Component = () => {
                               <Show
                                 when={grp.area}
                                 fallback={
-                                  <span class="text-[10px] text-muted-foreground/60 italic">Unassigned Area</span>
+                                  <span class="text-[10px] text-muted-foreground/60 italic">{t('customerAliases.kpiUnassignedArea')}</span>
                                 }
                               >
                                 <span class="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
@@ -749,7 +749,7 @@ export const CustomerAliases: Component = () => {
                             variant="ghost"
                             size="sm"
                             class="h-7 w-7 p-0 text-muted-foreground hover:text-primary shrink-0"
-                            title="Edit Group"
+                            title={t('customerAliases.editGroup')}
                             onClick={() => {
                               setEditGroup(grp);
                               setEditCanonical(grp.canonical);
@@ -766,7 +766,7 @@ export const CustomerAliases: Component = () => {
 
                     <CardContent class="p-4 pt-1 space-y-3">
                       <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        Aliases ({grp.aliases.length})
+                        {t('customerAliases.aliasesCount', { count: grp.aliases.length })}
                       </div>
 
                       {/* Alias Pills Wrap */}
@@ -874,7 +874,7 @@ export const CustomerAliases: Component = () => {
 
                     <CardFooter class="p-3 px-4 bg-muted/20 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
                       <span class="text-[11px] font-mono">
-                        {grp.aliases.length} mapped variant{grp.aliases.length === 1 ? '' : 's'}
+                        {t('customerAliases.mappedVariants', { count: grp.aliases.length })}
                       </span>
 
                       <button
@@ -887,7 +887,7 @@ export const CustomerAliases: Component = () => {
                           fallback={
                             <>
                               <IconCopy class="size-3" />
-                              <span>Copy Name</span>
+                              <span>{t('customerAliases.copyCanonical')}</span>
                             </>
                           }
                         >
@@ -909,38 +909,38 @@ export const CustomerAliases: Component = () => {
         <DialogContent class="sm:max-w-md">
           <form onSubmit={handleAddSubmit} class="space-y-4">
             <DialogHeader>
-              <DialogTitle>Add Customer Mapping</DialogTitle>
+              <DialogTitle>{t('customerAliases.addMapping')}</DialogTitle>
               <DialogDescription>
-                Create a new canonical customer mapping and assign its initial variant spelling.
+                {t('customerAliases.addMappingDesc')}
               </DialogDescription>
             </DialogHeader>
 
             <Show when={modalError()}>
               <Alert variant="destructive">
                 <IconAlertCircle class="size-4 shrink-0" />
-                <AlertTitle class="text-xs">Validation Error</AlertTitle>
+                <AlertTitle class="text-xs">{t('common.validationError')}</AlertTitle>
                 <AlertDescription class="text-xs">{modalError()}</AlertDescription>
               </Alert>
             </Show>
 
             <div class="space-y-3">
               <TextField value={modalAliasInput()} onChange={setModalAliasInput} class="w-full">
-                <TextFieldLabel class="text-xs font-semibold">Variant Name (Alias)</TextFieldLabel>
-                <TextFieldInput placeholder="e.g. PKU Muhammadiyah..." class="h-9 w-full" disabled={isModalAdding()} />
+                <TextFieldLabel class="text-xs font-semibold">{t('customerAliases.variantNameLabel')}</TextFieldLabel>
+                <TextFieldInput placeholder={t('customerAliases.variantPlaceholder')} class="h-9 w-full" disabled={isModalAdding()} />
               </TextField>
 
               <TextField value={modalCanonicalInput()} onChange={setModalCanonicalInput} class="w-full">
-                <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
-                <TextFieldInput placeholder="e.g. RS PKU Muhammadiyah..." class="h-9 w-full" disabled={isModalAdding()} />
+                <TextFieldLabel class="text-xs font-semibold">{t('customerAliases.canonicalNameLabel')}</TextFieldLabel>
+                <TextFieldInput placeholder={t('customerAliases.canonicalPlaceholder')} class="h-9 w-full" disabled={isModalAdding()} />
               </TextField>
 
               <div class="space-y-1 flex flex-col w-full">
-                <label class="text-xs font-semibold">Linked Area (Optional)</label>
+                <label class="text-xs font-semibold">{t('customerAliases.linkedAreaLabel')}</label>
                 <AreaCombobox
                   value={modalAreaInput()}
                   onChange={setModalAreaInput}
                   areas={() => areasData()?.areas}
-                  placeholder="e.g. Lombok Barat..."
+                  placeholder={t('customerAliases.areaPlaceholder')}
                   class="w-full"
                   disabled={isModalAdding()}
                 />
@@ -949,12 +949,12 @@ export const CustomerAliases: Component = () => {
 
             <DialogFooter class="pt-2 flex flex-col sm:flex-row sm:justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setShowAddModal(false)} disabled={isModalAdding()}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" size="sm" disabled={isModalAdding()} class="gap-1.5">
-                <Show when={isModalAdding()} fallback="Create Customer">
+                <Show when={isModalAdding()} fallback={t('customerAliases.createCustomerBtn')}>
                   <span class="flex items-center gap-1.5">
-                    <IconLoader2 class="size-3.5 animate-spin" /> Saving...
+                    <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}
                   </span>
                 </Show>
               </Button>
@@ -968,46 +968,45 @@ export const CustomerAliases: Component = () => {
         <DialogContent class="sm:max-w-md">
           <form onSubmit={handleSaveGroup} class="space-y-4">
             <DialogHeader>
-              <DialogTitle>Edit Customer Group</DialogTitle>
+              <DialogTitle>{t('customerAliases.editGroup')}</DialogTitle>
               <DialogDescription>
-                Update canonical customer name and linked area for all associated variants.
+                {t('customerAliases.editGroupDesc')}
               </DialogDescription>
             </DialogHeader>
 
             <Show when={editGroupError()}>
               <Alert variant="destructive">
                 <IconAlertCircle class="size-4 shrink-0" />
-                <AlertTitle class="text-xs">Error</AlertTitle>
+                <AlertTitle class="text-xs">{t('common.error')}</AlertTitle>
                 <AlertDescription class="text-xs">{editGroupError()}</AlertDescription>
               </Alert>
             </Show>
 
             <div class="space-y-3">
               <TextField value={editCanonical()} onChange={setEditCanonical} class="w-full">
-                <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
-                <TextFieldInput placeholder="Official canonical customer name..." class="h-9 w-full" />
+                <TextFieldLabel class="text-xs font-semibold">{t('customerAliases.canonicalNameLabel')}</TextFieldLabel>
+                <TextFieldInput placeholder={t('customerAliases.officialCanonicalPlaceholder')} class="h-9 w-full" />
               </TextField>
 
               <div class="space-y-1 flex flex-col w-full">
-                <label class="text-xs font-semibold">Linked Area (Optional)</label>
+                <label class="text-xs font-semibold">{t('customerAliases.linkedAreaLabel')}</label>
                 <AreaCombobox
                   value={editArea()}
                   onChange={setEditArea}
                   areas={() => areasData()?.areas}
-                  placeholder="e.g. Lombok Barat..."
+                  placeholder={t('customerAliases.areaPlaceholder')}
                   class="w-full"
                 />
               </div>
             </div>
-
             <DialogFooter class="pt-2 flex flex-col sm:flex-row sm:justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setShowEditGroupDialog(false)} disabled={isEditingGroup()}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" size="sm" disabled={isEditingGroup()}>
-                <Show when={isEditingGroup()} fallback="Save Group">
+                <Show when={isEditingGroup()} fallback={t('customerAliases.saveGroupBtn')}>
                   <span class="flex items-center gap-1.5">
-                    <IconLoader2 class="size-3.5 animate-spin" /> Saving...
+                    <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}
                   </span>
                 </Show>
               </Button>
@@ -1021,38 +1020,38 @@ export const CustomerAliases: Component = () => {
         <DialogContent class="sm:max-w-md">
           <form onSubmit={handleSaveSingleAlias} class="space-y-4">
             <DialogHeader>
-              <DialogTitle>Edit Customer Alias</DialogTitle>
+              <DialogTitle>{t('customerAliases.editAlias')}</DialogTitle>
               <DialogDescription>
-                Modify variant spelling, canonical name, or assigned area.
+                {t('customerAliases.editAliasDesc')}
               </DialogDescription>
             </DialogHeader>
 
             <Show when={editAliasError()}>
               <Alert variant="destructive">
                 <IconAlertCircle class="size-4 shrink-0" />
-                <AlertTitle class="text-xs">Error</AlertTitle>
+                <AlertTitle class="text-xs">{t('common.error')}</AlertTitle>
                 <AlertDescription class="text-xs">{editAliasError()}</AlertDescription>
               </Alert>
             </Show>
 
             <div class="space-y-3">
               <TextField value={editAliasSpelling()} onChange={setEditAliasSpelling} class="w-full">
-                <TextFieldLabel class="text-xs font-semibold">Variant Name (Alias)</TextFieldLabel>
-                <TextFieldInput placeholder="Source spelling..." class="h-9 w-full" />
+                <TextFieldLabel class="text-xs font-semibold">{t('customerAliases.variantNameLabel')}</TextFieldLabel>
+                <TextFieldInput placeholder={t('customerAliases.sourceSpellingPlaceholder')} class="h-9 w-full" />
               </TextField>
 
               <TextField value={editAliasCanonical()} onChange={setEditAliasCanonical} class="w-full">
-                <TextFieldLabel class="text-xs font-semibold">Canonical Name</TextFieldLabel>
-                <TextFieldInput placeholder="Canonical customer name..." class="h-9 w-full" />
+                <TextFieldLabel class="text-xs font-semibold">{t('customerAliases.canonicalNameLabel')}</TextFieldLabel>
+                <TextFieldInput placeholder={t('customerAliases.canonicalCustomerPlaceholder')} class="h-9 w-full" />
               </TextField>
 
               <div class="space-y-1 flex flex-col w-full">
-                <label class="text-xs font-semibold">Linked Area (Optional)</label>
+                <label class="text-xs font-semibold">{t('customerAliases.linkedAreaLabel')}</label>
                 <AreaCombobox
                   value={editAliasArea()}
                   onChange={setEditAliasArea}
                   areas={() => areasData()?.areas}
-                  placeholder="e.g. Lombok Barat..."
+                  placeholder={t('customerAliases.areaPlaceholder')}
                   class="w-full"
                 />
               </div>
@@ -1060,12 +1059,12 @@ export const CustomerAliases: Component = () => {
 
             <DialogFooter class="pt-2 flex flex-col sm:flex-row sm:justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setShowEditAliasDialog(false)} disabled={isEditingAlias()}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" size="sm" disabled={isEditingAlias()}>
-                <Show when={isEditingAlias()} fallback="Save Alias">
+                <Show when={isEditingAlias()} fallback={t('customers.saveAlias')}>
                   <span class="flex items-center gap-1.5">
-                    <IconLoader2 class="size-3.5 animate-spin" /> Saving...
+                    <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}
                   </span>
                 </Show>
               </Button>
@@ -1082,18 +1081,18 @@ export const CustomerAliases: Component = () => {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete Customer Alias</AlertDialogTitle>
+          <AlertDialogTitle>{t('customerAliases.deleteAlias')}</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to remove the alias mapping for "{aliasToDelete()}"? Future synchronizations will no longer map this spelling to the canonical customer name.
+            {t('customerAliases.deleteConfirm', { alias: aliasToDelete() })}
           </AlertDialogDescription>
           <div class="flex flex-col sm:flex-row sm:justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" disabled={isDeleting()} onClick={() => setAliasToDelete('')}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="destructive" size="sm" disabled={isDeleting()} onClick={confirmDeleteAlias}>
-              <Show when={isDeleting()} fallback="Delete Alias">
+              <Show when={isDeleting()} fallback={t('customerAliases.deleteAlias')}>
                 <span class="flex items-center gap-1.5">
-                  <IconLoader2 class="size-3.5 animate-spin" /> Deleting...
+                  <IconLoader2 class="size-3.5 animate-spin" /> {t('common.deleting')}
                 </span>
               </Show>
             </Button>
@@ -1112,11 +1111,9 @@ export const CustomerAliases: Component = () => {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Import Customer Aliases</AlertDialogTitle>
+          <AlertDialogTitle>{t('customerAliases.importAliases')}</AlertDialogTitle>
           <AlertDialogDescription class="space-y-3">
-            <p>
-              Select import mode for <strong class="text-foreground">{pendingFile()?.name}</strong>:
-            </p>
+            <p>{t('customerAliases.importDialogDesc', { filename: pendingFile()?.name || '' })}</p>
             <div class="space-y-2 pt-1">
               <label
                 class={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors hover:bg-muted/50 ${
@@ -1132,10 +1129,8 @@ export const CustomerAliases: Component = () => {
                   class="mt-1"
                 />
                 <div>
-                  <div class="text-sm font-medium text-foreground">Merge</div>
-                  <div class="text-xs text-muted-foreground">
-                    Inserts new aliases and updates matching existing aliases. Other existing aliases remain untouched.
-                  </div>
+                  <div class="text-sm font-medium text-foreground">{t('customerAliases.mergeMode')}</div>
+                  <div class="text-xs text-muted-foreground">{t('customerAliases.mergeModeDesc')}</div>
                 </div>
               </label>
               <label
@@ -1152,10 +1147,8 @@ export const CustomerAliases: Component = () => {
                   class="mt-1 text-destructive"
                 />
                 <div>
-                  <div class="text-sm font-medium text-destructive">Replace</div>
-                  <div class="text-xs text-muted-foreground">
-                    Removes all existing aliases before importing. (Does not revert past order canonicalizations).
-                  </div>
+                  <div class="text-sm font-medium text-destructive">{t('customerAliases.replaceMode')}</div>
+                  <div class="text-xs text-muted-foreground">{t('customerAliases.replaceModeDesc')}</div>
                 </div>
               </label>
             </div>
@@ -1170,7 +1163,7 @@ export const CustomerAliases: Component = () => {
                 setPendingFile(null);
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant={importMode() === 'replace' ? 'destructive' : 'default'}
@@ -1178,7 +1171,7 @@ export const CustomerAliases: Component = () => {
               disabled={isImporting() || !pendingFile()}
               onClick={handleConfirmImport}
             >
-              {isImporting() ? 'Importing...' : `Confirm ${importMode() === 'replace' ? 'Replace' : 'Merge'}`}
+              {isImporting() ? t('customerAliases.importing') : t('customerAliases.confirmImport', { mode: importMode() === 'replace' ? t('customerAliases.replaceMode') : t('customerAliases.mergeMode') })}
             </Button>
           </div>
         </AlertDialogContent>

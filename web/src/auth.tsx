@@ -12,6 +12,7 @@ export interface AuthUser {
   name: string;
   picture: string;
   role: 'guest' | 'user' | 'admin' | 'superadmin';
+  locale?: string;
 }
 
 export interface AuthConfig {

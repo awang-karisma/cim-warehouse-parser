@@ -1,4 +1,5 @@
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
 import {
   IconPackage,
@@ -26,6 +27,7 @@ import { TableSkeleton } from '~/components/TableSkeleton';
 import { getDominantOrderStatus } from '~/utils/orderStatus';
 
 export const Dashboard: Component = () => {
+  const { t } = useI18n();
   const [stats] = createResource(getStats);
   const [recentOrders] = createResource(() => getOrders({ limit: 5 }));
   const [syncHistory] = createResource(() => getSyncHistory({ limit: 5 }));
@@ -72,11 +74,11 @@ export const Dashboard: Component = () => {
     const pctPending = Math.max(0, 100 - pctSelesai - pctProses - pctBelumSelesai - pctBatal);
 
     const segments = [
-      { key: 'SELESAI', label: 'Selesai', count: selesai, pct: pctSelesai, color: 'var(--color-status-selesai, #10b981)' },
-      { key: 'PROSES', label: 'Proses', count: proses, pct: pctProses, color: 'var(--color-status-proses, #f59e0b)' },
-      { key: 'BELUM SELESAI', label: 'Belum Selesai', count: belumSelesai, pct: pctBelumSelesai, color: 'var(--color-status-belum-selesai, #eab308)' },
-      { key: 'PENDING', label: 'Pending', count: pending, pct: pctPending, color: 'var(--color-status-pending, #a855f7)' },
-      { key: 'BATAL', label: 'Batal', count: batal, pct: pctBatal, color: 'var(--color-status-batal, #ef4444)' },
+      { key: 'SELESAI', label: t('status.selesai'), count: selesai, pct: pctSelesai, color: 'var(--color-status-selesai, #10b981)' },
+      { key: 'PROSES', label: t('status.proses'), count: proses, pct: pctProses, color: 'var(--color-status-proses, #f59e0b)' },
+      { key: 'BELUM SELESAI', label: t('status.belumSelesai'), count: belumSelesai, pct: pctBelumSelesai, color: 'var(--color-status-belum-selesai, #eab308)' },
+      { key: 'PENDING', label: t('status.pending'), count: pending, pct: pctPending, color: 'var(--color-status-pending, #a855f7)' },
+      { key: 'BATAL', label: t('status.batal'), count: batal, pct: pctBatal, color: 'var(--color-status-batal, #ef4444)' },
     ].filter((s) => s.count > 0);
 
     return { total, segments };
@@ -89,14 +91,14 @@ export const Dashboard: Component = () => {
         <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "0ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Total Orders
+              {t('dashboard.totalOrders')}
             </CardTitle>
             <IconPackage class="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <Show when={!stats.loading} fallback={<Skeleton class="h-8 w-24" />}>
               <div class="text-2xl font-bold">{stats()?.total_orders?.toLocaleString() ?? '0'}</div>
-              <p class="text-xs text-muted-foreground mt-1">Aggregated order documents</p>
+              <p class="text-xs text-muted-foreground mt-1">{t('dashboard.totalOrdersDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -104,14 +106,14 @@ export const Dashboard: Component = () => {
         <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "75ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Total Line Items
+              {t('dashboard.totalLineItems')}
             </CardTitle>
             <IconListDetails class="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <Show when={!stats.loading} fallback={<Skeleton class="h-8 w-24" />}>
               <div class="text-2xl font-bold">{stats()?.total_items?.toLocaleString() ?? '0'}</div>
-              <p class="text-xs text-muted-foreground mt-1">Individual product lines</p>
+              <p class="text-xs text-muted-foreground mt-1">{t('dashboard.totalLineItemsDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -119,14 +121,14 @@ export const Dashboard: Component = () => {
         <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "150ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Unique Customers
+              {t('dashboard.uniqueCustomers')}
             </CardTitle>
             <IconUsers class="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <Show when={!stats.loading} fallback={<Skeleton class="h-8 w-24" />}>
               <div class="text-2xl font-bold">{stats()?.unique_customers?.toLocaleString() ?? '0'}</div>
-              <p class="text-xs text-muted-foreground mt-1">Hospitals, clinics & stores</p>
+              <p class="text-xs text-muted-foreground mt-1">{t('dashboard.uniqueCustomersDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -134,14 +136,14 @@ export const Dashboard: Component = () => {
         <Card class="animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "225ms" }}>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Coverage Areas
+              {t('dashboard.coverageAreas')}
             </CardTitle>
             <IconMapPin class="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <Show when={!stats.loading} fallback={<Skeleton class="h-8 w-24" />}>
               <div class="text-2xl font-bold">{stats()?.unique_areas?.toLocaleString() ?? '0'}</div>
-              <p class="text-xs text-muted-foreground mt-1">Active delivery zones</p>
+              <p class="text-xs text-muted-foreground mt-1">{t('dashboard.coverageAreasDesc')}</p>
             </Show>
           </CardContent>
         </Card>
@@ -152,13 +154,13 @@ export const Dashboard: Component = () => {
         {/* Status Distribution */}
         <Card class="flex flex-col">
           <CardHeader>
-            <CardTitle class="text-base font-semibold">Order Status Distribution</CardTitle>
-            <CardDescription>Breakdown across active fulfillment phases</CardDescription>
+            <CardTitle class="text-base font-semibold">{t('dashboard.statusDistribution')}</CardTitle>
+            <CardDescription>{t('dashboard.statusDistributionDesc')}</CardDescription>
           </CardHeader>
           <CardContent class="flex flex-1 flex-col gap-4">
             <Show
               when={statusSegments().segments.length > 0}
-              fallback={<p class="text-sm text-muted-foreground py-4">No order distribution data</p>}
+              fallback={<p class="text-sm text-muted-foreground py-4">{t('dashboard.noDistributionData')}</p>}
             >
               <Tooltip>
                 <TooltipTrigger as="div" class="w-full cursor-pointer">
@@ -175,7 +177,7 @@ export const Dashboard: Component = () => {
                 </TooltipTrigger>
                 <TooltipContent class="p-3 text-xs space-y-1.5">
                   <div class="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">
-                    Status Breakdown ({statusSegments().total} total)
+                    {t('dashboard.statusBreakdown', { total: statusSegments().total })}
                   </div>
                   <For each={statusSegments().segments}>
                     {(seg) => (
@@ -193,9 +195,9 @@ export const Dashboard: Component = () => {
               <DataTable>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Status</TableHead>
-                      <TableHead class="text-right">Count</TableHead>
-                      <TableHead class="text-right">Share</TableHead>
+                      <TableHead>{t('dashboard.status')}</TableHead>
+                      <TableHead class="text-right">{t('dashboard.count')}</TableHead>
+                      <TableHead class="text-right">{t('dashboard.share')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -224,25 +226,25 @@ export const Dashboard: Component = () => {
         <Card class="flex flex-col">
           <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
             <div>
-              <CardTitle class="text-base font-semibold">Recent Sync Activity</CardTitle>
+              <CardTitle class="text-base font-semibold">{t('dashboard.recentSync')}</CardTitle>
               <CardDescription>
                 {workerStatus()?.status === 'SYNCING'
-                  ? 'Sync currently in progress'
-                  : `Last synced at ${formatSyncTime(workerStatus()?.last_sync)}`}
+                  ? t('dashboard.syncInProgress')
+                  : t('dashboard.lastSyncedAt', { time: formatSyncTime(workerStatus()?.last_sync) })}
               </CardDescription>
             </div>
             <Button variant="ghost" size="sm" as={A} href="/sync" class="gap-1 text-xs text-primary self-start sm:self-auto">
-              View All <IconArrowRight class="size-3.5" />
+              {t('common.viewAll')} <IconArrowRight class="size-3.5" />
             </Button>
           </CardHeader>
           <CardContent class="flex-1">
             <DataTable>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead class="text-right">Items</TableHead>
-                    <TableHead class="text-right">Duration</TableHead>
+                    <TableHead>{t('dashboard.time')}</TableHead>
+                    <TableHead>{t('dashboard.status')}</TableHead>
+                    <TableHead class="text-right">{t('dashboard.itemsCol')}</TableHead>
+                    <TableHead class="text-right">{t('dashboard.duration')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -255,7 +257,7 @@ export const Dashboard: Component = () => {
                       fallback={
                         <TableRow>
                           <TableCell colspan={4} class="h-24 text-center text-muted-foreground">
-                            No sync records yet
+                            {t('dashboard.noSyncActivity')}
                           </TableCell>
                         </TableRow>
                       }
@@ -288,24 +290,24 @@ export const Dashboard: Component = () => {
       <Card>
         <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
           <div>
-            <CardTitle class="text-base font-semibold">Recent Orders</CardTitle>
-            <CardDescription>Latest customer purchase orders from warehouse mirror</CardDescription>
+            <CardTitle class="text-base font-semibold">{t('dashboard.recentOrders')}</CardTitle>
+            <CardDescription>{t('dashboard.recentOrdersDesc')}</CardDescription>
           </div>
           <Button variant="outline" size="sm" as={A} href="/orders" class="gap-1 text-xs self-start sm:self-auto">
-            View All Orders <IconArrowRight class="size-3.5" />
+            {t('dashboard.viewAllOrders')} <IconArrowRight class="size-3.5" />
           </Button>
         </CardHeader>
         <CardContent>
           <DataTable>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order ID</TableHead>
-                  <TableHead>Order / E-Katalog</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Area</TableHead>
-                  <TableHead class="text-right">Items</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t('dashboard.orderId')}</TableHead>
+                  <TableHead>{t('dashboard.orderEkatalog')}</TableHead>
+                  <TableHead>{t('dashboard.date')}</TableHead>
+                  <TableHead>{t('dashboard.customer')}</TableHead>
+                  <TableHead>{t('dashboard.area')}</TableHead>
+                  <TableHead class="text-right">{t('dashboard.itemsCol')}</TableHead>
+                  <TableHead>{t('dashboard.status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -318,7 +320,7 @@ export const Dashboard: Component = () => {
                     fallback={
                       <TableRow>
                         <TableCell colspan={7} class="h-24 text-center text-muted-foreground">
-                          No orders found
+                          {t('dashboard.noOrdersFound')}
                         </TableCell>
                       </TableRow>
                     }

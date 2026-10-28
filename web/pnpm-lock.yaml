@@ -169,6 +169,9 @@ importers:
       '@kobalte/core':
         specifier: ^0.13.14
         version: 0.13.14(solid-js@1.9.17)
+      '@solid-primitives/i18n':
+        specifier: ^2.2.1
+        version: 2.2.1(solid-js@1.9.17)
       '@solidjs/router':
         specifier: ^0.15.3
         version: 0.15.4(solid-js@1.9.17)
@@ -723,6 +726,11 @@ packages:
 
   '@solid-primitives/event-listener@2.4.6':
     resolution: {integrity: sha512-5I0YJcTVYIWoMmgBSROBZGcz+ymhew/pGTg2dHW74BUjFKsV8Li4bOZYl0YAGP4mHw5o4UBd9/BEesqBci3wxw==}
+    peerDependencies:
+      solid-js: ^1.6.12
+
+  '@solid-primitives/i18n@2.2.1':
+    resolution: {integrity: sha512-TnTnE2Ku11MGYZ1JzhJ8pYscwg1fr9MteoYxPwsfxWfh9Jp5K7RRJncJn9BhOHvNLwROjqOHZ46PT7sPHqbcXw==}
     peerDependencies:
       solid-js: ^1.6.12
 
@@ -1919,6 +1927,10 @@ snapshots:
   '@solid-primitives/event-listener@2.4.6(solid-js@1.9.17)':
     dependencies:
       '@solid-primitives/utils': 6.4.1(solid-js@1.9.17)
+      solid-js: 1.9.17
+
+  '@solid-primitives/i18n@2.2.1(solid-js@1.9.17)':
+    dependencies:
       solid-js: 1.9.17
 
   '@solid-primitives/keyed@1.5.3(solid-js@1.9.17)':

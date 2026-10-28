@@ -1,4 +1,5 @@
 import { type Component, createMemo, Show } from 'solid-js';
+import { useI18n } from '~/i18n';
 import {
   Pagination,
   PaginationItems,
@@ -25,6 +26,7 @@ interface DataTablePaginationProps {
 }
 
 export const DataTablePagination: Component<DataTablePaginationProps> = (props) => {
+  const { t } = useI18n();
   const count = createMemo(() => Math.max(1, Math.ceil(props.total / props.limit)));
   const page = createMemo(() => Math.floor(props.offset / props.limit) + 1);
 
@@ -36,16 +38,20 @@ export const DataTablePagination: Component<DataTablePaginationProps> = (props) 
   return (
     <div class="flex flex-col md:flex-row items-center justify-between gap-4 py-4 px-2">
       <div class="text-sm text-muted-foreground order-2 md:order-1">
-        Showing <span class="font-medium text-foreground">{startRecord()}</span> to{' '}
-        <span class="font-medium text-foreground">{endRecord()}</span> of{' '}
-        <span class="font-medium text-foreground">{props.total}</span> entries
+        {t('common.showing')}{' '}
+        <span class="font-medium text-foreground">{startRecord()}</span>{' '}
+        {t('common.to')}{' '}
+        <span class="font-medium text-foreground">{endRecord()}</span>{' '}
+        {t('common.of')}{' '}
+        <span class="font-medium text-foreground">{props.total}</span>{' '}
+        {t('common.entries')}
       </div>
 
       <div class="flex flex-wrap items-center gap-4 sm:gap-6 order-1 md:order-2">
         <Show when={props.onLimitChange}>
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-muted-foreground whitespace-nowrap">
-              Rows per page
+              {t('common.rowsPerPage')}
             </span>
             <Select<number>
               options={pageSizes()}
@@ -59,7 +65,7 @@ export const DataTablePagination: Component<DataTablePaginationProps> = (props) 
                 <SelectItem item={p.item}>{p.item.rawValue}</SelectItem>
               )}
             >
-              <SelectTrigger class="h-8 w-[72px]" aria-label="Rows per page">
+              <SelectTrigger class="h-8 w-[72px]" aria-label={t('common.rowsPerPage')}>
                 <SelectValue<number>>{(state) => state.selectedOption() ?? props.limit}</SelectValue>
               </SelectTrigger>
               <SelectContent />

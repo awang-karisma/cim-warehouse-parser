@@ -5,6 +5,7 @@ import './app.css';
 
 import { App } from './App';
 import { AuthProvider } from './auth';
+import { I18nProvider } from './i18n';
 import { Areas } from './pages/Areas';
 import { Barcode } from './pages/Barcode';
 import { CustomerAliases } from './pages/CustomerAliases';
@@ -31,25 +32,27 @@ if (root) {
         <ColorModeScript storageType={storageManager.type} storageKey="warehouse-ui-theme" />
         <ColorModeProvider storageManager={storageManager}>
           <AuthProvider>
-            <Router root={App}>
-              <Route path="/" component={Dashboard} />
-              <Route path="/dashboard" component={Dashboard} />
-              <Route path="/orders" component={Orders} />
-              <Route path="/orders/:id" component={OrderDetail} />
-              <Route path="/items" component={Items} />
-              <Route path="/customers" component={Customers} />
-              <Route path="/customer-aliases" component={CustomerAliases} />
-              <Route path="/areas" component={Areas} />
-              <Route path="/delivery-flow" component={DeliveryFlow} />
-              <Route path="/timeline" component={Timeline} />
-              <Route path="/barcode" component={Barcode} />
-              <Route path="/sync" component={SyncManager} />
-              <Route path="/search" component={Search} />
-              <Route path="/settings" component={Settings} />
-              <Route path="/admin/users" component={UserManagement} />
-              <Route path="/privacy" component={Privacy} />
-              <Route path="/terms" component={Terms} />
-            </Router>
+            <I18nProvider>
+              <Router root={App}>
+                <Route path="/" component={Dashboard} />
+                <Route path="/dashboard" component={Dashboard} />
+                <Route path="/orders" component={Orders} />
+                <Route path="/orders/:id" component={OrderDetail} />
+                <Route path="/items" component={Items} />
+                <Route path="/customers" component={Customers} />
+                <Route path="/customer-aliases" component={CustomerAliases} />
+                <Route path="/areas" component={Areas} />
+                <Route path="/delivery-flow" component={DeliveryFlow} />
+                <Route path="/timeline" component={Timeline} />
+                <Route path="/barcode" component={Barcode} />
+                <Route path="/sync" component={SyncManager} />
+                <Route path="/search" component={Search} />
+                <Route path="/settings" component={Settings} />
+                <Route path="/admin/users" component={UserManagement} />
+                <Route path="/privacy" component={Privacy} />
+                <Route path="/terms" component={Terms} />
+              </Router>
+            </I18nProvider>
           </AuthProvider>
         </ColorModeProvider>
       </>

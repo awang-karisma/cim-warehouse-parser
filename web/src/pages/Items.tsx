@@ -1,4 +1,5 @@
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
 import { IconDownload } from '@tabler/icons-solidjs';
 import { getItems } from '../api';
@@ -31,6 +32,7 @@ import { DeliveryDateBadges } from '~/components/DeliveryDateBadges';
 const VALID_STATUS_ORDERS = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
 const STATUS_BARANG_OPTIONS = ['All', 'PROSES ORDER', 'STOK GUDANG', 'STOK KOSONG', 'DELIVERY VENDOR', 'DONE', 'OTHER'] as const;
 export const Items: Component = () => {
+  const { t } = useI18n();
   const filters = createUrlFilter({
     customer: {
       key: 'customer',
@@ -172,50 +174,50 @@ export const Items: Component = () => {
             <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[180px]">
               <TextField value={filters.values.customer()} onChange={filters.setters.customer}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
-                  Customer Name
+                  {t('items.customerName')}
                 </TextFieldLabel>
-                <TextFieldInput placeholder="Filter by customer (e.g. RSUD)..." class="h-9 w-full" />
+                <TextFieldInput placeholder={t('items.filterCustomerPlaceholder')} class="h-9 w-full" />
               </TextField>
             </div>
 
             <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[180px]">
               <TextField value={filters.values.nama_barang()} onChange={filters.setters.nama_barang}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
-                  Item Name (Nama Barang)
+                  {t('items.itemName')}
                 </TextFieldLabel>
-                <TextFieldInput placeholder="e.g. Needle, Spuit..." class="h-9 w-full" />
+                <TextFieldInput placeholder={t('items.filterItemPlaceholder')} class="h-9 w-full" />
               </TextField>
             </div>
 
             <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
-              <label class="text-xs font-semibold text-muted-foreground">Status Order</label>
+              <label class="text-xs font-semibold text-muted-foreground">{t('items.statusOrder')}</label>
               <Select<string>
-                options={['All Statuses', ...VALID_STATUS_ORDERS]}
-                value={filters.values.status_order() || 'All Statuses'}
-                onChange={(val) => filters.setters.status_order(!val || val === 'All Statuses' ? '' : val)}
+                options={[t('orders.allStatuses'), ...VALID_STATUS_ORDERS]}
+                value={filters.values.status_order() || t('orders.allStatuses')}
+                onChange={(val) => filters.setters.status_order(!val || val === t('orders.allStatuses') ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
                 <SelectTrigger class="h-9 w-full">
-                  <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
+                  <SelectValue<string>>{(state) => state.selectedOption() || t('orders.allStatuses')}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
             </div>
 
             <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
-              <label class="text-xs font-semibold text-muted-foreground">Status Barang</label>
+              <label class="text-xs font-semibold text-muted-foreground">{t('items.statusBarang')}</label>
               <Select<string>
                 options={STATUS_BARANG_OPTIONS as unknown as string[]}
-                value={filters.values.status_barang() || 'All'}
-                onChange={(val) => filters.setters.status_barang(!val || val === 'All' ? '' : val)}
+                value={filters.values.status_barang() || t('items.allStatusBarang')}
+                onChange={(val) => filters.setters.status_barang(!val || val === 'All' || val === t('items.allStatusBarang') ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
                 <SelectTrigger class="h-9 w-full">
-                  <SelectValue<string>>{(state) => state.selectedOption() || 'All'}</SelectValue>
+                  <SelectValue<string>>{(state) => state.selectedOption() || t('items.allStatusBarang')}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
@@ -223,17 +225,17 @@ export const Items: Component = () => {
 
             <div class="w-full lg:w-auto lg:min-w-[140px]">
               <TextField value={filters.values.tanggal()} onChange={filters.setters.tanggal}>
-                <TextFieldLabel class="text-xs font-semibold text-muted-foreground">Date</TextFieldLabel>
+                <TextFieldLabel class="text-xs font-semibold text-muted-foreground">{t('items.date')}</TextFieldLabel>
                 <TextFieldInput type="date" class="h-9 w-full" />
               </TextField>
             </div>
 
             <div class="col-span-1 sm:col-span-2 lg:col-auto flex items-center gap-2 w-full lg:w-auto">
               <Button type="submit" size="sm" class="h-9 flex-1 sm:flex-initial">
-                Apply
+                {t('common.apply')}
               </Button>
               <Button type="button" variant="outline" size="sm" class="h-9 flex-1 sm:flex-initial" onClick={filters.reset}>
-                Reset
+                {t('common.reset')}
               </Button>
             </div>
           </form>
@@ -244,9 +246,9 @@ export const Items: Component = () => {
       <Card>
         <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0 pb-4">
           <div>
-            <CardTitle class="text-base font-semibold">Warehouse Line Items</CardTitle>
+            <CardTitle class="text-base font-semibold">{t('items.title')}</CardTitle>
             <CardDescription>
-              {data()?.total !== undefined ? `${data()!.total.toLocaleString()} total items recorded` : 'Catalog lines'}
+              {data()?.total !== undefined ? t('items.totalItems', { count: data()!.total.toLocaleString() }) : t('items.title')}
             </CardDescription>
           </div>
           <Button
@@ -258,7 +260,7 @@ export const Items: Component = () => {
             class="gap-1.5 self-start sm:self-auto"
           >
             <IconDownload class="size-4" />
-            <span>Export CSV</span>
+            <span>{t('items.exportCsv')}</span>
           </Button>
         </CardHeader>
         <CardContent class="p-4 md:p-6 pt-0 space-y-4">
@@ -267,69 +269,69 @@ export const Items: Component = () => {
                 <TableRow>
                   <SortableTableHead
                     field="row_index"
-                    label="Row"
+                    label={t('items.row')}
                     class="w-12"
                     direction={filters.values.sort() === 'row_index' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="order_number"
-                    label="Order No."
+                    label={t('items.orderNo')}
                     direction={filters.values.sort() === 'order_number' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="customer"
-                    label="Customer"
+                    label={t('items.customer')}
                     direction={filters.values.sort() === 'customer' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="area"
-                    label="Area"
+                    label={t('items.area')}
                     direction={filters.values.sort() === 'area' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="date"
-                    label="Date"
+                    label={t('items.date')}
                     direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="nama_barang"
-                    label="Item Name"
+                    label={t('items.itemName')}
                     direction={filters.values.sort() === 'nama_barang' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="jumlah"
-                    label="Qty"
+                    label={t('items.qty')}
                     class="text-right"
                     direction={filters.values.sort() === 'jumlah' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="status_order"
-                    label="Status Order"
+                    label={t('items.statusOrder')}
                     direction={filters.values.sort() === 'status_order' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="status_barang"
-                    label="Status Barang"
+                    label={t('items.statusBarang')}
                     direction={filters.values.sort() === 'status_barang' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="tanggal_pengiriman"
-                    label="Delivery Date"
+                    label={t('items.deliveryDate')}
                     direction={filters.values.sort() === 'tanggal_pengiriman' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="catatan"
-                    label="Notes"
+                    label={t('items.notes')}
                     direction={filters.values.sort() === 'catatan' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
@@ -347,7 +349,7 @@ export const Items: Component = () => {
                     fallback={
                       <TableRow>
                         <TableCell colspan={11} class="h-24 text-center text-muted-foreground">
-                          No items match the current filters
+                          {t('items.noItemsMatch')}
                         </TableCell>
                       </TableRow>
                     }

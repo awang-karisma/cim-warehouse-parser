@@ -2053,6 +2053,65 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 	})
 
+	// 8b. PUT /api/v1/user/locale
+	t.Run("PUT /api/v1/user/locale updates user locale", func(t *testing.T) {
+		// Unauthenticated -> 401
+		reqUnauth, _ := http.NewRequest("PUT", "/api/v1/user/locale", strings.NewReader(`{"locale": "en"}`))
+		reqUnauth.Header.Set("Content-Type", "application/json")
+		respUnauth, err := srv.App().Test(reqUnauth)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respUnauth.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401 for unauthenticated user locale update, got %d", respUnauth.StatusCode)
+		}
+
+		// Invalid locale -> 400
+		reqInvalid, _ := http.NewRequest("PUT", "/api/v1/user/locale", strings.NewReader(`{"locale": "invalid"}`))
+		reqInvalid.Header.Set("Content-Type", "application/json")
+		reqInvalid.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respInvalid, err := srv.App().Test(reqInvalid)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respInvalid.StatusCode != http.StatusUnprocessableEntity && respInvalid.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 422 or 400 for invalid locale, got %d", respInvalid.StatusCode)
+		}
+
+		// Valid locale -> 200
+		reqValid, _ := http.NewRequest("PUT", "/api/v1/user/locale", strings.NewReader(`{"locale": "en"}`))
+		reqValid.Header.Set("Content-Type", "application/json")
+		reqValid.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respValid, err := srv.App().Test(reqValid)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respValid.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for valid locale update, got %d", respValid.StatusCode)
+		}
+
+		// Verify /auth/me returns updated locale
+		reqMe, _ := http.NewRequest("GET", "/auth/me", nil)
+		reqMe.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		respMe, err := srv.App().Test(reqMe)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if respMe.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 on /auth/me, got %d", respMe.StatusCode)
+		}
+		var meBody struct {
+			User struct {
+				Email  string `json:"email"`
+				Locale string `json:"locale"`
+			} `json:"user"`
+		}
+		_ = json.NewDecoder(respMe.Body).Decode(&meBody)
+		if meBody.User.Locale != "en" {
+			t.Errorf("expected locale 'en' in /auth/me, got %q", meBody.User.Locale)
+		}
+	})
+
 	// 9. POST /api/v1/admin/clear-database requires admin
 	t.Run("POST /api/v1/admin/clear-database user gets 403, admin gets 200", func(t *testing.T) {
 		reqUser, _ := http.NewRequest("POST", "/api/v1/admin/clear-database", nil)

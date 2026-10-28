@@ -1,5 +1,6 @@
 import { type Component } from 'solid-js';
 import { Badge as UiBadge } from '~/components/ui/badge';
+import { useI18n } from '~/i18n';
 import { cn } from '~/lib/utils';
 
 export type BadgeKind = 'order' | 'item' | 'sync';
@@ -12,6 +13,7 @@ interface BadgeProps {
 }
 
 export const Badge: Component<BadgeProps> = (props) => {
+  const { t } = useI18n();
   const upper = () => (props.status ? props.status.trim().toUpperCase() : '');
   const colorClass = () => {
     const s = upper();
@@ -67,13 +69,43 @@ export const Badge: Component<BadgeProps> = (props) => {
     return 'bg-muted text-muted-foreground border-transparent';
   };
 
+  const label = () => {
+    const raw = props.status;
+    if (!raw || raw === '-') return '-';
+    const s = raw.trim().toUpperCase();
+    switch (s) {
+      case 'SELESAI': return t('status.selesai');
+      case 'BELUM SELESAI': return t('status.belumSelesai');
+      case 'PROSES': return t('status.proses');
+      case 'PENDING': return t('status.pending');
+      case 'BATAL': return t('status.batal');
+      case 'CANCEL': return t('status.cancel');
+      case 'PROSES ORDER': return t('status.prosesOrder');
+      case 'STOK GUDANG': return t('status.stokGudang');
+      case 'DELIVERY VENDOR': return t('status.deliveryVendor');
+      case 'STOK KOSONG': return t('status.stokKosong');
+      case 'DONE': return t('status.done');
+      case 'PARTIAL': return t('status.partial');
+      case 'READY': return t('status.ready');
+      case 'PLANNED': return t('status.planned');
+      case 'PICKING': return t('status.picking');
+      case 'DISPATCHED': return t('status.dispatched');
+      case 'COMPLETED': return t('status.completed');
+      case 'FAILED': return t('status.failed');
+      case 'SUCCESS':
+      case 'OK': return t('common.success');
+      case 'ERROR': return t('common.error');
+      default: return raw;
+    }
+  };
+
   return (
     <UiBadge
       variant="outline"
       round={props.pill}
       class={cn('font-semibold uppercase tracking-wide text-[11px]', colorClass(), props.class)}
     >
-      {props.status || '-'}
+      {label()}
     </UiBadge>
   );
 };

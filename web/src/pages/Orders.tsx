@@ -1,4 +1,5 @@
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { A, useNavigate } from '@solidjs/router';
 import { ItemProgress } from '~/components/ItemProgress';
 import {
@@ -36,7 +37,8 @@ import { getDominantOrderStatus } from '~/utils/orderStatus';
 
 const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
 
- export const Orders: Component = () => {
+export const Orders: Component = () => {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [expandedOrders, setExpandedOrders] = createSignal<Record<string, boolean>>({});
 
@@ -144,9 +146,9 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
     const names = areasData()?.areas.map((a) => a.name) || [];
     const current = filters.values.area();
     if (current && !names.includes(current)) {
-      return ['All Areas', current, ...names];
+      return [t('orders.allAreas'), current, ...names];
     }
-    return ['All Areas', ...names];
+    return [t('orders.allAreas'), ...names];
   });
 
   return (
@@ -158,27 +160,27 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
             <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[200px]">
               <TextField value={filters.values.customer()} onChange={filters.setters.customer}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
-                  Customer Name
+                  {t('orders.customerName')}
                 </TextFieldLabel>
                 <TextFieldInput
-                  placeholder="Filter by customer (e.g. RSUD)..."
+                  placeholder={t('orders.filterPlaceholder')}
                   class="h-9 w-full"
                 />
               </TextField>
             </div>
 
             <div class="w-full lg:w-auto lg:min-w-[180px] flex flex-col gap-1">
-              <label class="text-xs font-semibold text-muted-foreground">Area / Region</label>
+              <label class="text-xs font-semibold text-muted-foreground">{t('dashboard.area')}</label>
               <Select<string>
                 options={areaOptions()}
-                value={filters.values.area() || 'All Areas'}
-                onChange={(val) => filters.setters.area(!val || val === 'All Areas' ? '' : val)}
+                value={filters.values.area() || t('orders.allAreas')}
+                onChange={(val) => filters.setters.area(!val || val === t('orders.allAreas') ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
                 <SelectTrigger class="h-9 w-full">
-                  <SelectValue<string>>{(state) => state.selectedOption() || 'All Areas'}</SelectValue>
+                  <SelectValue<string>>{(state) => state.selectedOption() || t('orders.allAreas')}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
@@ -187,24 +189,24 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
             <div class="w-full lg:w-auto lg:min-w-[150px]">
               <TextField value={filters.values.tanggal()} onChange={filters.setters.tanggal}>
                 <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
-                  Order Date
+                  {t('orders.orderDate')}
                 </TextFieldLabel>
                 <TextFieldInput type="date" class="h-9 w-full" />
               </TextField>
             </div>
 
             <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
-              <label class="text-xs font-semibold text-muted-foreground">Status</label>
+              <label class="text-xs font-semibold text-muted-foreground">{t('dashboard.status')}</label>
               <Select<string>
-                options={['All Statuses', 'BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
-                value={filters.values.status() || 'All Statuses'}
-                onChange={(val) => filters.setters.status(!val || val === 'All Statuses' ? '' : val)}
+                options={[t('orders.allStatuses'), 'BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                value={filters.values.status() || t('orders.allStatuses')}
+                onChange={(val) => filters.setters.status(!val || val === t('orders.allStatuses') ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
               >
                 <SelectTrigger class="h-9 w-full">
-                  <SelectValue<string>>{(state) => state.selectedOption() || 'All Statuses'}</SelectValue>
+                  <SelectValue<string>>{(state) => state.selectedOption() || t('orders.allStatuses')}</SelectValue>
                 </SelectTrigger>
                 <SelectContent />
               </Select>
@@ -212,10 +214,10 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
 
             <div class="col-span-1 sm:col-span-2 lg:col-auto flex items-center gap-2 w-full lg:w-auto">
               <Button type="submit" size="sm" class="h-9 flex-1 sm:flex-initial">
-                Apply
+                {t('common.apply')}
               </Button>
               <Button type="button" variant="outline" size="sm" class="h-9 flex-1 sm:flex-initial" onClick={filters.reset}>
-                Reset
+                {t('common.reset')}
               </Button>
             </div>
           </form>
@@ -229,40 +231,40 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
               <TableHeader>
                 <TableRow>
                   <TableHead class="w-10 px-2 text-center">
-                    <span class="sr-only">Expand</span>
+                    <span class="sr-only">{t('orders.expand')}</span>
                   </TableHead>
                   <SortableTableHead
                     field="date"
-                    label="Date"
+                    label={t('orders.date')}
                     direction={filters.values.sort() === 'date' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="customer"
-                    label="Customer"
+                    label={t('orders.customer')}
                     direction={filters.values.sort() === 'customer' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="area"
-                    label="Area"
+                    label={t('orders.area')}
                     direction={filters.values.sort() === 'area' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="items"
-                    label="Items"
+                    label={t('orders.itemsCount')}
                     class="text-right"
                     direction={filters.values.sort() === 'items' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
                   <SortableTableHead
                     field="status"
-                    label="Status"
+                    label={t('orders.status')}
                     direction={filters.values.sort() === 'status' ? filters.values.order() : undefined}
                     onSort={handleSort}
                   />
-                  <TableHead class="text-right">Action</TableHead>
+                  <TableHead class="text-right">{t('orders.action')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -274,7 +276,7 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                         <TableCell colspan={7} class="py-6 text-center">
                           <div class="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                             <IconLoader2 class="size-4 animate-spin text-primary" />
-                            <span>Loading orders and line items...</span>
+                            <span>{t('orders.loadingOrders')}</span>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -287,7 +289,7 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                     fallback={
                       <TableRow>
                         <TableCell colspan={7} class="h-24 text-center text-muted-foreground">
-                          No orders matching current filters
+                          {t('orders.noOrdersFound')}
                         </TableCell>
                       </TableRow>
                     }
@@ -308,7 +310,7 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                                 <button
                                   type="button"
                                   class="p-1 rounded hover:bg-muted text-muted-foreground transition-colors inline-flex items-center justify-center cursor-pointer"
-                                  aria-label={isExpanded() ? `Collapse order ${order.id}` : `Expand order ${order.id}`}
+                                  aria-label={isExpanded() ? t('orders.collapseOrder', { id: order.id }) : t('orders.expandOrder', { id: order.id })}
                                   aria-expanded={isExpanded()}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -337,7 +339,7 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                                   size="sm"
                                   class="text-xs"
                                 >
-                                  View Detail
+                                  {t('orders.viewDetail')}
                                 </Button>
                               </TableCell>
                             </TableRow>
@@ -352,10 +354,10 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                                         <TableHeader class="bg-muted/20">
                                           <TableRow>
                                             <TableHead class="w-12 h-9 px-3 text-muted-foreground font-semibold">#</TableHead>
-                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Item Name</TableHead>
-                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold min-w-[140px]">Progress</TableHead>
-                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Status Order</TableHead>
-                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">Status Barang</TableHead>
+                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">{t('orders.itemName')}</TableHead>
+                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold min-w-[140px]">{t('orders.progress')}</TableHead>
+                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">{t('orders.statusOrder')}</TableHead>
+                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">{t('orders.statusBarang')}</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -364,7 +366,7 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                                             fallback={
                                               <TableRow>
                                                 <TableCell colspan={5} class="h-16 text-center text-xs text-muted-foreground">
-                                                  No line items found.
+                                                  {t('orders.noLineItemsFound')}
                                                 </TableCell>
                                               </TableRow>
                                             }
@@ -375,7 +377,7 @@ const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'
                                                   class="hover:bg-muted/30 cursor-pointer transition-colors focus-visible:outline-none focus-visible:bg-muted/40 focus-visible:ring-1 focus-visible:ring-ring"
                                                   tabIndex={0}
                                                   role="link"
-                                                  aria-label={`View order ${order.id} detail, item ${item.nama_barang}`}
+                                                  aria-label={t('orders.viewItemDetailAria', { id: order.id, item: item.nama_barang })}
                                                   onClick={() => navigate(`/orders/${order.id}`)}
                                                   onKeyDown={(e) => {
                                                     if (e.key === 'Enter' || e.key === ' ') {

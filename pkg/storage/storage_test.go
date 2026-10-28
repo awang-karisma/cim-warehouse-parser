@@ -2521,6 +2521,23 @@ func TestUserCRUD(t *testing.T) {
 		t.Errorf("expected default role 'guest', got %q", u1.Role)
 	}
 
+	if u1.Locale != "id" {
+		t.Errorf("expected default locale 'id', got %q", u1.Locale)
+	}
+	if err := store.UpdateUserLocale(ctx, "test@example.com", "en"); err != nil {
+		t.Fatalf("UpdateUserLocale failed: %v", err)
+	}
+	uLoc, err := store.GetUserByEmail(ctx, "test@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail failed: %v", err)
+	}
+	if uLoc.Locale != "en" {
+		t.Errorf("expected locale 'en', got %q", uLoc.Locale)
+	}
+	if err := store.UpdateUserLocale(ctx, "test@example.com", "de"); err == nil {
+		t.Error("expected error for invalid locale 'de', got nil")
+	}
+
 	// 3. Set role to 'user'
 	if err := store.SetUserRole(ctx, "test@example.com", "user"); err != nil {
 		t.Fatalf("SetUserRole failed: %v", err)

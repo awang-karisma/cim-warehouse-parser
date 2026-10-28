@@ -1,4 +1,5 @@
 import { type Component } from 'solid-js';
+import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { Button } from '~/components/ui/button';
@@ -6,6 +7,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '~/components/ui/avatar';
 import { IconClock, IconLogout } from '@tabler/icons-solidjs';
 
 export const PendingApproval: Component = () => {
+  const { t } = useI18n();
   const auth = useAuth();
   const currentUser = () => auth.user();
 
@@ -30,16 +32,16 @@ export const PendingApproval: Component = () => {
             </div>
           </div>
           <div>
-            <CardTitle class="text-xl font-bold">{currentUser()?.name || 'New User'}</CardTitle>
+            <CardTitle class="text-xl font-bold">{currentUser()?.name || t('pendingApproval.newUser')}</CardTitle>
             <CardDescription class="text-sm font-mono mt-0.5">{currentUser()?.email}</CardDescription>
           </div>
         </CardHeader>
 
         <CardContent class="space-y-6 pt-2 pb-6">
           <div class="rounded-lg bg-amber-500/10 border border-amber-500/20 p-4 text-sm text-foreground">
-            <p class="font-medium text-amber-600 dark:text-amber-400 mb-1">Approval Pending</p>
+            <p class="font-medium text-amber-600 dark:text-amber-400 mb-1">{t('pendingApproval.title')}</p>
             <p class="text-muted-foreground text-xs leading-relaxed">
-              Your account has been registered with <strong>Guest</strong> status. Please wait for an administrator to grant you access before you can view warehouse data.
+              {t('pendingApproval.description')}
             </p>
           </div>
 
@@ -49,7 +51,7 @@ export const PendingApproval: Component = () => {
               class="w-full gap-2 border-border hover:bg-muted"
               onClick={() => auth.refetch()}
             >
-              Check Status Again
+              {t('pendingApproval.checkStatus')}
             </Button>
             <Button
               variant="ghost"
@@ -57,7 +59,7 @@ export const PendingApproval: Component = () => {
               onClick={() => auth.logout()}
             >
               <IconLogout class="h-4 w-4" />
-              Sign Out
+              {t('common.signOut')}
             </Button>
           </div>
         </CardContent>

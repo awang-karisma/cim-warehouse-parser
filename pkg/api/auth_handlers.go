@@ -80,6 +80,7 @@ func (s *Server) handleGoogleCallback(c fiber.Ctx) error {
 			"name":    user.Name,
 			"picture": user.Picture,
 			"role":    role,
+			"locale":  user.Locale,
 		},
 	})
 }
@@ -119,6 +120,7 @@ func (s *Server) handleAuthMe(c fiber.Ctx) error {
 			"name":    refreshedClaims.Name,
 			"picture": refreshedClaims.Picture,
 			"role":    refreshedClaims.Role,
+			"locale":  refreshedClaims.Locale,
 		},
 	})
 }

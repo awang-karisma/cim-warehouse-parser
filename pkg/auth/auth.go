@@ -19,6 +19,7 @@ type Claims struct {
 	Name    string `json:"name"`
 	Picture string `json:"picture"`
 	Role    string `json:"role"`
+	Locale  string `json:"locale,omitempty"`
 }
 
 // GenerateToken creates an HS256 JWT session token with 24-hour expiry.
@@ -51,6 +52,7 @@ func GenerateToken(secret string, user *model.User, superadminEmails []string) (
 		Name:    user.Name,
 		Picture: user.Picture,
 		Role:    role,
+		Locale:  user.Locale,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

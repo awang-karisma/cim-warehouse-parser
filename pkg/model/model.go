@@ -196,6 +196,7 @@ type User struct {
 	Name      string    `json:"name"`
 	Picture   string    `json:"picture"`
 	Role      string    `json:"role"`
+	Locale    string    `json:"locale"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

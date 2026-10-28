@@ -1,3 +1,4 @@
+import { useI18n } from '~/i18n';
 import {
   type Component,
   createSignal,
@@ -131,6 +132,7 @@ interface AreaGroupSummary {
 }
 
 export const DeliveryFlow: Component = () => {
+  const { t } = useI18n();
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = createSignal(false);
   const [runsDrawerOpen, setRunsDrawerOpen] = createSignal(false);
@@ -577,15 +579,15 @@ export const DeliveryFlow: Component = () => {
   // Save or Update Delivery Run
   const handleSaveRun = async () => {
     setPlannerError('');
-    const dName = driverName().trim() || 'Unassigned';
+    const dName = driverName().trim() || t('deliveryFlow.unassigned');
     const dDate = deliveryDate().trim();
     if (!dDate) {
-      setPlannerError('Please enter a delivery date.');
+      setPlannerError(t('deliveryFlow.errEnterDeliveryDate'));
       return;
     }
     const selected = Array.from(draftItems().values());
     if (selected.length === 0) {
-      setPlannerError('Please select at least one item to dispatch.');
+      setPlannerError(t('deliveryFlow.errSelectAtLeastOne'));
       return;
     }
 
@@ -645,7 +647,7 @@ export const DeliveryFlow: Component = () => {
       refetchRuns();
       refetchCandidates();
     } catch (err: unknown) {
-      setPlannerError(err instanceof Error ? err.message : 'Failed to save delivery run');
+      setPlannerError(err instanceof Error ? err.message : t('deliveryFlow.errSaveRun'));
     } finally {
       setIsSavingRun(false);
     }
@@ -707,7 +709,7 @@ export const DeliveryFlow: Component = () => {
     setDriverModalError('');
     const name = newDriverName().trim();
     if (!name) {
-      setDriverModalError('Driver name is required.');
+      setDriverModalError(t('deliveryFlow.errDriverNameRequired'));
       return;
     }
     setIsAddingDriver(true);
@@ -733,7 +735,7 @@ export const DeliveryFlow: Component = () => {
       setDriverToEdit(null);
       refetchDrivers();
     } catch (err: unknown) {
-      setDriverModalError(err instanceof Error ? err.message : 'Failed to save driver');
+      setDriverModalError(err instanceof Error ? err.message : t('deliveryFlow.errSaveDriver'));
     } finally {
       setIsAddingDriver(false);
     }
@@ -748,7 +750,7 @@ export const DeliveryFlow: Component = () => {
       }
       refetchDrivers();
     } catch (err: unknown) {
-      setDriverModalError(err instanceof Error ? err.message : 'Failed to delete driver');
+      setDriverModalError(err instanceof Error ? err.message : t('deliveryFlow.errDeleteDriver'));
     }
   };
 
@@ -938,7 +940,7 @@ export const DeliveryFlow: Component = () => {
         <CardHeader class="p-3.5 pb-2">
           <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-primary">
             <IconFilter class="size-3.5" />
-            Stock Readiness & Filters
+            {t('deliveryFlow.stockFilters')}
           </CardTitle>
         </CardHeader>
         <CardContent class="p-3.5 pt-0 space-y-3">
@@ -949,7 +951,7 @@ export const DeliveryFlow: Component = () => {
               onChange={(e) => setReadyInWarehouseOnly(e.currentTarget.checked)}
               class="size-4 rounded text-primary focus:ring-ring"
             />
-            <span>Ready in Warehouse only</span>
+            <span>{t('deliveryFlow.readyInWarehouseOnly')}</span>
             <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-primary/15 text-primary">
               STOK GUDANG
             </span>
@@ -962,7 +964,7 @@ export const DeliveryFlow: Component = () => {
               onChange={(e) => setIncludeClientHold(e.currentTarget.checked)}
               class="size-4 rounded text-status-pending focus:ring-ring"
             />
-            <span>Show Client Holds</span>
+            <span>{t('deliveryFlow.showClientHolds')}</span>
             <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-status-pending/15 text-status-pending">
               PENDING
             </span>
@@ -975,7 +977,7 @@ export const DeliveryFlow: Component = () => {
         <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between">
           <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
             <IconMapPin class="size-3.5" />
-            Group by Area
+            {t('deliveryFlow.groupByArea')}
           </CardTitle>
           <Show when={selectedAreaFilter()}>
             <button
@@ -983,7 +985,7 @@ export const DeliveryFlow: Component = () => {
               onClick={() => setSelectedAreaFilter(null)}
               class="text-[10px] text-primary font-semibold hover:underline"
             >
-              Clear Filter
+              {t('deliveryFlow.clearFilter')}
             </button>
           </Show>
         </CardHeader>
@@ -1008,17 +1010,17 @@ export const DeliveryFlow: Component = () => {
                       <span class="font-bold text-foreground truncate">{grp.area}</span>
                       <Show when={grp.selectedItemsCount > 0}>
                         <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-primary text-primary-foreground tabular-nums">
-                          {grp.selectedItemsCount} picked
+                          {t('deliveryFlow.pickedCount', { count: grp.selectedItemsCount })}
                         </span>
                       </Show>
                     </div>
                     <span class="text-[11px] font-semibold text-muted-foreground tabular-nums shrink-0">
-                      <span class="text-foreground">{grp.readyItemsCount}</span>/{grp.totalItemsCount} items
+                      <span class="text-foreground">{grp.readyItemsCount}</span>/{t('deliveryFlow.readyTotalItems', { ready: '', total: grp.totalItemsCount }).trim()}
                     </span>
                   </div>
 
                   <div class="flex items-center justify-between mt-1 text-[10px]">
-                    <span class="text-muted-foreground tabular-nums">{grp.orders.length} orders</span>
+                    <span class="text-muted-foreground tabular-nums">{t('deliveryFlow.ordersCount', { count: grp.orders.length })}</span>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1027,7 +1029,7 @@ export const DeliveryFlow: Component = () => {
                       }}
                       class="text-primary font-semibold hover:underline flex items-center gap-0.5"
                     >
-                      <span>+ Select Ready</span>
+                      <span>{t('deliveryFlow.addSelectReady')}</span>
                     </button>
                   </div>
                 </div>
@@ -1042,7 +1044,7 @@ export const DeliveryFlow: Component = () => {
         <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between">
           <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
             <IconListCheck class="size-3.5" />
-            Selection Summary
+            {t('deliveryFlow.selectionSummary')}
           </CardTitle>
           <Show when={editingRunId()}>
             <span class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted text-foreground">
@@ -1053,18 +1055,18 @@ export const DeliveryFlow: Component = () => {
         <CardContent class="p-3.5 pt-0 space-y-3">
           <div class="p-2.5 rounded-lg bg-muted/30 border border-border space-y-1">
             <div class="flex items-center justify-between text-xs font-bold text-foreground">
-              <span>Selected Items:</span>
+              <span>{t('deliveryFlow.selectedItemsLabel')}</span>
               <span class="text-primary font-extrabold text-sm tabular-nums">
-                {draftStats().totalItems} items
+                {t('deliveryFlow.itemsCount', { count: draftStats().totalItems })}
               </span>
             </div>
             <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Orders Covered:</span>
-              <span class="tabular-nums">{draftStats().totalOrders} orders</span>
+              <span>{t('deliveryFlow.ordersCoveredLabel')}</span>
+              <span class="tabular-nums">{t('deliveryFlow.ordersCoveredCount', { count: draftStats().totalOrders })}</span>
             </div>
             <Show when={draftStats().areas.length > 0}>
               <div class="text-[10px] text-muted-foreground truncate pt-1 border-t border-border">
-                Areas: {draftStats().areas.join(', ')}
+                {t('deliveryFlow.areasLabel', { areas: draftStats().areas.join(', ') })}
               </div>
             </Show>
           </div>
@@ -1079,7 +1081,7 @@ export const DeliveryFlow: Component = () => {
               disabled={draftStats().totalItems === 0}
               class="w-full text-xs h-9 font-semibold gap-1.5"
             >
-              <span>Set Quantities & Dispatch</span>
+              <span>{t('deliveryFlow.setQuantitiesAndDispatch')}</span>
               <IconArrowRight class="size-4" />
             </Button>
           </div>
@@ -1095,11 +1097,11 @@ export const DeliveryFlow: Component = () => {
         <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between gap-2">
           <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-primary">
             <IconUser class="size-3.5" />
-            Driver Workload & Routes
+            {t('deliveryFlow.driverWorkload')}
           </CardTitle>
           <div class="flex items-center gap-1.5">
             <span class="text-[10px] font-mono text-muted-foreground">
-              {deliveryDate() || 'All Dates'}
+              {deliveryDate() || t('deliveryFlow.allDates')}
             </span>
             <Button
               variant="outline"
@@ -1107,7 +1109,7 @@ export const DeliveryFlow: Component = () => {
               onClick={() => setShowDriverModal(true)}
               class="text-[10px] h-6 px-2 border-border"
             >
-              Roster
+              {t('deliveryFlow.roster')}
             </Button>
           </div>
         </CardHeader>
@@ -1116,7 +1118,7 @@ export const DeliveryFlow: Component = () => {
             when={driverWorkloads().length > 0}
             fallback={
               <div class="p-3 rounded-lg border border-dashed text-center text-xs text-muted-foreground">
-                No active drivers in roster. Click Roster to add drivers.
+                {t('deliveryFlow.noActiveDrivers')}
               </div>
             }
           >
@@ -1156,21 +1158,21 @@ export const DeliveryFlow: Component = () => {
                         )}
                       >
                         {wl.runsCount === 0
-                          ? 'Available'
-                          : `${wl.runsCount} ${wl.runsCount === 1 ? 'run' : 'runs'}`}
+                          ? t('deliveryFlow.available')
+                          : t('deliveryFlow.runsCount', { count: wl.runsCount })}
                       </span>
                     </div>
                     <div class="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
                       <span>
-                        {wl.assignedItems} items • {wl.ordersCount} orders
+                        {t('deliveryFlow.assignedSummary', { items: wl.assignedItems, orders: wl.ordersCount })}
                       </span>
                       <Show when={isSelectedDriver()}>
-                        <span class="text-[10px] font-semibold text-primary">Assigned</span>
+                        <span class="text-[10px] font-semibold text-primary">{t('deliveryFlow.assigned')}</span>
                       </Show>
                     </div>
                     <Show when={wl.areas.length > 0}>
                       <div class="text-[10px] text-muted-foreground truncate pt-0.5 border-t border-border/60">
-                        Routes: {wl.areas.join(', ')}
+                        {t('deliveryFlow.routesLabel', { routes: wl.areas.join(', ') })}
                       </div>
                     </Show>
                   </button>
@@ -1186,11 +1188,11 @@ export const DeliveryFlow: Component = () => {
         <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between">
           <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
             <IconTruckDelivery class="size-3.5" />
-            Driver Assignment & Dispatch
+            {t('deliveryFlow.driverAssignment')}
           </CardTitle>
           <Show when={editingRunId()}>
             <span class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted text-foreground">
-              EDIT #{editingRunId()}
+              {t('deliveryFlow.editRunBadge', { id: editingRunId() ?? '' })}
             </span>
           </Show>
         </CardHeader>
@@ -1198,14 +1200,14 @@ export const DeliveryFlow: Component = () => {
         <CardContent class="p-3.5 pt-0 space-y-3">
           <div>
             <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              Assigned Driver (Optional)
+              {t('deliveryFlow.assignedDriverLabel')}
             </label>
             <select
               class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               value={selectedDriverId() ? selectedDriverId()!.toString() : ''}
               onChange={(e) => handleDriverSelect(e.currentTarget.value)}
             >
-              <option value="">-- Unassigned (Assign Later) --</option>
+              <option value="">{t('deliveryFlow.unassignedOption')}</option>
               <For each={driversData()?.drivers?.filter((d) => d.active)}>
                 {(d) => (
                   <option value={d.id?.toString()}>
@@ -1217,7 +1219,7 @@ export const DeliveryFlow: Component = () => {
             <Show when={!selectedDriverId() && driverName()}>
               <input
                 type="text"
-                placeholder="Custom driver name..."
+                placeholder={t('deliveryFlow.customDriverPlaceholder')}
                 value={driverName()}
                 onInput={(e) => setDriverName(e.currentTarget.value)}
                 class="mt-1 w-full text-xs py-1 px-2 rounded-md border border-border bg-background text-foreground"
@@ -1227,7 +1229,7 @@ export const DeliveryFlow: Component = () => {
 
           <div>
             <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              Dispatch Date *
+              {t('deliveryFlow.dispatchDateLabel')}
             </label>
             <input
               type="date"
@@ -1239,11 +1241,11 @@ export const DeliveryFlow: Component = () => {
 
           <div>
             <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              Run Title
+              {t('deliveryFlow.runTitleLabel')}
             </label>
             <input
               type="text"
-              placeholder="e.g. Mataram Pagi - Batch 1"
+              placeholder={t('deliveryFlow.runTitlePlaceholder')}
               value={runTitle()}
               onInput={(e) => setRunTitle(e.currentTarget.value)}
               class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1252,11 +1254,11 @@ export const DeliveryFlow: Component = () => {
 
           <div>
             <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              Route Instructions / Notes
+              {t('deliveryFlow.routeNotesLabel')}
             </label>
             <input
               type="text"
-              placeholder="Gate instructions, priority drop-off..."
+              placeholder={t('deliveryFlow.routeNotesPlaceholder')}
               value={runNotes()}
               onInput={(e) => setRunNotes(e.currentTarget.value)}
               class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1265,24 +1267,24 @@ export const DeliveryFlow: Component = () => {
 
           <div class="p-2.5 rounded-lg bg-muted/30 border border-border space-y-1">
             <div class="flex items-center justify-between text-xs font-bold text-foreground">
-              <span>Selected Items:</span>
+              <span>{t('deliveryFlow.selectedItemsLabel')}</span>
               <span class="text-primary font-extrabold text-sm tabular-nums">
-                {draftStats().totalItems} items
+                {t('deliveryFlow.itemsCount', { count: draftStats().totalItems })}
               </span>
             </div>
             <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Total Planned Qty:</span>
+              <span>{t('deliveryFlow.totalPlannedQtyLabel')}</span>
               <span class="font-semibold text-foreground tabular-nums">
-                {draftStats().totalPlannedUnits} units
+                {t('deliveryFlow.plannedUnits', { count: draftStats().totalPlannedUnits })}
               </span>
             </div>
             <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Orders Covered:</span>
-              <span class="tabular-nums">{draftStats().totalOrders} orders</span>
+              <span>{t('deliveryFlow.ordersCoveredLabel')}</span>
+              <span class="tabular-nums">{t('deliveryFlow.ordersCoveredCount', { count: draftStats().totalOrders })}</span>
             </div>
             <Show when={draftStats().areas.length > 0}>
               <div class="text-[10px] text-muted-foreground truncate pt-1 border-t border-border">
-                Areas: {draftStats().areas.join(', ')}
+                {t('deliveryFlow.areasLabel', { areas: draftStats().areas.join(', ') })}
               </div>
             </Show>
           </div>
@@ -1300,7 +1302,7 @@ export const DeliveryFlow: Component = () => {
               <Show when={isSavingRun()} fallback={<IconArrowRight class="size-4" />}>
                 <Spinner size="sm" />
               </Show>
-              <span>{editingRunId() ? 'Update Run' : 'Dispatch / Save Run'}</span>
+              <span>{editingRunId() ? t('deliveryFlow.updateRun') : t('deliveryFlow.dispatchSaveRun')}</span>
             </Button>
 
             <Button
@@ -1313,7 +1315,7 @@ export const DeliveryFlow: Component = () => {
               class="w-full text-[11px] h-8 gap-1"
             >
               <IconArrowLeft class="size-3.5" />
-              <span>Back to Select Items</span>
+              <span>{t('deliveryFlow.backToSelectItems')}</span>
             </Button>
 
             <Show when={draftStats().totalItems > 0}>
@@ -1326,7 +1328,7 @@ export const DeliveryFlow: Component = () => {
                 }}
                 class="w-full text-[11px] h-7 text-muted-foreground hover:text-foreground"
               >
-                Clear Selection
+                {t('deliveryFlow.clearSelection')}
               </Button>
             </Show>
           </div>
@@ -1341,7 +1343,7 @@ export const DeliveryFlow: Component = () => {
         <CardHeader class="pb-3 flex flex-row items-center justify-between">
           <CardTitle class="text-base font-semibold flex items-center gap-2">
             <IconBuildingWarehouse class="size-4 text-primary" />
-            Dispatch Runs
+            {t('deliveryFlow.dispatchRuns')}
           </CardTitle>
           <Button
             variant="outline"
@@ -1355,7 +1357,7 @@ export const DeliveryFlow: Component = () => {
         <CardContent class="space-y-3 pt-0">
           <input
             type="text"
-            placeholder="Search driver, title, area..."
+            placeholder={t('deliveryFlow.searchRunsPlaceholder')}
             value={runSearchQuery()}
             onInput={(e) => setRunSearchQuery(e.currentTarget.value)}
             class="w-full py-1 px-2.5 text-xs rounded-md border bg-background"
@@ -1407,11 +1409,11 @@ export const DeliveryFlow: Component = () => {
                 <div class="flex items-start justify-between gap-2">
                   <div>
                     <div class="text-xs font-bold text-foreground">
-                      {run.title || `Run #${run.id}`}
+                      {run.title || t('deliveryFlow.runIdFallback', { id: run.id ?? '' })}
                     </div>
                     <div class="text-[11px] text-muted-foreground font-medium flex items-center gap-1.5 mt-0.5">
                       <IconUser class="size-3" />
-                      <span>{run.driver_name || 'Unassigned'}</span>
+                      <span>{run.driver_name || t('deliveryFlow.unassigned')}</span>
                     </div>
                   </div>
                   <Badge status={run.status || 'PLANNED'} />
@@ -1419,7 +1421,7 @@ export const DeliveryFlow: Component = () => {
 
                 <div class="flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>{run.delivery_date}</span>
-                  <span>{picked()} / {total()} picked ({pct()}%)</span>
+                  <span>{t('deliveryFlow.pickedProgressSummary', { picked: picked(), total: total(), pct: pct() })}</span>
                 </div>
               </div>
             );
@@ -1444,11 +1446,11 @@ export const DeliveryFlow: Component = () => {
         <TabsList class="flex-wrap h-auto gap-1">
           <TabsTrigger value="plan" class="gap-2 text-xs h-8">
             <IconListCheck class="size-4" />
-            <span>Select Candidate Items</span>
+            <span>{t('deliveryFlow.tabPlan')}</span>
           </TabsTrigger>
           <TabsTrigger value="configure" class="gap-2 text-xs h-8">
             <IconTruckDelivery class="size-4" />
-            <span>Quantities & Dispatch</span>
+            <span>{t('deliveryFlow.tabConfigure')}</span>
             <Show when={draftStats().totalItems > 0}>
               <span class="df-tab-counter">
                 {draftStats().totalItems}
@@ -1457,7 +1459,7 @@ export const DeliveryFlow: Component = () => {
           </TabsTrigger>
           <TabsTrigger value="runs" class="gap-2 text-xs h-8">
             <IconBuildingWarehouse class="size-4" />
-            <span>Warehouse Picking & Runs</span>
+            <span>{t('deliveryFlow.tabRuns')}</span>
             <Show when={(runsData()?.runs?.length || 0) > 0}>
               <span class="inline-flex items-center justify-center h-[18px] min-w-5 px-1.5 text-[10px] leading-none font-bold rounded bg-muted text-muted-foreground tabular-nums">
                 {runsData()?.runs?.length}
@@ -1474,18 +1476,18 @@ export const DeliveryFlow: Component = () => {
               {/* Main Content Sub-Header Toolbar */}
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card">
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-bold text-foreground">Candidate Orders</span>
+                  <span class="text-sm font-bold text-foreground">{t('deliveryFlow.candidateOrders')}</span>
                   <span class="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold">
-                    {visibleOrders().length} orders
+                    {t('deliveryFlow.ordersCount', { count: visibleOrders().length })}
                   </span>
                   <Show when={selectedAreaFilter()}>
                     <div class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
-                      <span>Area: {selectedAreaFilter()}</span>
+                      <span>{t('deliveryFlow.areaChip', { area: selectedAreaFilter() ?? '' })}</span>
                       <button
                         type="button"
                         onClick={() => setSelectedAreaFilter(null)}
                         class="hover:text-foreground"
-                        title="Clear area filter"
+                        title={t('deliveryFlow.clearAreaFilter')}
                       >
                         <IconX class="size-3" />
                       </button>
@@ -1498,7 +1500,7 @@ export const DeliveryFlow: Component = () => {
                     <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     <input
                       type="text"
-                      placeholder="Search orders, customers, items..."
+                      placeholder={t('deliveryFlow.searchOrdersPlaceholder')}
                       value={searchTerm()}
                       onInput={(e) => setSearchTerm(e.currentTarget.value)}
                       class="w-full pl-8 pr-2.5 py-1 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
@@ -1512,7 +1514,7 @@ export const DeliveryFlow: Component = () => {
                       refetchRuns();
                     }}
                     class="text-xs h-7 px-2 shrink-0"
-                    title="Refresh orders"
+                    title={t('deliveryFlow.refreshOrders')}
                   >
                     <IconRefresh class="size-3" />
                   </Button>
@@ -1521,19 +1523,19 @@ export const DeliveryFlow: Component = () => {
               <div class="df-bulk-segmented">
                 <div class="df-seg-metrics">
                   <span class="df-metric-chip">
-                    <span>Orders</span>
+                    <span>{t('common.orders')}</span>
                     <strong>{draftStats().totalOrders}</strong>
                   </span>
                   <span class="df-metric-chip">
-                    <span>Selected</span>
+                    <span>{t('deliveryFlow.selected')}</span>
                     <strong>{draftStats().totalItems}</strong>
                   </span>
                   <span class="df-metric-chip">
-                    <span>Units</span>
+                    <span>{t('deliveryFlow.units')}</span>
                     <strong>{draftStats().totalPlannedUnits}</strong>
                   </span>
                 </div>
-                <div class="df-btn-row" role="group" aria-label="Bulk item selection controls">
+                <div class="df-btn-row" role="group" aria-label={t('deliveryFlow.bulkAriaLabel')}>
                   <button
                     type="button"
                     class="df-normal-btn df-normal-btn-select"
@@ -1562,7 +1564,7 @@ export const DeliveryFlow: Component = () => {
                     }}
                   >
                     <IconCheck class="size-3.5" />
-                    <span>Select All Ready</span>
+                    <span>{t('deliveryFlow.selectAllReady')}</span>
                     <span class="df-btn-badge">
                       {visibleOrders().reduce(
                         (acc, ord) =>
@@ -1583,7 +1585,7 @@ export const DeliveryFlow: Component = () => {
                     onClick={() => setDraftItems(new Map())}
                   >
                     <IconX class="size-3.5" />
-                    <span>Clear Selection</span>
+                    <span>{t('deliveryFlow.clearSelection')}</span>
                   </button>
                 </div>
               </div>
@@ -1605,9 +1607,9 @@ export const DeliveryFlow: Component = () => {
                   fallback={
                     <div class="p-16 text-center border rounded-lg bg-card">
                       <IconBuildingWarehouse class="size-12 mx-auto text-muted-foreground mb-3" />
-                      <h3 class="text-sm font-semibold text-foreground">No orders matching current filters</h3>
+                      <h3 class="text-sm font-semibold text-foreground">{t('deliveryFlow.noOrdersMatchFilters')}</h3>
                       <p class="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                        Adjust stock readiness or clear the selected area filter in the right sidebar.
+                        {t('deliveryFlow.noOrdersMatchDesc')}
                       </p>
                     </div>
                   }
@@ -1633,7 +1635,7 @@ export const DeliveryFlow: Component = () => {
                                   checked={orderAllSelected()}
                                   onChange={() => toggleOrderSelection(order)}
                                   class="size-4 rounded text-primary focus:ring-ring cursor-pointer"
-                                  title="Select all eligible items in this order"
+                                  title={t('deliveryFlow.selectAllEligibleTitle')}
                                 />
                                 <div>
                                   <div class="flex items-center gap-2 flex-wrap">
@@ -1646,12 +1648,12 @@ export const DeliveryFlow: Component = () => {
                                     <Badge status={getDominantOrderStatus(order.items)} />
                                   </div>
                                   <div class="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                                    <span>Order: <strong class="font-mono text-foreground">{order.order_number || order.id}</strong></span>
+                                    <span>{t('deliveryFlow.orderNoPrefix')} <strong class="font-mono text-foreground">{order.order_number || order.id}</strong></span>
                                     <Show when={order.ecatalog_number}>
-                                      <span>• E-Cat: <span class="font-mono">{order.ecatalog_number}</span></span>
+                                      <span>{t('deliveryFlow.ecatPrefix')} <span class="font-mono">{order.ecatalog_number}</span></span>
                                     </Show>
                                     <Show when={order.tanggal}>
-                                      <span>• Date: {typeof order.tanggal === 'string' ? order.tanggal : ''}</span>
+                                      <span>{t('deliveryFlow.datePrefix')} {typeof order.tanggal === 'string' ? order.tanggal : ''}</span>
                                     </Show>
                                   </div>
                                 </div>
@@ -1664,7 +1666,7 @@ export const DeliveryFlow: Component = () => {
                                 class="text-[11px] h-7 px-2.5 gap-1 self-end sm:self-auto"
                               >
                                 <IconCheck class="size-3 text-primary" />
-                                <span>Select Ready Items</span>
+                                <span>{t('deliveryFlow.selectReadyItems')}</span>
                               </Button>
                             </div>
 
@@ -1673,11 +1675,11 @@ export const DeliveryFlow: Component = () => {
                               <table class="w-full text-right text-xs border-collapse">
                                 <thead>
                                   <tr class="border-b bg-muted/20 text-muted-foreground text-[11px]">
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Pick</th>
-                                    <th class="py-2.5 px-3 w-full text-left">Item Name</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Stock Status</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Order Status</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Remote Rem.</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.pick')}</th>
+                                    <th class="py-2.5 px-3 w-full text-left">{t('deliveryFlow.itemName')}</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.stockStatus')}</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.orderStatus')}</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.remoteRemaining')}</th>
                                   </tr>
                                 </thead>
                                 <tbody class="divide-y divide-border">
@@ -1721,13 +1723,13 @@ export const DeliveryFlow: Component = () => {
                                               <Show when={activeRunInfo()}>
                                                 <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-status-pending/15 text-status-pending border border-status-pending/30">
                                                   <IconTruckDelivery class="size-3" />
-                                                  In Run #{activeRunInfo()!.runId} ({activeRunInfo()!.driverName}): {activeRunInfo()!.plannedQty}
+                                                  {t('deliveryFlow.inRunBadge', { runId: activeRunInfo()!.runId, driver: activeRunInfo()!.driverName, qty: activeRunInfo()!.plannedQty })}
                                                 </span>
                                               </Show>
                                               <Show when={item.keterangan || item.catatan || isClientPending()}>
                                                 <div class="inline-flex items-center gap-1 text-[11px] text-status-pending font-medium">
                                                   <IconAlertTriangle class="size-3 shrink-0" />
-                                                  <span>{item.keterangan || item.catatan || 'Client delay request'}</span>
+                                                  <span>{item.keterangan || item.catatan || t('deliveryFlow.clientDelayRequest')}</span>
                                                 </div>
                                               </Show>
                                             </div>
@@ -1787,11 +1789,11 @@ export const DeliveryFlow: Component = () => {
                     class="text-xs h-7 px-2.5 gap-1"
                   >
                     <IconArrowLeft class="size-3.5" />
-                    <span>Select Items</span>
+                    <span>{t('deliveryFlow.selectItems')}</span>
                   </Button>
-                  <span class="text-sm font-bold text-foreground">Selected Orders & Quantities</span>
+                  <span class="text-sm font-bold text-foreground">{t('deliveryFlow.selectedOrdersTitle')}</span>
                   <span class="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold tabular-nums">
-                    {selectedOrderGroups().length} orders • {draftStats().totalItems} items
+                    {t('deliveryFlow.selectedSummaryHeader', { orders: selectedOrderGroups().length, items: draftStats().totalItems })}
                   </span>
                 </div>
 
@@ -1800,7 +1802,7 @@ export const DeliveryFlow: Component = () => {
                     <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     <input
                       type="text"
-                      placeholder="Filter selected orders, items..."
+                      placeholder={t('deliveryFlow.filterSelectedPlaceholder')}
                       value={configureSearchTerm()}
                       onInput={(e) => setConfigureSearchTerm(e.currentTarget.value)}
                       class="w-full pl-8 pr-2.5 py-1 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
@@ -1822,9 +1824,9 @@ export const DeliveryFlow: Component = () => {
                   <div class="p-16 text-center border rounded-lg bg-card space-y-3">
                     <IconListCheck class="size-12 mx-auto text-muted-foreground" />
                     <div>
-                      <h3 class="text-sm font-semibold text-foreground">No items selected for dispatch yet</h3>
+                      <h3 class="text-sm font-semibold text-foreground">{t('deliveryFlow.noItemsSelectedTitle')}</h3>
                       <p class="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                        Select candidate orders and items by area first, then return here to set delivery quantities, notes, and driver assignment.
+                        {t('deliveryFlow.noItemsSelectedDesc')}
                       </p>
                     </div>
                     <Button
@@ -1833,7 +1835,7 @@ export const DeliveryFlow: Component = () => {
                       class="text-xs h-8 px-3 gap-1.5"
                     >
                       <IconArrowLeft class="size-3.5" />
-                      <span>Select Candidate Items</span>
+                      <span>{t('deliveryFlow.tabPlan')}</span>
                     </Button>
                   </div>
                 }
@@ -1842,9 +1844,9 @@ export const DeliveryFlow: Component = () => {
                   when={selectedOrderGroups().length > 0}
                   fallback={
                     <div class="p-12 text-center border rounded-lg bg-card">
-                      <h3 class="text-sm font-semibold text-foreground">No selected items match your search</h3>
+                      <h3 class="text-sm font-semibold text-foreground">{t('deliveryFlow.noSelectedMatchSearch')}</h3>
                       <p class="text-xs text-muted-foreground mt-1">
-                        Clear the search filter to see all {draftStats().totalItems} selected items.
+                        {t('deliveryFlow.clearSearchToShowAll', { total: draftStats().totalItems })}
                       </p>
                     </div>
                   }
@@ -1866,7 +1868,7 @@ export const DeliveryFlow: Component = () => {
                                   checked={true}
                                   onChange={() => removeOrderFromDraft(order)}
                                   class="size-4 rounded text-primary focus:ring-ring cursor-pointer"
-                                  title="Uncheck to remove this order from dispatch selection"
+                                  title={t('deliveryFlow.uncheckOrderTitle')}
                                 />
                                 <div>
                                   <div class="flex items-center gap-2 flex-wrap">
@@ -1879,12 +1881,12 @@ export const DeliveryFlow: Component = () => {
                                     <Badge status={getDominantOrderStatus(group.entries.map((e) => e.item))} />
                                   </div>
                                   <div class="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                                    <span>Order: <strong class="font-mono text-foreground">{order.order_number || order.id}</strong></span>
+                                    <span>{t('deliveryFlow.orderNoPrefix')} <strong class="font-mono text-foreground">{order.order_number || order.id}</strong></span>
                                     <Show when={order.ecatalog_number}>
-                                      <span>• E-Cat: <span class="font-mono">{order.ecatalog_number}</span></span>
+                                      <span>{t('deliveryFlow.ecatPrefix')} <span class="font-mono">{order.ecatalog_number}</span></span>
                                     </Show>
                                     <Show when={order.tanggal}>
-                                      <span>• Date: {typeof order.tanggal === 'string' ? order.tanggal : ''}</span>
+                                      <span>{t('deliveryFlow.datePrefix')} {typeof order.tanggal === 'string' ? order.tanggal : ''}</span>
                                     </Show>
                                   </div>
                                 </div>
@@ -1897,7 +1899,7 @@ export const DeliveryFlow: Component = () => {
                                 class="text-[11px] h-7 px-2.5 gap-1 self-end sm:self-auto"
                               >
                                 <IconCheck class="size-3 text-primary" />
-                                <span>Fill Remaining Qty</span>
+                                <span>{t('deliveryFlow.fillRemainingQty')}</span>
                               </Button>
                             </div>
 
@@ -1906,12 +1908,12 @@ export const DeliveryFlow: Component = () => {
                               <table class="w-full text-right text-xs border-collapse">
                                 <thead>
                                   <tr class="border-b bg-muted/20 text-muted-foreground text-[11px]">
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Pick</th>
-                                    <th class="py-2.5 px-3 w-full text-left">Item Name</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Stock Status</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Remote Rem.</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Qty to Deliver</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Picking Note</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.pick')}</th>
+                                    <th class="py-2.5 px-3 w-full text-left">{t('deliveryFlow.itemName')}</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.stockStatus')}</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.remoteRemaining')}</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.qtyToDeliver')}</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.pickingNote')}</th>
                                   </tr>
                                 </thead>
                                 <tbody class="divide-y divide-border">
@@ -1938,7 +1940,7 @@ export const DeliveryFlow: Component = () => {
                                               checked={true}
                                               onChange={() => toggleItemSelection(order, item)}
                                               class="size-4 rounded text-primary focus:ring-ring cursor-pointer align-middle"
-                                              title="Uncheck to remove item from dispatch"
+                                              title={t('deliveryFlow.uncheckItemTitle')}
                                             />
                                           </td>
 
@@ -1949,13 +1951,13 @@ export const DeliveryFlow: Component = () => {
                                               <Show when={activeRunInfo()}>
                                                 <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-status-pending/15 text-status-pending border border-status-pending/30">
                                                   <IconTruckDelivery class="size-3" />
-                                                  In Run #{activeRunInfo()!.runId} ({activeRunInfo()!.driverName}): {activeRunInfo()!.plannedQty}
+                                                  {t('deliveryFlow.inRunBadge', { runId: activeRunInfo()!.runId, driver: activeRunInfo()!.driverName, qty: activeRunInfo()!.plannedQty })}
                                                 </span>
                                               </Show>
                                               <Show when={item.keterangan || item.catatan || isClientPending()}>
                                                 <div class="inline-flex items-center gap-1 text-[11px] text-status-pending font-medium">
                                                   <IconAlertTriangle class="size-3 shrink-0" />
-                                                  <span>{item.keterangan || item.catatan || 'Client delay request'}</span>
+                                                  <span>{item.keterangan || item.catatan || t('deliveryFlow.clientDelayRequest')}</span>
                                                 </div>
                                               </Show>
                                             </div>
@@ -1978,7 +1980,7 @@ export const DeliveryFlow: Component = () => {
                                                 type="button"
                                                 onClick={() => updateItemPlannedQty(order, item, -1)}
                                                 class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
-                                                title="Decrease quantity"
+                                                title={t('deliveryFlow.decreaseQty')}
                                               >
                                                 <IconMinus class="size-3" />
                                               </button>
@@ -1994,7 +1996,7 @@ export const DeliveryFlow: Component = () => {
                                                 type="button"
                                                 onClick={() => updateItemPlannedQty(order, item, 1)}
                                                 class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
-                                                title="Increase quantity"
+                                                title={t('deliveryFlow.increaseQty')}
                                               >
                                                 <IconPlus class="size-3" />
                                               </button>
@@ -2008,7 +2010,7 @@ export const DeliveryFlow: Component = () => {
                                           <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
                                             <input
                                               type="text"
-                                              placeholder="Picking note..."
+                                              placeholder={t('deliveryFlow.pickingNote')}
                                               value={entry.note || ''}
                                               onInput={(e) => setItemNote(order, item, e.currentTarget.value)}
                                               class="w-36 text-right text-[11px] py-1 px-2 rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
@@ -2057,14 +2059,14 @@ export const DeliveryFlow: Component = () => {
                     onClick={() => setSelectedRunId(null)}
                     class="no-print inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-1"
                   >
-                    <span>← Back to Runs List</span>
+                    <span>{t('deliveryFlow.backToRunsList')}</span>
                   </button>
                 </Show>
               <Show
                 when={activeRun()}
                 fallback={
                   <div class="p-16 text-center border rounded-lg bg-card">
-                    <p class="text-sm font-semibold">Select a delivery run to begin warehouse picking</p>
+                    <p class="text-sm font-semibold">{t('deliveryFlow.selectRunPrompt')}</p>
                   </div>
                 }
               >
@@ -2084,22 +2086,22 @@ export const DeliveryFlow: Component = () => {
                                 RUN #{run().id}
                               </span>
                               <CardTitle class="text-lg font-bold">
-                                {run().title || `Dispatch Run #${run().id}`}
+                                {run().title || t('deliveryFlow.dispatchRunTitle', { id: run().id ?? '' })}
                               </CardTitle>
                             </div>
                             <div class="text-xs text-muted-foreground mt-1.5 flex items-center gap-3 flex-wrap">
                               {/* Reassign Driver Dropdown */}
                               <div class="flex items-center gap-1.5">
                                 <IconUser class="size-3.5 text-primary" />
-                                <span class="font-medium text-foreground">Driver:</span>
+                                <span class="font-medium text-foreground">{t('deliveryFlow.driverColon')}</span>
                                 <select
                                   class="text-xs font-semibold py-0.5 px-2 rounded border bg-background"
                                   value={run().driver_id ? run().driver_id!.toString() : ''}
                                   disabled={isReassigningDriver()}
                                   onChange={(e) => handleReassignDriver(run().id!, e.currentTarget.value)}
-                                  title="Quickly change or reassign driver for this run"
+                                  title={t('deliveryFlow.reassignDriverTitle')}
                                 >
-                                  <option value="">-- Unassigned --</option>
+                                  <option value="">{t('deliveryFlow.unassigned')}</option>
                                   <For each={driversData()?.drivers?.filter((d) => d.active)}>
                                     {(d) => (
                                       <option value={d.id?.toString()}>
@@ -2141,7 +2143,7 @@ export const DeliveryFlow: Component = () => {
                               class="text-xs h-8 px-2.5 gap-1"
                             >
                               <IconEdit class="size-3.5" />
-                              <span>Edit</span>
+                              <span>{t('common.edit')}</span>
                             </Button>
 
                             <Button
@@ -2151,7 +2153,7 @@ export const DeliveryFlow: Component = () => {
                               class="text-xs h-8 px-2.5 gap-1"
                             >
                               <IconPrinter class="size-3.5" />
-                              <span>Print</span>
+                              <span>{t('common.print')}</span>
                             </Button>
 
                             <Button
@@ -2168,7 +2170,7 @@ export const DeliveryFlow: Component = () => {
                         <CardContent class="pt-0 space-y-3">
                           <div class="space-y-1">
                             <div class="flex justify-between text-xs font-medium">
-                              <span>Picking Progress: {picked()} / {total()} items</span>
+                              <span>{t('deliveryFlow.pickingProgress', { picked: picked(), total: total() })}</span>
                               <span>{pct()}%</span>
                             </div>
                             <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
@@ -2184,14 +2186,14 @@ export const DeliveryFlow: Component = () => {
 
                           <Show when={run().notes}>
                             <div class="p-2 rounded-md bg-muted/40 border text-xs text-muted-foreground flex items-center gap-2">
-                              <span class="font-semibold text-foreground">Notes:</span>
+                              <span class="font-semibold text-foreground">{t('common.notes')}:</span>
                               <span>{run().notes}</span>
                             </div>
                           </Show>
 
                           {/* Picking View Mode */}
                           <div class="pt-2 flex items-center justify-between border-t text-xs">
-                            <span class="font-semibold text-muted-foreground">Picking Mode:</span>
+                            <span class="font-semibold text-muted-foreground">{t('deliveryFlow.pickingMode')}</span>
                             <div class="inline-flex rounded-md border p-0.5 bg-muted/40 text-xs">
                               <button
                                 type="button"
@@ -2201,7 +2203,7 @@ export const DeliveryFlow: Component = () => {
                                 )}
                                 onClick={() => setPickingViewMode('orders')}
                               >
-                                By Destination Order
+                                {t('deliveryFlow.byDestination')}
                               </button>
                               <button
                                 type="button"
@@ -2211,7 +2213,7 @@ export const DeliveryFlow: Component = () => {
                                 )}
                                 onClick={() => setPickingViewMode('consolidated')}
                               >
-                                Consolidated Shelf List
+                                {t('deliveryFlow.consolidatedShelf')}
                               </button>
                             </div>
                           </div>
@@ -2226,7 +2228,7 @@ export const DeliveryFlow: Component = () => {
                               <div class="border rounded-lg bg-card overflow-hidden">
                                 <div class="bg-muted/30 p-2.5 px-3 flex items-center justify-between border-b">
                                   <span class="font-bold text-xs">{ordGroup.customer} ({ordGroup.area})</span>
-                                  <span class="text-[11px] text-muted-foreground">{ordGroup.items.length} items</span>
+                                  <span class="text-[11px] text-muted-foreground">{t('deliveryFlow.itemsCount', { count: ordGroup.items.length })}</span>
                                 </div>
                                 <div class="divide-y divide-border">
                                   <For each={ordGroup.items}>
@@ -2244,12 +2246,12 @@ export const DeliveryFlow: Component = () => {
                                               {it.nama_barang}
                                             </div>
                                             <div class="text-[11px] text-muted-foreground">
-                                              Qty: <strong>{it.planned_qty} {it.satuan}</strong>
+                                              {t('common.qty')}: <strong>{it.planned_qty} {it.satuan}</strong>
                                             </div>
                                           </div>
                                         </div>
                                         <Show when={it.picked}>
-                                          <span class="text-[10px] font-bold text-status-selesai">PICKED</span>
+                                          <span class="text-[10px] font-bold text-status-selesai">{t('deliveryFlow.pickedBadge')}</span>
                                         </Show>
                                       </div>
                                     )}
@@ -2275,7 +2277,7 @@ export const DeliveryFlow: Component = () => {
                                 <div class="text-xs">
                                   <div class="font-bold text-sm">{prod.nama_barang}</div>
                                   <div class="text-primary font-semibold mt-0.5">
-                                    Total to pull: {prod.totalPlannedQty} {prod.satuan}
+                                    {t('deliveryFlow.totalToPull', { qty: prod.totalPlannedQty, satuan: prod.satuan })}
                                   </div>
                                 </div>
                               </div>
@@ -2288,12 +2290,12 @@ export const DeliveryFlow: Component = () => {
                       <div class="delivery-print-sheet hidden print:block text-black bg-white p-4">
                         <div class="border-b-2 border-black pb-2 mb-4 flex justify-between">
                           <div>
-                            <h1 class="text-xl font-bold uppercase">Warehouse Delivery & Picking Manifest</h1>
-                            <p class="text-xs">Run #{run().id} • {run().title || 'Dispatch Sheet'}</p>
+                            <h1 class="text-xl font-bold uppercase">{t('deliveryFlow.manifestTitle')}</h1>
+                            <p class="text-xs">Run #{run().id} • {run().title || t('deliveryFlow.dispatchSheet')}</p>
                           </div>
                           <div class="text-right text-xs">
-                            <div>Date: {run().delivery_date}</div>
-                            <div>Driver: {run().driver_name}</div>
+                            <div>{t('deliveryFlow.manifestDate', { date: run().delivery_date })}</div>
+                            <div>{t('deliveryFlow.manifestDriver', { driver: run().driver_name })}</div>
                           </div>
                         </div>
 
@@ -2341,7 +2343,7 @@ export const DeliveryFlow: Component = () => {
               <IconFilter class="size-4" />
             </Show>
             <span class="text-sm font-semibold">
-              {activeTab() === 'plan' ? 'Filters & Selection' : 'Drivers & Dispatch'}
+              {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerBtnPlan') : t('deliveryFlow.mobileDrawerBtnConfigure')}
             </span>
             <Show when={draftStats().totalItems > 0}>
               <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary tabular-nums">
@@ -2354,7 +2356,7 @@ export const DeliveryFlow: Component = () => {
             <SheetContent position="right" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
               <SheetHeader>
                 <SheetTitle>
-                  {activeTab() === 'plan' ? 'Filters & Area Selection' : 'Driver Workload & Dispatch'}
+                  {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerTitlePlan') : t('deliveryFlow.mobileDrawerTitleConfigure')}
                 </SheetTitle>
               </SheetHeader>
               <div class="mt-4">
@@ -2374,13 +2376,13 @@ export const DeliveryFlow: Component = () => {
             class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
           >
             <IconBuildingWarehouse class="size-4" />
-            <span class="text-sm font-semibold">Switch Run</span>
+            <span class="text-sm font-semibold">{t('deliveryFlow.switchRun')}</span>
           </button>
 
           <Sheet open={runsDrawerOpen()} onOpenChange={setRunsDrawerOpen}>
             <SheetContent position="left" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
               <SheetHeader>
-                <SheetTitle>Dispatch Runs</SheetTitle>
+                <SheetTitle>{t('deliveryFlow.dispatchRuns')}</SheetTitle>
               </SheetHeader>
               <div class="mt-4">
                 <RunsListContent onSelectRun={() => setRunsDrawerOpen(false)} />
@@ -2393,8 +2395,8 @@ export const DeliveryFlow: Component = () => {
         <Dialog open={showDriverModal()} onOpenChange={setShowDriverModal}>
           <DialogContent class="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Manage Delivery Drivers</DialogTitle>
-              <DialogDescription>Add or remove delivery staff members.</DialogDescription>
+              <DialogTitle>{t('deliveryFlow.manageDrivers')}</DialogTitle>
+              <DialogDescription>{t('deliveryFlow.manageDriversDesc')}</DialogDescription>
             </DialogHeader>
 
             <form onSubmit={handleAddDriver} class="space-y-3 pt-2">
@@ -2405,21 +2407,21 @@ export const DeliveryFlow: Component = () => {
               <div class="space-y-2">
                 <input
                   type="text"
-                  placeholder="Driver name *"
+                  placeholder={t('deliveryFlow.driverNamePlaceholder')}
                   value={newDriverName()}
                   onInput={(e) => setNewDriverName(e.currentTarget.value)}
                   class="w-full text-xs py-1.5 px-2 rounded border bg-background"
                 />
                 <input
                   type="text"
-                  placeholder="Phone number"
+                  placeholder={t('deliveryFlow.phonePlaceholder')}
                   value={newDriverPhone()}
                   onInput={(e) => setNewDriverPhone(e.currentTarget.value)}
                   class="w-full text-xs py-1.5 px-2 rounded border bg-background"
                 />
                 <input
                   type="text"
-                  placeholder="Vehicle / Plat"
+                  placeholder={t('deliveryFlow.vehiclePlaceholder')}
                   value={newDriverVehicle()}
                   onInput={(e) => setNewDriverVehicle(e.currentTarget.value)}
                   class="w-full text-xs py-1.5 px-2 rounded border bg-background"
@@ -2428,7 +2430,7 @@ export const DeliveryFlow: Component = () => {
 
               <div class="flex justify-end gap-2">
                 <Button type="submit" size="sm" disabled={isAddingDriver()} class="text-xs">
-                  <span>Add Driver</span>
+                  <span>{t('deliveryFlow.addDriver')}</span>
                 </Button>
               </div>
             </form>
@@ -2459,7 +2461,7 @@ export const DeliveryFlow: Component = () => {
 
             <DialogFooter class="pt-2">
               <Button variant="outline" size="sm" onClick={() => setShowDriverModal(false)}>
-                Close
+                {t('common.close')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -2468,16 +2470,16 @@ export const DeliveryFlow: Component = () => {
         {/* DELETE RUN ALERT DIALOG */}
         <AlertDialog open={!!runToDelete()} onOpenChange={(open) => !open && setRunToDelete(null)}>
           <AlertDialogContent>
-            <AlertDialogTitle>Delete Delivery Run</AlertDialogTitle>
+            <AlertDialogTitle>{t('deliveryFlow.deleteRun')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this run? The original orders and items remain untouched in SQLite.
+              {t('deliveryFlow.deleteRunConfirmDesc')}
             </AlertDialogDescription>
             <div class="flex justify-end gap-2 mt-4">
               <Button variant="outline" size="sm" onClick={() => setRunToDelete(null)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button size="sm" variant="destructive" onClick={confirmDeleteRun}>
-                Delete
+                {t('common.delete')}
               </Button>
             </div>
           </AlertDialogContent>

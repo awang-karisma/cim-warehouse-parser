@@ -1,4 +1,5 @@
 import { type Component, createEffect, createSignal, For, Show } from 'solid-js';
+import { useI18n } from '~/i18n';
 import * as api from '~/api';
 import { handleSessionInvalidated } from '~/stores/accurateAuth';
 import { addNormalizedItems } from '~/stores/barcodeItems';
@@ -28,6 +29,7 @@ interface TransactionDrawerProps {
 }
 
 export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
+  const { t } = useI18n();
   const [sources, setSources] = createSignal<AccurateSourceInfo[]>([]);
   const [selectedSource, setSelectedSource] = createSignal<string>('');
   const [documents, setDocuments] = createSignal<AccurateDocumentHeader[]>([]);
@@ -53,7 +55,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
           const list = await api.getAccurateSources();
           setSources(list);
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch transaction sources');
+          setError(err instanceof Error ? err.message : t('barcode.fetchSourcesFailed'));
         }
       })();
     }
@@ -94,7 +96,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
       if (err instanceof api.ApiError && err.status === 401) {
         handleSessionInvalidated(err.message);
       }
-      setError(err instanceof Error ? err.message : 'Failed to load documents');
+      setError(err instanceof Error ? err.message : t('barcode.loadDocumentsFailed'));
     } finally {
       if (token === listRequestToken) {
         setIsLoading(false);
@@ -121,7 +123,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
       if (err instanceof api.ApiError && err.status === 401) {
         handleSessionInvalidated(err.message);
       }
-      setError(err instanceof Error ? err.message : 'Failed to load document line items');
+      setError(err instanceof Error ? err.message : t('barcode.loadDocItemsFailed'));
     } finally {
       if (token === detailRequestToken) {
         setIsLoading(false);
@@ -145,10 +147,10 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
           <SheetHeader>
             <SheetTitle class="text-base flex items-center gap-2">
               <IconFileInvoice class="size-5 text-primary" />
-              Load Accurate Transaction Documents
+              {t('barcode.loadTransactionsTitle')}
             </SheetTitle>
             <SheetDescription class="text-xs">
-              Import line items from Purchase Orders, Receive Items, Sales Orders, Deliveries, or Stock Opnames.
+              {t('barcode.loadTransactionsDesc')}
             </SheetDescription>
           </SheetHeader>
 
@@ -187,7 +189,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void fetchDocuments(selectedSource(), 1);
                   }}
-                  placeholder="Doc number / note..."
+                  placeholder={t('barcode.docSearchPlaceholder')}
                   class="w-full h-8 px-2.5 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -225,7 +227,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
             fallback={
               <div class="py-16 flex flex-col items-center justify-center gap-2 text-muted-foreground text-xs">
                 <IconLoader2 class="size-6 animate-spin text-primary" />
-                <span>Loading Accurate data...</span>
+                <span>{t('barcode.loadingAccurateData')}</span>
               </div>
             }
           >
@@ -241,9 +243,9 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                       <div class="size-12 rounded-full bg-muted/60 flex items-center justify-center mb-3">
                         <IconFileInvoice class="size-6 text-muted-foreground/60" />
                       </div>
-                      <p class="text-sm font-semibold text-foreground">No document type selected</p>
+                      <p class="text-sm font-semibold text-foreground">{t('barcode.noDocTypeSelected')}</p>
                       <p class="text-xs text-muted-foreground mt-1 max-w-sm">
-                        Please select a document type above (e.g. Purchase Order, Delivery Order, or Receive Item) to load and view transaction records.
+                        {t('barcode.noDocTypeSelectedDesc')}
                       </p>
                     </div>
                   }
@@ -253,7 +255,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                     when={documents().length > 0}
                     fallback={
                       <div class="py-16 text-center text-muted-foreground text-xs">
-                        No documents found for this source or search filters.
+                        {t('barcode.noDocsFound')}
                       </div>
                     }
                   >
@@ -261,10 +263,10 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                     <table class="w-full text-xs text-left">
                       <thead class="bg-muted/50 border-b text-muted-foreground font-medium">
                         <tr>
-                          <th class="p-2.5">Doc Number</th>
-                          <th class="p-2.5">Date</th>
-                          <th class="p-2.5">Description</th>
-                          <th class="p-2.5 text-right">Status</th>
+                          <th class="p-2.5">{t('barcode.colDocNumber')}</th>
+                          <th class="p-2.5">{t('common.date')}</th>
+                          <th class="p-2.5">{t('barcode.colDescription')}</th>
+                          <th class="p-2.5 text-right">{t('common.status')}</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-border">
@@ -283,7 +285,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                               </td>
                               <td class="p-2.5 text-right">
                                 <Badge variant="secondary" class="text-[10px]">
-                                  {doc.statusName || 'Active'}
+                                  {doc.statusName || t('barcode.statusActive')}
                                 </Badge>
                               </td>
                             </tr>
@@ -296,7 +298,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                   {/* Pagination */}
                   <div class="flex items-center justify-between text-xs text-muted-foreground pt-2">
                     <span>
-                      Page {pagination().page} of {pagination().pageCount || 1} ({pagination().rowCount} total)
+                      {t('barcode.paginationSummary', { page: pagination().page, pages: pagination().pageCount || 1, total: pagination().rowCount })}
                     </span>
                     <div class="flex items-center gap-1">
                       <Button
@@ -305,7 +307,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                         disabled={pagination().page <= 1 || isLoading()}
                         onClick={() => void fetchDocuments(selectedSource(), pagination().page - 1)}
                       >
-                        <IconChevronLeft class="size-3.5 mr-1" /> Prev
+                        <IconChevronLeft class="size-3.5 mr-1" /> {t('common.previous')}
                       </Button>
                       <Button
                         variant="outline"
@@ -313,7 +315,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                         disabled={pagination().page >= pagination().pageCount || isLoading()}
                         onClick={() => void fetchDocuments(selectedSource(), pagination().page + 1)}
                       >
-                        Next <IconChevronRight class="size-3.5 ml-1" />
+                        {t('common.next')} <IconChevronRight class="size-3.5 ml-1" />
                       </Button>
                     </div>
                   </div>
@@ -327,7 +329,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                     <div>
                       <div class="font-bold text-sm text-foreground">{doc().number}</div>
                       <div class="text-[11px] text-muted-foreground">
-                        Date: {doc().date || '-'} • Status: {doc().statusName || '-'}
+                        {t('barcode.dateLabel')} {doc().date || '-'} • {t('barcode.statusLabel')} {doc().statusName || '-'}
                       </div>
                     </div>
                     <Button
@@ -339,7 +341,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                         setSelectedItemIndices(new Set<number>());
                       }}
                     >
-                      <IconArrowLeft class="size-3.5 mr-1" /> Back to Documents
+                      <IconArrowLeft class="size-3.5 mr-1" /> {t('barcode.backToDocuments')}
                     </Button>
                   </div>
 
@@ -362,10 +364,10 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                               class="rounded border-border"
                             />
                           </th>
-                          <th class="p-2.5">Item Code</th>
-                          <th class="p-2.5">Item Name</th>
-                          <th class="p-2.5">Barcode / UPC</th>
-                          <th class="p-2.5 text-right">Quantity</th>
+                          <th class="p-2.5">{t('barcode.colItemCode')}</th>
+                          <th class="p-2.5">{t('barcode.colItemName')}</th>
+                          <th class="p-2.5">{t('barcode.colBarcode')}</th>
+                          <th class="p-2.5 text-right">{t('barcode.colQuantity')}</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-border">
@@ -424,12 +426,12 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
             when={selectedDoc()}
             fallback={
               <Button variant="outline" size="sm" onClick={props.onClose} class="ml-auto">
-                Close
+                {t('common.close')}
               </Button>
             }
           >
             <span class="text-xs text-muted-foreground">
-              {selectedItemIndices().size} of {docItems().length} items selected
+              {t('barcode.itemsSelectedOfTotal', { selected: selectedItemIndices().size, total: docItems().length })}
             </span>
             <div class="flex items-center gap-2">
               <Button
@@ -441,7 +443,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                   setSelectedItemIndices(new Set<number>());
                 }}
               >
-                Back
+                {t('common.back')}
               </Button>
               <Button
                 size="sm"
@@ -449,7 +451,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
                 onClick={handleAddItems}
               >
                 <IconPlus class="size-4 mr-1.5" />
-                Add Selected to Queue
+                {t('barcode.addSelectedToQueue')}
               </Button>
             </div>
           </Show>
