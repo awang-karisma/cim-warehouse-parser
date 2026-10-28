@@ -20,7 +20,7 @@ import {
   symbology,
   zoom,
 } from '~/stores/barcodeConfig';
-import type { BarcodeItem } from '~/types';
+import type { BarcodeItem, PresetConfig } from '~/types';
 import { Button } from '~/components/ui/button';
 import { IconPrinter } from '@tabler/icons-solidjs';
 
@@ -28,6 +28,23 @@ function formatRupiah(num: number): string {
   return 'Rp ' + Number(num || 0).toLocaleString('id-ID');
 }
 
+
+function resolveSheetDimensions(cfg: PresetConfig) {
+  const isAudit = cfg.isAuditSheet;
+  const lblW = isAudit ? 190 : cfg.labelWidthMM;
+  const lblH = isAudit ? 15 : cfg.labelHeightMM;
+  const mTop = isAudit ? 10 : cfg.marginTopMM;
+  const mLeft = isAudit ? 10 : cfg.marginLeftMM;
+
+  let sheetW = cfg.paperWidthMM || 210;
+  let sheetH = cfg.paperHeightMM || 297;
+  if (cfg.paper === 'Roll') {
+    sheetW = lblW + mLeft * 2;
+    sheetH = lblH + mTop * 2;
+  }
+
+  return { sheetW, sheetH, lblW, lblH, mTop, mLeft, isAudit };
+}
 export const PrintPreview: Component = () => {
   const selectedItems = () => items().filter((it) => it.selected);
 
@@ -49,26 +66,7 @@ export const PrintPreview: Component = () => {
   // Dynamic Print CSS update
   createEffect(() => {
     const cfg = config();
-    const paper = cfg.paper;
-    const isAudit = cfg.isAuditSheet;
-
-    const lblW = isAudit ? 190 : cfg.labelWidthMM;
-    const lblH = isAudit ? 15 : cfg.labelHeightMM;
-    const mTop = isAudit ? 10 : cfg.marginTopMM;
-    const mLeft = isAudit ? 10 : cfg.marginLeftMM;
-
-    let sheetW = cfg.paperWidthMM;
-    let sheetH = cfg.paperHeightMM;
-    if (paper === 'A4') {
-      sheetW = 210;
-      sheetH = 297;
-    } else if (paper === 'Letter') {
-      sheetW = 216;
-      sheetH = 279;
-    } else if (paper === 'Roll') {
-      sheetW = lblW + mLeft * 2;
-      sheetH = lblH + mTop * 2;
-    }
+    const { sheetW, sheetH } = resolveSheetDimensions(cfg);
 
     let styleEl = document.getElementById('dynamic-print-css') as HTMLStyleElement | null;
     if (!styleEl) {
@@ -77,25 +75,14 @@ export const PrintPreview: Component = () => {
       document.head.appendChild(styleEl);
     }
 
-    if (paper === 'Roll') {
-      styleEl.innerHTML = `
-        @media print {
-          @page {
-            size: ${sheetW}mm ${sheetH}mm;
-            margin: 0;
-          }
+    styleEl.innerHTML = `
+      @media print {
+        @page {
+          size: ${sheetW}mm ${sheetH}mm;
+          margin: 0;
         }
-      `;
-    } else {
-      styleEl.innerHTML = `
-        @media print {
-          @page {
-            size: ${paper} portrait;
-            margin: 0;
-          }
-        }
-      `;
-    }
+      }
+    `;
   });
 
   onCleanup(() => {
@@ -106,28 +93,10 @@ export const PrintPreview: Component = () => {
   // Calculate layout pagination
   const layout = () => {
     const cfg = config();
-    const isAudit = cfg.isAuditSheet;
+    const { sheetW, sheetH, lblW, lblH, mTop, mLeft, isAudit } = resolveSheetDimensions(cfg);
     const paper = cfg.paper;
-
-    const lblW = isAudit ? 190 : cfg.labelWidthMM;
-    const lblH = isAudit ? 15 : cfg.labelHeightMM;
     const gapX = isAudit ? 0 : cfg.gapXMM;
     const gapY = isAudit ? 0 : cfg.gapYMM;
-    const mTop = isAudit ? 10 : cfg.marginTopMM;
-    const mLeft = isAudit ? 10 : cfg.marginLeftMM;
-
-    let sheetW = cfg.paperWidthMM;
-    let sheetH = cfg.paperHeightMM;
-    if (paper === 'A4') {
-      sheetW = 210;
-      sheetH = 297;
-    } else if (paper === 'Letter') {
-      sheetW = 216;
-      sheetH = 279;
-    } else if (paper === 'Roll') {
-      sheetW = lblW + mLeft * 2;
-      sheetH = lblH + mTop * 2;
-    }
 
     let rowsPerSheet = 1;
     if (paper === 'Roll') {

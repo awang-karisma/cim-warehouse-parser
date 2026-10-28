@@ -268,6 +268,51 @@ export const Barcode: Component = () => {
       setIsDeletingDesign(false);
     }
   };
+  const selectedPaper = () => {
+    const p = customConfig().paper;
+    if (p === 'A4' || p === 'A5' || p === 'Letter' || p === 'Roll') {
+      return p;
+    }
+    return 'Custom';
+  };
+
+  const isCustomPaper = () => selectedPaper() === 'Custom';
+
+  const handlePaperChange = (newPaper: string) => {
+    const current = customConfig();
+    if (newPaper === 'A4') {
+      setCustomConfig({
+        ...current,
+        paper: 'A4',
+        paperWidthMM: 210,
+        paperHeightMM: 297,
+      });
+    } else if (newPaper === 'A5') {
+      setCustomConfig({
+        ...current,
+        paper: 'A5',
+        paperWidthMM: 148,
+        paperHeightMM: 210,
+      });
+    } else if (newPaper === 'Letter') {
+      setCustomConfig({
+        ...current,
+        paper: 'Letter',
+        paperWidthMM: 216,
+        paperHeightMM: 279,
+      });
+    } else if (newPaper === 'Roll') {
+      setCustomConfig({
+        ...current,
+        paper: 'Roll',
+      });
+    } else {
+      setCustomConfig({
+        ...current,
+        paper: 'Custom',
+      });
+    }
+  };
 
   let searchContainerRef: HTMLDivElement | undefined;
   let debounceTimer: number | undefined;
@@ -1101,18 +1146,17 @@ export const Barcode: Component = () => {
                       <div class="grid grid-cols-3 gap-1">
                         <div>
                           <label class="block text-muted-foreground text-[9px]">Paper</label>
-                          <input
-                            type="text"
-                            value={customConfig().paper}
-                            onInput={(e) =>
-                              setCustomConfig({
-                                ...customConfig(),
-                                paper: e.currentTarget.value,
-                              })
-                            }
-                            placeholder="A4, Roll..."
+                          <select
+                            value={selectedPaper()}
+                            onChange={(e) => handlePaperChange(e.currentTarget.value)}
                             class="w-full px-1.5 py-1 border rounded bg-background text-xs"
-                          />
+                          >
+                            <option value="A4">A4</option>
+                            <option value="A5">A5</option>
+                            <option value="Letter">Letter</option>
+                            <option value="Custom">Custom</option>
+                            <option value="Roll">Roll</option>
+                          </select>
                         </div>
                         <div>
                           <label class="block text-muted-foreground text-[9px]">Width</label>
@@ -1120,6 +1164,7 @@ export const Barcode: Component = () => {
                             type="number"
                             step="0.5"
                             min="10"
+                            disabled={!isCustomPaper()}
                             value={customConfig().paperWidthMM}
                             onInput={(e) =>
                               setCustomConfig({
@@ -1127,7 +1172,7 @@ export const Barcode: Component = () => {
                                 paperWidthMM: parseFloat(e.currentTarget.value) || 210,
                               })
                             }
-                            class="w-full px-1.5 py-1 border rounded bg-background text-xs"
+                            class="w-full px-1.5 py-1 border rounded bg-background text-xs disabled:opacity-50 disabled:bg-muted/50 disabled:cursor-not-allowed"
                           />
                         </div>
                         <div>
@@ -1136,6 +1181,7 @@ export const Barcode: Component = () => {
                             type="number"
                             step="0.5"
                             min="10"
+                            disabled={!isCustomPaper()}
                             value={customConfig().paperHeightMM}
                             onInput={(e) =>
                               setCustomConfig({
@@ -1143,7 +1189,7 @@ export const Barcode: Component = () => {
                                 paperHeightMM: parseFloat(e.currentTarget.value) || 297,
                               })
                             }
-                            class="w-full px-1.5 py-1 border rounded bg-background text-xs"
+                            class="w-full px-1.5 py-1 border rounded bg-background text-xs disabled:opacity-50 disabled:bg-muted/50 disabled:cursor-not-allowed"
                           />
                         </div>
                       </div>

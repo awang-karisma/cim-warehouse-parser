@@ -2768,6 +2768,92 @@ func TestPageDesignsEndpoints(t *testing.T) {
 			t.Errorf("expected 404 for non-existent delete, got %d", resp404.StatusCode)
 		}
 	})
+	// 7. Custom and A5 paper dimensions persistence
+	t.Run("POST and PUT custom paper dimensions", func(t *testing.T) {
+		customPayload := `{
+			"name": "Custom 100x200 Design",
+			"paper": "Custom",
+			"paper_width_mm": 100,
+			"paper_height_mm": 200,
+			"label_width_mm": 40,
+			"label_height_mm": 20,
+			"cols": 2,
+			"rows": 8,
+			"gap_x_mm": 2,
+			"gap_y_mm": 2,
+			"margin_top_mm": 5,
+			"margin_left_mm": 5,
+			"is_audit_sheet": false
+		}`
+		req, _ := http.NewRequest("POST", "/api/v1/page-designs", strings.NewReader(customPayload))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("POST failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
+		}
+		var createRes struct {
+			Status string `json:"status"`
+			ID     int64  `json:"id"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&createRes)
+
+		// Verify GET returns Custom paper and dimensions
+		getReq, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		getResp, _ := srv.App().Test(getReq)
+		var body struct {
+			Designs []model.PageDesign `json:"designs"`
+		}
+		_ = json.NewDecoder(getResp.Body).Decode(&body)
+		if len(body.Designs) != 1 {
+			t.Fatalf("expected 1 design, got %d", len(body.Designs))
+		}
+		d := body.Designs[0]
+		if d.Paper != "Custom" || d.PaperWidthMM != 100 || d.PaperHeightMM != 200 {
+			t.Errorf("expected Custom 100x200, got paper=%q %vx%v", d.Paper, d.PaperWidthMM, d.PaperHeightMM)
+		}
+
+		// Update to A5 (148x210)
+		a5Payload := `{
+			"name": "A5 148x210 Design",
+			"paper": "A5",
+			"paper_width_mm": 148,
+			"paper_height_mm": 210,
+			"label_width_mm": 40,
+			"label_height_mm": 20,
+			"cols": 2,
+			"rows": 8,
+			"gap_x_mm": 2,
+			"gap_y_mm": 2,
+			"margin_top_mm": 5,
+			"margin_left_mm": 5,
+			"is_audit_sheet": false
+		}`
+		putReq, _ := http.NewRequest("PUT", fmt.Sprintf("/api/v1/page-designs/%d", createRes.ID), strings.NewReader(a5Payload))
+		putReq.Header.Set("Content-Type", "application/json")
+		putResp, err := srv.App().Test(putReq)
+		if err != nil || putResp.StatusCode != http.StatusOK {
+			t.Fatalf("PUT failed: err=%v status=%d", err, putResp.StatusCode)
+		}
+
+		// Verify updated GET returns A5 paper and dimensions
+		getReq2, _ := http.NewRequest("GET", "/api/v1/page-designs", nil)
+		getResp2, _ := srv.App().Test(getReq2)
+		var body2 struct {
+			Designs []model.PageDesign `json:"designs"`
+		}
+		_ = json.NewDecoder(getResp2.Body).Decode(&body2)
+		d2 := body2.Designs[0]
+		if d2.Paper != "A5" || d2.PaperWidthMM != 148 || d2.PaperHeightMM != 210 {
+			t.Errorf("expected A5 148x210, got paper=%q %vx%v", d2.Paper, d2.PaperWidthMM, d2.PaperHeightMM)
+		}
+
+		// Clean up
+		delReq, _ := http.NewRequest("DELETE", fmt.Sprintf("/api/v1/page-designs/%d", createRes.ID), nil)
+		_, _ = srv.App().Test(delReq)
+	})
 }
 
 func TestPageDesignsRBAC(t *testing.T) {
