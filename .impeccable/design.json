@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T00:00:00.000Z",
+  "title": "Design System: Warehouse Parser",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Carbon Slate",
+        "canonical": "hsl(240 5.9% 10%)",
+        "tonalRamp": ["#09090b", "#18181b", "#27272a", "#3f3f46", "#52525b", "#71717a", "#a1a1aa", "#f4f4f5"]
+      },
+      "primary-foreground": {
+        "role": "neutral",
+        "displayName": "Stark Alabaster",
+        "canonical": "hsl(0 0% 98%)",
+        "tonalRamp": ["#18181b", "#27272a", "#52525b", "#71717a", "#a1a1aa", "#d4d4d8", "#f4f4f5", "#fafafa"]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "hsl(0 0% 100%)",
+        "tonalRamp": ["#09090b", "#18181b", "#27272a", "#52525b", "#a1a1aa", "#e4e4e7", "#f4f4f5", "#ffffff"]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Deep Charcoal",
+        "canonical": "hsl(240 10% 3.9%)",
+        "tonalRamp": ["#09090b", "#18181b", "#27272a", "#3f3f46", "#52525b", "#71717a", "#d4d4d8", "#fafafa"]
+      },
+      "secondary": {
+        "role": "neutral",
+        "displayName": "Zinc Mist",
+        "canonical": "hsl(240 4.8% 95.9%)",
+        "tonalRamp": ["#18181b", "#27272a", "#3f3f46", "#71717a", "#a1a1aa", "#d4d4d8", "#e4e4e7", "#f4f4f5"]
+      },
+      "muted-foreground": {
+        "role": "neutral",
+        "displayName": "Muted Slate",
+        "canonical": "hsl(240 3.8% 46.1%)",
+        "tonalRamp": ["#18181b", "#27272a", "#3f3f46", "#52525b", "#71717a", "#a1a1aa", "#d4d4d8", "#f4f4f5"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline Zinc",
+        "canonical": "hsl(240 5.9% 90%)",
+        "tonalRamp": ["#18181b", "#27272a", "#3f3f46", "#71717a", "#a1a1aa", "#d4d4d8", "#e4e4e7", "#f4f4f5"]
+      },
+      "sidebar-bg": {
+        "role": "neutral",
+        "displayName": "Zinc Alabaster",
+        "canonical": "hsl(0 0% 98%)",
+        "tonalRamp": ["#09090b", "#18181b", "#27272a", "#52525b", "#a1a1aa", "#e4e4e7", "#f4f4f5", "#fafafa"]
+      },
+      "status-selesai": {
+        "role": "secondary",
+        "displayName": "Fulfillment Emerald",
+        "canonical": "#10b981",
+        "tonalRamp": ["#064e3b", "#065f46", "#047857", "#059669", "#10b981", "#34d399", "#6ee7b7", "#d1fae5"]
+      },
+      "status-proses": {
+        "role": "secondary",
+        "displayName": "Dispatch Amber",
+        "canonical": "#f59e0b",
+        "tonalRamp": ["#78350f", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fbbf24", "#fcd34d", "#fef3c7"]
+      },
+      "status-belum-selesai": {
+        "role": "secondary",
+        "displayName": "Backlog Gold",
+        "canonical": "#eab308",
+        "tonalRamp": ["#713f12", "#854d0e", "#a16207", "#ca8a04", "#eab308", "#facc15", "#fde047", "#fef9c3"]
+      },
+      "status-pending": {
+        "role": "tertiary",
+        "displayName": "Hold Violet",
+        "canonical": "#a855f7",
+        "tonalRamp": ["#581c87", "#6b21a8", "#7e22ce", "#9333ea", "#a855f7", "#c084fc", "#d8b4fe", "#f3e8ff"]
+      },
+      "status-batal": {
+        "role": "tertiary",
+        "displayName": "Alert Crimson",
+        "canonical": "#ef4444",
+        "tonalRamp": ["#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fca5a5", "#fee2e2"]
+      },
+      "destructive": {
+        "role": "tertiary",
+        "displayName": "Destructive Crimson",
+        "canonical": "hsl(0 84.2% 60.2%)",
+        "tonalRamp": ["#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fca5a5", "#fee2e2"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display Metric",
+        "purpose": "Primary KPI figures on Dashboard and Delivery Timeline cards."
+      },
+      "headline": {
+        "displayName": "Workspace Headline",
+        "purpose": "Page section headers and modal dialog titles."
+      },
+      "title": {
+        "displayName": "Card Title",
+        "purpose": "CardHeader titles and primary panel headings."
+      },
+      "body": {
+        "displayName": "Operational Body",
+        "purpose": "Standard table cells, form controls, and descriptions."
+      },
+      "label": {
+        "displayName": "Telemetry Badge Label",
+        "purpose": "Uppercase status chips and KPI card overline labels."
+      },
+      "mono": {
+        "displayName": "Identifier Monospace",
+        "purpose": "E-catalog codes (EP-*), order IDs (ORD-0001), and barcode strings."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-sm",
+        "value": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+        "purpose": "Subtle resting lift on Card containers alongside 1px structural border."
+      },
+      {
+        "name": "print-sheet",
+        "value": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)",
+        "purpose": "Physical paper elevation for A4 and thermal roll previews in Barcode Printer."
+      }
+    ],
+    "motion": [
+      {
+        "name": "page-enter",
+        "value": "250ms ease-out both",
+        "purpose": "Top-level route transition translating 8px upward into place."
+      },
+      {
+        "name": "card-enter",
+        "value": "400ms ease-out both",
+        "purpose": "Staggered KPI and summary card entrance translating 12px upward."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary operational trigger for syncing, saving policies, and dispatching delivery runs.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12l5 5l10 -10\"/></svg><span>Dispatch Run</span></button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 8px 16px; border-radius: 6px; border: none; background: #18181b; color: #fafafa; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 0.15s ease, box-shadow 0.15s ease; } .ds-btn-primary:hover { background: rgba(24, 24, 27, 0.9); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #18181b; }"
+    },
+    {
+      "name": "Secondary Action Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Secondary toolbar button for filtering, exporting JSON/CSV, and resetting views.",
+      "html": "<button class=\"ds-btn-secondary\">Export JSON</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 8px 16px; border-radius: 6px; border: 1px solid #e4e4e7; background: #f4f4f5; color: #18181b; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 0.15s ease; } .ds-btn-secondary:hover { background: rgba(244, 244, 245, 0.8); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #18181b; }"
+    },
+    {
+      "name": "Telemetry Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-selesai",
+      "description": "Tinted semantic badge displaying canonical Indonesian order, item, and sync states.",
+      "html": "<div class=\"ds-badge-row\"><span class=\"ds-badge ds-badge-selesai\">SELESAI</span><span class=\"ds-badge ds-badge-proses\">PROSES</span><span class=\"ds-badge ds-badge-belum\">BELUM SELESAI</span><span class=\"ds-badge ds-badge-pending\">PENDING</span><span class=\"ds-badge ds-badge-batal\">BATAL</span></div>",
+      "css": ".ds-badge-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .ds-badge { display: inline-flex; align-items: center; border-radius: 6px; padding: 2px 8px; font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; } .ds-badge-selesai { background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3); } .ds-badge-proses { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); } .ds-badge-belum { background: rgba(234, 179, 8, 0.15); color: #ca8a04; border-color: rgba(234, 179, 8, 0.3); } .ds-badge-pending { background: rgba(168, 85, 247, 0.15); color: #a855f7; border-color: rgba(168, 85, 247, 0.3); } .ds-badge-batal { background: rgba(239, 68, 68, 0.15); color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }"
+    },
+    {
+      "name": "Search & Filter Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Standard 40px text input used across table filter toolbars, alias forms, and barcode scanner fields.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Search customer, alias, or EP- code...\" />",
+      "css": ".ds-input { display: flex; height: 40px; width: 280px; border-radius: 6px; border: 1px solid #e4e4e7; background: #ffffff; padding: 8px 12px; font-family: 'Inter', sans-serif; font-size: 14px; color: #09090b; transition: box-shadow 0.15s ease, border-color 0.15s ease; } .ds-input::placeholder { color: #71717a; } .ds-input:focus-visible { outline: none; border-color: #18181b; box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #18181b; }"
+    },
+    {
+      "name": "KPI Telemetry Card",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "Structured metric container with 1px hairline border, subtle resting shadow, and monospace/display figure.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><span class=\"ds-card-label\">TOTAL ORDERS</span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#71717a\" stroke-width=\"2\"><path d=\"M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5\"/><path d=\"M12 12l8 -4.5\"/><path d=\"M12 12l0 9\"/><path d=\"M12 12l-8 -4.5\"/></svg></div><div class=\"ds-card-value\">1,284</div><div class=\"ds-card-sub\">Active mirror across 8 NTB areas</div></div>",
+      "css": ".ds-card { border-radius: 8px; border: 1px solid #e4e4e7; background: #ffffff; color: #09090b; padding: 20px 24px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); font-family: 'Inter', sans-serif; width: 260px; } .ds-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; } .ds-card-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #71717a; text-transform: uppercase; } .ds-card-value { font-size: 28px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; margin-bottom: 4px; } .ds-card-sub { font-size: 12px; color: #71717a; }"
+    },
+    {
+      "name": "Item Fulfillment Progress",
+      "kind": "custom",
+      "refersTo": "badge-selesai",
+      "description": "Inline shipment progress bar pairing a semantic fill meter with percentage and sent/ordered unit counts.",
+      "html": "<div class=\"ds-progress-wrap\"><div class=\"ds-progress-row\"><div class=\"ds-progress-track\"><div class=\"ds-progress-fill\" style=\"width: 75%\"></div></div><span class=\"ds-progress-pct\">75%</span></div><span class=\"ds-progress-meta\">15 / 20 Box</span></div>",
+      "css": ".ds-progress-wrap { display: flex; flex-direction: column; gap: 4px; width: 180px; font-family: 'Inter', sans-serif; } .ds-progress-row { display: flex; align-items: center; gap: 8px; } .ds-progress-track { flex: 1; height: 8px; background: #f4f4f5; border-radius: 9999px; overflow: hidden; } .ds-progress-fill { height: 100%; background: #f59e0b; border-radius: 9999px; transition: width 0.3s ease; } .ds-progress-pct { font-size: 12px; font-weight: 600; color: #71717a; width: 32px; text-align: right; } .ds-progress-meta { font-size: 11px; color: #71717a; font-variant-numeric: tabular-nums; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Telemetry Dispatch Ledger",
+    "overview": "Warehouse Parser is an operational instrument built for high-density spreadsheet reconciliation, warehouse shelf picking, and precision barcode/manifest printing across West Nusa Tenggara (NTB). Its visual architecture pairs a disciplined, monochrome industrial zinc frame with high-signal telemetry accents that speak only when reporting fulfillment state, stock readiness, or synchronization health.\n\nAcross desktop administration tables and one-handed mobile picking drawers, the interface favors structural clarity over decorative ornament. Chrome recedes into crisp 1px hairlines and neutral zinc surfaces so operators can scan hundreds of e-catalog codes (`EP-*`), hospital aliases, partial delivery schedules, and physical label grids without visual fatigue. When digital state meets paper—whether on an A4 delivery manifest or a 50×30mm thermal roll—the screen acts as an exact 1:1 physical proof.",
+    "keyCharacteristics": [
+      "Monochrome Structural Chrome: Navigation, toolbars, cards, and table shells rely on Carbon Slate, Paper White, and Zinc Mist so chromatic saturation is strictly reserved for operational status telemetry.",
+      "5-Channel Status Telemetry: Canonical Indonesian fulfillment states (SELESAI, PROSES, BELUM SELESAI, PENDING, BATAL) map to five distinct, theme-adaptive semantic hues used consistently across badges, segmented distribution bars, and line-item progress meters.",
+      "Uniform Tabular Rhythm: All operational tables share a standardized outer DataTable shell (6px radius, 1px border) with 12px (px-3 py-3) cell padding and 44px (h-11) headers.",
+      "Floor-to-Print Continuity: Responsive layouts collapse multi-column desktop filters and sidebars into mobile Sheet drawers, while @media print strips all application chrome to output zero-margin physical labels and manifests."
+    ],
+    "rules": [
+      {
+        "name": "The Telemetry-Only Chroma Rule",
+        "body": "Saturated color is reserved exclusively for semantic status badges, fulfillment progress bars, stock readiness indicators, and destructive alerts. Structural navigation, headers, and containers remain strictly achromatic zinc.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tinted-Fill Badge Rule",
+        "body": "Status badges never use full-bleed saturated backgrounds in tables; they pair a 15% opacity semantic background (bg-status-*/15) with a 30% opacity border (border-status-*/30) and full-strength semantic text so dense tables remain calm and readable.",
+        "section": "colors"
+      },
+      {
+        "name": "The Monospace Identifier Rule",
+        "body": "E-catalog numbers (EP-[A-Z0-9]+), generated order codes (ORD-0001), user role tags, email addresses, and raw barcode symbology strings must render in monospace so character alignment and alphanumeric scanning are unambiguous.",
+        "section": "typography"
+      },
+      {
+        "name": "The Structural Hairline Rule",
+        "body": "Every card, table shell, input field, and sidebar boundary is anchored by a 1px solid border (hsl(var(--border))). Never rely on drop shadows alone to define container edges.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the five --status-* tokens (selesai, proses, belum-selesai, pending, batal) for all order, item, and sync state indicators so status colors mean the exact same thing on every screen.",
+      "Do wrap all page-level tables in DataTable with px-3 py-3 cells and h-11 px-3 headers to preserve uniform row density.",
+      "Do preserve stored Indonesian database values (BELUM SELESAI, STOK GUDANG, regional NTB areas, customer aliases) verbatim while allowing UI chrome labels to switch between English (en) and Indonesian (id).",
+      "Do constrain flex children with min-w-0 and keep dialogs within w-[calc(100vw-2rem)] max-w-lg so 320px–375px warehouse mobile screens never suffer horizontal overflow."
+    ],
+    "donts": [
+      "Don't introduce decorative gradients, marketing hero banners, or saturated background fills on structural cards, sidebars, or table headers.",
+      "Don't label an order BATAL unless every single line item in that order has a cancellation status (BATAL or CANCEL).",
+      "Don't let application shell chrome (sidebar, breadcrumbs, filter toolbars, or screen borders) leak into @media print output for barcode labels or delivery manifests."
+    ]
+  }
+}
