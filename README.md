@@ -52,20 +52,19 @@ Automated order ingestion, normalization, and visualization system.
 
 
 - **Delivery Flow Workspace & Warehouse Picking (`/delivery-flow`)**:
-  - **4-Step Dispatch Workflow**:
-    1. *Stock Readiness Check*: Filters candidate orders and line items by warehouse stock readiness (`status_barang = 'STOK GUDANG'` by default, with toggles for all unfinished item statuses and `PENDING` client-hold requests).
-    2. *Area Grouping & Selective Item Planning*: Summarizes candidate orders by regional `Area` with quick "Select Ready" actions, filters orders by geographic destination, and allows granular line-item selection with editable partial quantities (`planned_qty`), client hold requests/notes, and informational badges for items already in active runs.
-    3. *Driver Assignment & Route Dispatch*: Driver assignment occurs after grouping orders by area and selecting items. Driver selection is optional (defaults to `'Unassigned'` if not yet determined). Manages delivery driver roster (`delivery_drivers`), dispatch date, run title, and route instructions.
-    4. *Warehouse Preparation & Printable Manifest*: Mobile-ready warehouse picking checklist supporting two grouping modes: `By Destination Order` (delivery staging per customer stop) and `Consolidated Warehouse Pick List` (shelf pulling aggregated by product and unit with single-click bulk picking). Includes a printable A4 manifest (`.delivery-print-sheet`) with run metadata, structured table, and driver/supervisor/receiver signature blocks.
-    5. *Sudden Driver Reassignment*: In Tab 2 (Warehouse Picking & Runs), supervisor can instantly reassign or change the assigned driver directly on any active run in 1 click (`PATCH /api/v1/delivery-runs/:id/driver`) without re-entering the planner.
+  - **Two-Stage Dispatch Planning & Warehouse Picking Workflow**:
+    1. *Stage 1 — Stock Readiness & Zero-Layout-Shift Item Selection (`?tab=plan`)*: Filters candidate orders and line items by warehouse stock readiness (`status_barang = 'STOK GUDANG'` by default, with toggles for all unfinished item statuses and `PENDING` client-hold requests) and summarizes candidate orders by regional `Area` with quick `+ Select Ready` actions. Uses a fixed 5-column table (`Pick`, `Item Name`, `Stock Status`, `Order Status`, `Remote Rem.`) so checking items never shifts table layout.
+    2. *Stage 2 — Quantities, Picking Notes & Driver Workload (`?tab=configure`)*: Dedicated view rendering all selected orders and items in an identical Order Card and table shell with always-visible `Qty to Deliver` steppers and `Picking Note` inputs. Includes a live **Driver Workload & Routes** overview card for the selected dispatch date (showing each driver's vehicle, run count, assigned items/orders, and NTB routes covered) alongside driver assignment, dispatch date, run title, and route instructions.
+    3. *Stage 3 — Warehouse Preparation & Printable Manifest (`?tab=runs`)*: Mobile-ready warehouse picking checklist supporting two grouping modes: `By Destination Order` (delivery staging per customer stop) and `Consolidated Warehouse Pick List` (shelf pulling aggregated by product and unit with single-click bulk picking). Includes a printable A4 manifest (`.delivery-print-sheet`) with run metadata, structured table, and driver/supervisor/receiver signature blocks.
+    4. *Sudden Driver Reassignment*: In `Warehouse Picking & Runs`, supervisor can instantly reassign or change the assigned driver directly on any active run in 1 click (`PATCH /api/v1/delivery-runs/:id/driver`) without re-entering the planner.
   - **Independent SQLite Persistence & Source-Agnostic Keys**:
     - Persists dispatch runs and items (`delivery_drivers`, `delivery_runs`, `delivery_run_items`) with stable source-agnostic identity keys (`source_key` via `BuildDeliveryItemSourceKey`), completely decoupled from remote sync tables and surviving `SyncMirror` and database clear operations.
   - **Automated Status Transitions**:
     - Toggling item picked status automatically advances run status: `PLANNED` $\rightarrow$ `PICKING` $\rightarrow$ `READY` (all items picked), with manual controls for `DISPATCHED` and `COMPLETED`.
 
   - **Mobile-Responsive Drawers & Design Tokens**:
-    - Modernized with Kobalte `Tabs` primitives and semantic design tokens (`primary`, `destructive`, `status-selesai`, `status-pending`).
-    - Responsive right `Sheet` drawer for filters and route dispatch on Tab 1, and left `Sheet` drawer for run switching on Tab 2 via floating action buttons on mobile screens.
+    - Modernized with Kobalte `Tabs` primitives (`?tab=plan|configure|runs`) and semantic design tokens (`primary`, `destructive`, `status-selesai`, `status-pending`).
+    - Responsive right `Sheet` drawers for Stage 1 (filters & area selection) and Stage 2 (driver workload & dispatch), and a left `Sheet` drawer for Stage 3 (run switching) via floating action buttons on mobile screens.
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.

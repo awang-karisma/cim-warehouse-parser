@@ -71,6 +71,7 @@ import {
   IconListCheck,
   IconBuildingWarehouse,
   IconArrowRight,
+  IconArrowLeft,
   IconRefresh,
   IconX,
 } from '@tabler/icons-solidjs';
@@ -134,7 +135,11 @@ export const DeliveryFlow: Component = () => {
   const [sidebarOpen, setSidebarOpen] = createSignal(false);
   const [runsDrawerOpen, setRunsDrawerOpen] = createSignal(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = () => (searchParams.tab === 'runs' ? 'runs' : 'plan');
+  const activeTab = () => {
+    if (searchParams.tab === 'runs') return 'runs';
+    if (searchParams.tab === 'configure') return 'configure';
+    return 'plan';
+  };
 
   // Backend resources
   const [candidatesData, { refetch: refetchCandidates }] = createResource(getDeliveryCandidates);
@@ -143,6 +148,7 @@ export const DeliveryFlow: Component = () => {
 
   // Filters & toolbar state
   const [searchTerm, setSearchTerm] = createSignal('');
+  const [configureSearchTerm, setConfigureSearchTerm] = createSignal('');
   const [readyInWarehouseOnly, setReadyInWarehouseOnly] = createSignal(true);
   const [includeClientHold, setIncludeClientHold] = createSignal(true);
   const [selectedAreaFilter, setSelectedAreaFilter] = createSignal<string | null>(null);
@@ -436,16 +442,121 @@ export const DeliveryFlow: Component = () => {
     const items = Array.from(draftItems().values());
     const orderSet = new Set<string>();
     const areaSet = new Set<string>();
+    let totalPlannedUnits = 0;
     for (const d of items) {
       orderSet.add(d.order.id);
       if (d.order.area) areaSet.add(d.order.area);
+      totalPlannedUnits += parseQty(d.planned_qty);
     }
     return {
       totalItems: items.length,
       totalOrders: orderSet.size,
+      totalPlannedUnits,
       areas: Array.from(areaSet),
     };
   });
+
+  // Group selected draft items by Order for Stage 2 (Quantities & Dispatch)
+  const selectedOrderGroups = createMemo(() => {
+    const groups = new Map<string, { order: Order; entries: { key: string; item: OrderItem; planned_qty: string; note: string }[] }>();
+    const term = configureSearchTerm().trim().toLowerCase();
+
+    for (const [key, entry] of draftItems().entries()) {
+      if (term) {
+        const matchCust = (entry.order.customer || '').toLowerCase().includes(term);
+        const matchArea = (entry.order.area || '').toLowerCase().includes(term);
+        const matchOrder = (entry.order.order_number || entry.order.id || '').toLowerCase().includes(term);
+        const matchItem = (entry.item.nama_barang || '').toLowerCase().includes(term);
+        const matchNote = (entry.note || '').toLowerCase().includes(term);
+        if (!matchCust && !matchArea && !matchOrder && !matchItem && !matchNote) {
+          continue;
+        }
+      }
+      const ordId = entry.order.id || entry.order.order_number || 'UNKNOWN';
+      if (!groups.has(ordId)) {
+        groups.set(ordId, {
+          order: entry.order,
+          entries: [],
+        });
+      }
+      groups.get(ordId)!.entries.push({
+        key,
+        item: entry.item,
+        planned_qty: entry.planned_qty,
+        note: entry.note,
+      });
+    }
+
+    return Array.from(groups.values());
+  });
+
+  // Driver Workload & Route Overview for the target Dispatch Date
+  const driverWorkloads = createMemo(() => {
+    const activeDrivers = (driversData()?.drivers || []).filter((d) => d.active);
+    const allRuns = runsData()?.runs || [];
+    const targetDate = deliveryDate().trim();
+    const dateRuns = allRuns.filter((r) => !targetDate || r.delivery_date === targetDate);
+
+    return activeDrivers.map((d) => {
+      const matchingRuns = dateRuns.filter(
+        (r) =>
+          (d.id && r.driver_id === d.id) ||
+          (!r.driver_id && r.driver_name.trim().toLowerCase() === d.name.trim().toLowerCase())
+      );
+      const activeRuns = matchingRuns.filter((r) => (r.status || '').toUpperCase() !== 'COMPLETED');
+      let assignedItems = 0;
+      const orderSet = new Set<string>();
+      const areaSet = new Set<string>();
+
+      for (const r of matchingRuns) {
+        assignedItems += r.total_items || (r.items ? r.items.length : 0);
+        for (const a of r.areas || []) {
+          if (a) areaSet.add(a);
+        }
+        for (const it of r.items || []) {
+          if (it.order_id) orderSet.add(it.order_id);
+          if (it.area) areaSet.add(it.area);
+        }
+      }
+
+      return {
+        driver: d,
+        runsCount: matchingRuns.length,
+        activeRunsCount: activeRuns.length,
+        assignedItems,
+        ordersCount: orderSet.size,
+        areas: Array.from(areaSet),
+      };
+    });
+  });
+
+  // Remove all items of a specific order from draft (Stage 2 order checkbox)
+  const removeOrderFromDraft = (order: Order) => {
+    const next = new Map(draftItems());
+    const ordId = order.id || order.order_number || '';
+    for (const [k, v] of next.entries()) {
+      if ((v.order.id || v.order.order_number || '') === ordId) {
+        next.delete(k);
+      }
+    }
+    setDraftItems(next);
+  };
+
+  // Reset all items in an order to their full remaining qty (Stage 2 helper)
+  const fillMaxRemainingInOrder = (order: Order) => {
+    const next = new Map(draftItems());
+    const ordId = order.id || order.order_number || '';
+    for (const [k, v] of next.entries()) {
+      if ((v.order.id || v.order.order_number || '') === ordId) {
+        const rem = getItemRemainingQty(v.item);
+        next.set(k, {
+          ...v,
+          planned_qty: rem > 0 ? rem.toString() : '1',
+        });
+      }
+    }
+    setDraftItems(next);
+  };
 
   // Handle Driver assignment
   const handleDriverSelect = (driverIdStr: string) => {
@@ -586,7 +697,7 @@ export const DeliveryFlow: Component = () => {
         });
       }
       setDraftItems(nextDraft);
-      setSearchParams({ tab: 'plan' });
+      setSearchParams({ tab: 'configure' });
     });
   };
 
@@ -820,7 +931,7 @@ export const DeliveryFlow: Component = () => {
       console.error('Failed to toggle consolidated pick:', err);
     }
   };
-  const PlanSidebarContent = () => (
+  const PlanSelectSidebarContent = () => (
     <div class="space-y-4">
       {/* Card 1: Stock Readiness & Filters */}
       <Card class="border-primary/20 shadow-xs animate-[card-enter_400ms_ease-out_both]">
@@ -893,14 +1004,21 @@ export const DeliveryFlow: Component = () => {
                     class="flex items-center justify-between cursor-pointer"
                     onClick={() => setSelectedAreaFilter(isSelected() ? null : grp.area)}
                   >
-                    <span class="font-bold text-foreground truncate">{grp.area}</span>
-                    <span class="text-[11px] font-semibold text-muted-foreground">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                      <span class="font-bold text-foreground truncate">{grp.area}</span>
+                      <Show when={grp.selectedItemsCount > 0}>
+                        <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-primary text-primary-foreground tabular-nums">
+                          {grp.selectedItemsCount} picked
+                        </span>
+                      </Show>
+                    </div>
+                    <span class="text-[11px] font-semibold text-muted-foreground tabular-nums shrink-0">
                       <span class="text-foreground">{grp.readyItemsCount}</span>/{grp.totalItemsCount} items
                     </span>
                   </div>
 
                   <div class="flex items-center justify-between mt-1 text-[10px]">
-                    <span class="text-muted-foreground">{grp.orders.length} orders</span>
+                    <span class="text-muted-foreground tabular-nums">{grp.orders.length} orders</span>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -919,21 +1037,162 @@ export const DeliveryFlow: Component = () => {
         </CardContent>
       </Card>
 
-      {/* Card 3: Driver Assignment & Run Dispatch Action */}
+      {/* Card 3: Selection Summary & Proceed to Stage 2 */}
       <Card class="border-border bg-card shadow-sm animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "200ms" }}>
+        <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between">
+          <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
+            <IconListCheck class="size-3.5" />
+            Selection Summary
+          </CardTitle>
+          <Show when={editingRunId()}>
+            <span class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted text-foreground">
+              RUN #{editingRunId()}
+            </span>
+          </Show>
+        </CardHeader>
+        <CardContent class="p-3.5 pt-0 space-y-3">
+          <div class="p-2.5 rounded-lg bg-muted/30 border border-border space-y-1">
+            <div class="flex items-center justify-between text-xs font-bold text-foreground">
+              <span>Selected Items:</span>
+              <span class="text-primary font-extrabold text-sm tabular-nums">
+                {draftStats().totalItems} items
+              </span>
+            </div>
+            <div class="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Orders Covered:</span>
+              <span class="tabular-nums">{draftStats().totalOrders} orders</span>
+            </div>
+            <Show when={draftStats().areas.length > 0}>
+              <div class="text-[10px] text-muted-foreground truncate pt-1 border-t border-border">
+                Areas: {draftStats().areas.join(', ')}
+              </div>
+            </Show>
+          </div>
+
+          <div class="space-y-1.5">
+            <Button
+              size="sm"
+              onClick={() => {
+                setSidebarOpen(false);
+                setSearchParams({ tab: 'configure' });
+              }}
+              disabled={draftStats().totalItems === 0}
+              class="w-full text-xs h-9 font-semibold gap-1.5"
+            >
+              <span>Set Quantities & Dispatch</span>
+              <IconArrowRight class="size-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const ConfigureDispatchSidebarContent = () => (
+    <div class="space-y-4">
+      {/* Card 1: Driver Workload & Route Overview */}
+      <Card class="border-border bg-card shadow-xs animate-[card-enter_400ms_ease-out_both]">
+        <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between gap-2">
+          <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-primary">
+            <IconUser class="size-3.5" />
+            Driver Workload & Routes
+          </CardTitle>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[10px] font-mono text-muted-foreground">
+              {deliveryDate() || 'All Dates'}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDriverModal(true)}
+              class="text-[10px] h-6 px-2 border-border"
+            >
+              Roster
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent class="p-3.5 pt-0 space-y-2">
+          <Show
+            when={driverWorkloads().length > 0}
+            fallback={
+              <div class="p-3 rounded-lg border border-dashed text-center text-xs text-muted-foreground">
+                No active drivers in roster. Click Roster to add drivers.
+              </div>
+            }
+          >
+            <For each={driverWorkloads()}>
+              {(wl) => {
+                const isSelectedDriver = () => selectedDriverId() === wl.driver.id;
+                return (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleDriverSelect(
+                        isSelectedDriver() ? '' : (wl.driver.id?.toString() || '')
+                      )
+                    }
+                    class={cn(
+                      'w-full p-2.5 rounded-lg border text-left text-xs transition-all space-y-1',
+                      isSelectedDriver()
+                        ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                        : 'border-border bg-card hover:border-primary/50'
+                    )}
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="font-bold text-foreground truncate">{wl.driver.name}</span>
+                        <Show when={wl.driver.vehicle}>
+                          <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground shrink-0">
+                            {wl.driver.vehicle}
+                          </span>
+                        </Show>
+                      </div>
+                      <span
+                        class={cn(
+                          'text-[10px] font-semibold px-1.5 py-0.5 rounded-full tabular-nums shrink-0',
+                          wl.activeRunsCount > 0
+                            ? 'bg-status-proses/15 text-status-proses border border-status-proses/30'
+                            : 'bg-status-selesai/15 text-status-selesai border border-status-selesai/30'
+                        )}
+                      >
+                        {wl.runsCount === 0
+                          ? 'Available'
+                          : `${wl.runsCount} ${wl.runsCount === 1 ? 'run' : 'runs'}`}
+                      </span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+                      <span>
+                        {wl.assignedItems} items • {wl.ordersCount} orders
+                      </span>
+                      <Show when={isSelectedDriver()}>
+                        <span class="text-[10px] font-semibold text-primary">Assigned</span>
+                      </Show>
+                    </div>
+                    <Show when={wl.areas.length > 0}>
+                      <div class="text-[10px] text-muted-foreground truncate pt-0.5 border-t border-border/60">
+                        Routes: {wl.areas.join(', ')}
+                      </div>
+                    </Show>
+                  </button>
+                );
+              }}
+            </For>
+          </Show>
+        </CardContent>
+      </Card>
+
+      {/* Card 2: Driver Assignment & Run Dispatch Action */}
+      <Card class="border-border bg-card shadow-sm animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "100ms" }}>
         <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between">
           <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
             <IconTruckDelivery class="size-3.5" />
             Driver Assignment & Dispatch
           </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowDriverModal(true)}
-            class="text-[10px] h-6 px-2 border-border"
-          >
-            Roster
-          </Button>
+          <Show when={editingRunId()}>
+            <span class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted text-foreground">
+              EDIT #{editingRunId()}
+            </span>
+          </Show>
         </CardHeader>
 
         <CardContent class="p-3.5 pt-0 space-y-3">
@@ -991,11 +1250,30 @@ export const DeliveryFlow: Component = () => {
             />
           </div>
 
+          <div>
+            <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
+              Route Instructions / Notes
+            </label>
+            <input
+              type="text"
+              placeholder="Gate instructions, priority drop-off..."
+              value={runNotes()}
+              onInput={(e) => setRunNotes(e.currentTarget.value)}
+              class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
           <div class="p-2.5 rounded-lg bg-muted/30 border border-border space-y-1">
             <div class="flex items-center justify-between text-xs font-bold text-foreground">
               <span>Selected Items:</span>
               <span class="text-primary font-extrabold text-sm tabular-nums">
                 {draftStats().totalItems} items
+              </span>
+            </div>
+            <div class="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Total Planned Qty:</span>
+              <span class="font-semibold text-foreground tabular-nums">
+                {draftStats().totalPlannedUnits} units
               </span>
             </div>
             <div class="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -1025,11 +1303,27 @@ export const DeliveryFlow: Component = () => {
               <span>{editingRunId() ? 'Update Run' : 'Dispatch / Save Run'}</span>
             </Button>
 
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSidebarOpen(false);
+                setSearchParams({ tab: 'plan' });
+              }}
+              class="w-full text-[11px] h-8 gap-1"
+            >
+              <IconArrowLeft class="size-3.5" />
+              <span>Back to Select Items</span>
+            </Button>
+
             <Show when={draftStats().totalItems > 0}>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setDraftItems(new Map())}
+                onClick={() => {
+                  setDraftItems(new Map());
+                  setEditingRunId(null);
+                }}
                 class="w-full text-[11px] h-7 text-muted-foreground hover:text-foreground"
               >
                 Clear Selection
@@ -1147,21 +1441,25 @@ export const DeliveryFlow: Component = () => {
         }}
         class="w-full no-print"
       >
-        <TabsList>
-          <TabsTrigger value="plan" class="gap-2 text-xs">
+        <TabsList class="flex-wrap h-auto gap-1">
+          <TabsTrigger value="plan" class="gap-2 text-xs h-8">
             <IconListCheck class="size-4" />
-            <span>Order Dispatch Planner</span>
+            <span>Select Candidate Items</span>
+          </TabsTrigger>
+          <TabsTrigger value="configure" class="gap-2 text-xs h-8">
+            <IconTruckDelivery class="size-4" />
+            <span>Quantities & Dispatch</span>
             <Show when={draftStats().totalItems > 0}>
-              <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary text-primary-foreground">
+              <span class="df-tab-counter">
                 {draftStats().totalItems}
               </span>
             </Show>
           </TabsTrigger>
-          <TabsTrigger value="runs" class="gap-2 text-xs">
+          <TabsTrigger value="runs" class="gap-2 text-xs h-8">
             <IconBuildingWarehouse class="size-4" />
             <span>Warehouse Picking & Runs</span>
             <Show when={(runsData()?.runs?.length || 0) > 0}>
-              <span class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-muted text-muted-foreground">
+              <span class="inline-flex items-center justify-center h-[18px] min-w-5 px-1.5 text-[10px] leading-none font-bold rounded bg-muted text-muted-foreground tabular-nums">
                 {runsData()?.runs?.length}
               </span>
             </Show>
@@ -1195,7 +1493,7 @@ export const DeliveryFlow: Component = () => {
                   </Show>
                 </div>
 
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                   <div class="relative w-full sm:w-64">
                     <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     <input
@@ -1218,6 +1516,75 @@ export const DeliveryFlow: Component = () => {
                   >
                     <IconRefresh class="size-3" />
                   </Button>
+                </div>
+              </div>
+              <div class="df-bulk-segmented">
+                <div class="df-seg-metrics">
+                  <span class="df-metric-chip">
+                    <span>Orders</span>
+                    <strong>{draftStats().totalOrders}</strong>
+                  </span>
+                  <span class="df-metric-chip">
+                    <span>Selected</span>
+                    <strong>{draftStats().totalItems}</strong>
+                  </span>
+                  <span class="df-metric-chip">
+                    <span>Units</span>
+                    <strong>{draftStats().totalPlannedUnits}</strong>
+                  </span>
+                </div>
+                <div class="df-btn-row" role="group" aria-label="Bulk item selection controls">
+                  <button
+                    type="button"
+                    class="df-normal-btn df-normal-btn-select"
+                    onClick={() => {
+                      const next = new Map(draftItems());
+                      for (const ord of visibleOrders()) {
+                        const readyItems = (ord.items || []).filter(
+                          (it) =>
+                            isItemEligible(it) &&
+                            (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
+                        );
+                        for (const it of readyItems) {
+                          const k = makeItemKey(ord, it);
+                          if (!next.has(k)) {
+                            const rem = getItemRemainingQty(it);
+                            next.set(k, {
+                              order: ord,
+                              item: it,
+                              planned_qty: rem > 0 ? rem.toString() : '1',
+                              note: '',
+                            });
+                          }
+                        }
+                      }
+                      setDraftItems(next);
+                    }}
+                  >
+                    <IconCheck class="size-3.5" />
+                    <span>Select All Ready</span>
+                    <span class="df-btn-badge">
+                      {visibleOrders().reduce(
+                        (acc, ord) =>
+                          acc +
+                          (ord.items || []).filter(
+                            (it) =>
+                              isItemEligible(it) &&
+                              (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
+                          ).length,
+                        0
+                      )}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="df-normal-btn df-normal-btn-clear"
+                    disabled={draftStats().totalItems === 0}
+                    onClick={() => setDraftItems(new Map())}
+                  >
+                    <IconX class="size-3.5" />
+                    <span>Clear Selection</span>
+                  </button>
                 </div>
               </div>
 
@@ -1279,9 +1646,9 @@ export const DeliveryFlow: Component = () => {
                                     <Badge status={getDominantOrderStatus(order.items)} />
                                   </div>
                                   <div class="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                                    <span>Order: <strong>{order.order_number || order.id}</strong></span>
+                                    <span>Order: <strong class="font-mono text-foreground">{order.order_number || order.id}</strong></span>
                                     <Show when={order.ecatalog_number}>
-                                      <span>• E-Cat: {order.ecatalog_number}</span>
+                                      <span>• E-Cat: <span class="font-mono">{order.ecatalog_number}</span></span>
                                     </Show>
                                     <Show when={order.tanggal}>
                                       <span>• Date: {typeof order.tanggal === 'string' ? order.tanggal : ''}</span>
@@ -1301,7 +1668,7 @@ export const DeliveryFlow: Component = () => {
                               </Button>
                             </div>
 
-                            {/* Order Items Table */}
+                            {/* Order Items Table (Stage 1: Zero Layout Shift - fixed 5 columns, no conditional inputs) */}
                             <div class="overflow-x-auto">
                               <table class="w-full text-right text-xs border-collapse">
                                 <thead>
@@ -1311,8 +1678,6 @@ export const DeliveryFlow: Component = () => {
                                     <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Stock Status</th>
                                     <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Order Status</th>
                                     <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Remote Rem.</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Qty to Deliver</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Picking Note</th>
                                   </tr>
                                 </thead>
                                 <tbody class="divide-y divide-border">
@@ -1320,20 +1685,27 @@ export const DeliveryFlow: Component = () => {
                                     {(item) => {
                                       const key = makeItemKey(order, item);
                                       const isSelected = () => draftItems().has(key);
-                                      const draftItem = () => draftItems().get(key);
                                       const activeRunInfo = () => activeRunItemKeys().get(key);
                                       const remaining = getItemRemainingQty(item);
                                       const isClientPending = () => (item.status_order || '').trim().toUpperCase() === 'PENDING';
 
                                       return (
                                         <tr
+                                          onClick={() => toggleItemSelection(order, item)}
                                           class={cn(
-                                            'transition-colors',
-                                            isSelected() ? 'bg-muted' : isClientPending() ? 'bg-status-pending/5 hover:bg-status-pending/10' : 'hover:bg-muted/50'
+                                            'transition-colors cursor-pointer select-none',
+                                            isSelected()
+                                              ? 'bg-muted'
+                                              : isClientPending()
+                                                ? 'bg-status-pending/5 hover:bg-status-pending/10'
+                                                : 'hover:bg-muted/50'
                                           )}
                                         >
                                           {/* Checkbox */}
-                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
+                                          <td
+                                            class="py-2.5 px-3 w-px whitespace-nowrap text-right"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
                                             <input
                                               type="checkbox"
                                               checked={isSelected()}
@@ -1375,57 +1747,272 @@ export const DeliveryFlow: Component = () => {
                                           <td class="py-2.5 px-3 w-px whitespace-nowrap text-right text-muted-foreground font-medium tabular-nums">
                                             <span class="font-bold text-foreground">{remaining}</span> / {item.jumlah || '0'} {item.satuan}
                                           </td>
+                                        </tr>
+                                      );
+                                    }}
+                                  </For>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Show>
+              </Show>
+            </div>
 
-                                          {/* Planned Qty Stepper */}
+            {/* FLOATING RIGHT SIDEBAR: FILTERS, AREAS & SELECTION SUMMARY (Col 4) */}
+            <Show when={!isMobile()}>
+              <div class="lg:col-span-4 space-y-4 lg:sticky lg:top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 scrollbar-thin">
+                <PlanSelectSidebarContent />
+              </div>
+            </Show>
+          </div>
+        </Show>
+
+        {/* TAB 2 (STAGE 2): QUANTITIES, NOTES & DRIVER DISPATCH (Identical Order Card/Table Shell) */}
+        <Show when={activeTab() === 'configure'}>
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* MAIN CONTENT: SELECTED ORDERS & QUANTITY CONFIGURATION */}
+            <div class={cn('space-y-4', isMobile() ? 'col-span-1' : 'lg:col-span-8')}>
+              {/* Sub-Header Toolbar */}
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSearchParams({ tab: 'plan' })}
+                    class="text-xs h-7 px-2.5 gap-1"
+                  >
+                    <IconArrowLeft class="size-3.5" />
+                    <span>Select Items</span>
+                  </Button>
+                  <span class="text-sm font-bold text-foreground">Selected Orders & Quantities</span>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold tabular-nums">
+                    {selectedOrderGroups().length} orders • {draftStats().totalItems} items
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <div class="relative w-full sm:w-64">
+                    <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Filter selected orders, items..."
+                      value={configureSearchTerm()}
+                      onInput={(e) => setConfigureSearchTerm(e.currentTarget.value)}
+                      class="w-full pl-8 pr-2.5 py-1 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Show when={plannerError()}>
+                <div class="p-3 rounded-lg bg-destructive/15 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
+                  <IconAlertTriangle class="size-4 shrink-0" />
+                  <span>{plannerError()}</span>
+                </div>
+              </Show>
+
+              <Show
+                when={draftStats().totalItems > 0}
+                fallback={
+                  <div class="p-16 text-center border rounded-lg bg-card space-y-3">
+                    <IconListCheck class="size-12 mx-auto text-muted-foreground" />
+                    <div>
+                      <h3 class="text-sm font-semibold text-foreground">No items selected for dispatch yet</h3>
+                      <p class="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                        Select candidate orders and items by area first, then return here to set delivery quantities, notes, and driver assignment.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => setSearchParams({ tab: 'plan' })}
+                      class="text-xs h-8 px-3 gap-1.5"
+                    >
+                      <IconArrowLeft class="size-3.5" />
+                      <span>Select Candidate Items</span>
+                    </Button>
+                  </div>
+                }
+              >
+                <Show
+                  when={selectedOrderGroups().length > 0}
+                  fallback={
+                    <div class="p-12 text-center border rounded-lg bg-card">
+                      <h3 class="text-sm font-semibold text-foreground">No selected items match your search</h3>
+                      <p class="text-xs text-muted-foreground mt-1">
+                        Clear the search filter to see all {draftStats().totalItems} selected items.
+                      </p>
+                    </div>
+                  }
+                >
+                  <div class="space-y-4">
+                    <For each={selectedOrderGroups()}>
+                      {(group, index) => {
+                        const order = group.order;
+                        return (
+                          <div
+                            class="border rounded-xl bg-card overflow-hidden shadow-xs hover:border-primary/50 transition-all animate-[card-enter_400ms_ease-out_both]"
+                            style={{ "animation-delay": `${index() * 50}ms` }}
+                          >
+                            {/* Order Header (Identical shell to Candidate Orders) */}
+                            <div class="bg-muted/30 p-3 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b">
+                              <div class="flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={true}
+                                  onChange={() => removeOrderFromDraft(order)}
+                                  class="size-4 rounded text-primary focus:ring-ring cursor-pointer"
+                                  title="Uncheck to remove this order from dispatch selection"
+                                />
+                                <div>
+                                  <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="font-bold text-sm text-foreground">{order.customer}</span>
+                                    <Show when={order.area}>
+                                      <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                        {order.area}
+                                      </span>
+                                    </Show>
+                                    <Badge status={getDominantOrderStatus(group.entries.map((e) => e.item))} />
+                                  </div>
+                                  <div class="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                                    <span>Order: <strong class="font-mono text-foreground">{order.order_number || order.id}</strong></span>
+                                    <Show when={order.ecatalog_number}>
+                                      <span>• E-Cat: <span class="font-mono">{order.ecatalog_number}</span></span>
+                                    </Show>
+                                    <Show when={order.tanggal}>
+                                      <span>• Date: {typeof order.tanggal === 'string' ? order.tanggal : ''}</span>
+                                    </Show>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fillMaxRemainingInOrder(order)}
+                                class="text-[11px] h-7 px-2.5 gap-1 self-end sm:self-auto"
+                              >
+                                <IconCheck class="size-3 text-primary" />
+                                <span>Fill Remaining Qty</span>
+                              </Button>
+                            </div>
+
+                            {/* Order Items Table (Identical table shell, fixed columns with always-visible Qty & Note inputs) */}
+                            <div class="overflow-x-auto">
+                              <table class="w-full text-right text-xs border-collapse">
+                                <thead>
+                                  <tr class="border-b bg-muted/20 text-muted-foreground text-[11px]">
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Pick</th>
+                                    <th class="py-2.5 px-3 w-full text-left">Item Name</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Stock Status</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Remote Rem.</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Qty to Deliver</th>
+                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">Picking Note</th>
+                                  </tr>
+                                </thead>
+                                <tbody class="divide-y divide-border">
+                                  <For each={group.entries}>
+                                    {(entry) => {
+                                      const item = entry.item;
+                                      const activeRunInfo = () => activeRunItemKeys().get(entry.key);
+                                      const remaining = getItemRemainingQty(item);
+                                      const isClientPending = () => (item.status_order || '').trim().toUpperCase() === 'PENDING';
+
+                                      return (
+                                        <tr
+                                          class={cn(
+                                            'transition-colors',
+                                            isClientPending()
+                                              ? 'bg-status-pending/5 hover:bg-status-pending/10'
+                                              : 'hover:bg-muted/50'
+                                          )}
+                                        >
+                                          {/* Checkbox (uncheck removes from draft) */}
                                           <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
-                                            <Show
-                                              when={isSelected()}
-                                              fallback={<span class="text-muted-foreground italic text-[11px]">Check to plan</span>}
-                                            >
-                                              <div class="inline-flex items-center justify-end gap-1">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => updateItemPlannedQty(order, item, -1)}
-                                                  class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
-                                                >
-                                                  <IconMinus class="size-3" />
-                                                </button>
-                                                <input
-                                                  type="number"
-                                                  min="1"
-                                                  max={remaining}
-                                                  value={draftItem()?.planned_qty || '1'}
-                                                  onInput={(e) => setItemPlannedQtyDirect(order, item, e.currentTarget.value)}
-                                                  class="w-14 text-center py-0.5 text-xs font-semibold rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
-                                                />
-                                                <button
-                                                  type="button"
-                                                  onClick={() => updateItemPlannedQty(order, item, 1)}
-                                                  class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
-                                                >
-                                                  <IconPlus class="size-3" />
-                                                </button>
-                                                <span class="text-[11px] text-muted-foreground ml-1">
-                                                  {item.satuan || ''}
-                                                </span>
-                                              </div>
-                                            </Show>
+                                            <input
+                                              type="checkbox"
+                                              checked={true}
+                                              onChange={() => toggleItemSelection(order, item)}
+                                              class="size-4 rounded text-primary focus:ring-ring cursor-pointer align-middle"
+                                              title="Uncheck to remove item from dispatch"
+                                            />
                                           </td>
 
-                                          {/* Note */}
+                                          {/* Item Name & Active Badges */}
+                                          <td class="py-2.5 px-3 w-full text-left">
+                                            <div class="font-medium text-foreground">{item.nama_barang}</div>
+                                            <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                                              <Show when={activeRunInfo()}>
+                                                <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-status-pending/15 text-status-pending border border-status-pending/30">
+                                                  <IconTruckDelivery class="size-3" />
+                                                  In Run #{activeRunInfo()!.runId} ({activeRunInfo()!.driverName}): {activeRunInfo()!.plannedQty}
+                                                </span>
+                                              </Show>
+                                              <Show when={item.keterangan || item.catatan || isClientPending()}>
+                                                <div class="inline-flex items-center gap-1 text-[11px] text-status-pending font-medium">
+                                                  <IconAlertTriangle class="size-3 shrink-0" />
+                                                  <span>{item.keterangan || item.catatan || 'Client delay request'}</span>
+                                                </div>
+                                              </Show>
+                                            </div>
+                                          </td>
+
+                                          {/* Stock Status */}
                                           <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
-                                            <Show
-                                              when={isSelected()}
-                                              fallback={<span class="text-muted-foreground">-</span>}
-                                            >
+                                            <Badge status={item.status_barang || '-'} kind="item" />
+                                          </td>
+
+                                          {/* Remaining Qty */}
+                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right text-muted-foreground font-medium tabular-nums">
+                                            <span class="font-bold text-foreground">{remaining}</span> / {item.jumlah || '0'} {item.satuan}
+                                          </td>
+
+                                          {/* Always-Visible Planned Qty Stepper */}
+                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
+                                            <div class="inline-flex items-center justify-end gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => updateItemPlannedQty(order, item, -1)}
+                                                class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
+                                                title="Decrease quantity"
+                                              >
+                                                <IconMinus class="size-3" />
+                                              </button>
                                               <input
-                                                type="text"
-                                                placeholder="Picking note..."
-                                                value={draftItem()?.note || ''}
-                                                onInput={(e) => setItemNote(order, item, e.currentTarget.value)}
-                                                class="w-36 text-right text-[11px] py-1 px-2 rounded border bg-background"
+                                                type="number"
+                                                min="1"
+                                                max={remaining}
+                                                value={entry.planned_qty || '1'}
+                                                onInput={(e) => setItemPlannedQtyDirect(order, item, e.currentTarget.value)}
+                                                class="w-14 text-center py-0.5 text-xs font-semibold rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
                                               />
-                                            </Show>
+                                              <button
+                                                type="button"
+                                                onClick={() => updateItemPlannedQty(order, item, 1)}
+                                                class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
+                                                title="Increase quantity"
+                                              >
+                                                <IconPlus class="size-3" />
+                                              </button>
+                                              <span class="text-[11px] text-muted-foreground ml-1">
+                                                {item.satuan || ''}
+                                              </span>
+                                            </div>
+                                          </td>
+
+                                          {/* Always-Visible Picking Note Input */}
+                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
+                                            <input
+                                              type="text"
+                                              placeholder="Picking note..."
+                                              value={entry.note || ''}
+                                              onInput={(e) => setItemNote(order, item, e.currentTarget.value)}
+                                              class="w-36 text-right text-[11px] py-1 px-2 rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                                            />
                                           </td>
                                         </tr>
                                       );
@@ -1443,15 +2030,14 @@ export const DeliveryFlow: Component = () => {
               </Show>
             </div>
 
-            {/* FLOATING RIGHT SIDEBAR: FILTERS, AREAS & DRIVER DISPATCH (Col 4) */}
+            {/* FLOATING RIGHT SIDEBAR: DRIVER WORKLOAD & DISPATCH (Col 4) */}
             <Show when={!isMobile()}>
               <div class="lg:col-span-4 space-y-4 lg:sticky lg:top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 scrollbar-thin">
-                <PlanSidebarContent />
+                <ConfigureDispatchSidebarContent />
               </div>
             </Show>
           </div>
         </Show>
-
         {/* TAB 2: WAREHOUSE PICKING & RUNS (Full Detail & Checklist) */}
         <Show when={activeTab() === 'runs'}>
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -1744,17 +2330,21 @@ export const DeliveryFlow: Component = () => {
             </Show>
           </div>
         </Show>
-        {/* Mobile Plan Drawer */}
-        <Show when={isMobile() && activeTab() === 'plan'}>
+        {/* Mobile Plan & Configure Drawer */}
+        <Show when={isMobile() && (activeTab() === 'plan' || activeTab() === 'configure')}>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
           >
-            <IconFilter class="size-4" />
-            <span class="text-sm font-semibold">Filters & Dispatch</span>
+            <Show when={activeTab() === 'plan'} fallback={<IconTruckDelivery class="size-4" />}>
+              <IconFilter class="size-4" />
+            </Show>
+            <span class="text-sm font-semibold">
+              {activeTab() === 'plan' ? 'Filters & Selection' : 'Drivers & Dispatch'}
+            </span>
             <Show when={draftStats().totalItems > 0}>
-              <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary">
+              <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary tabular-nums">
                 {draftStats().totalItems}
               </span>
             </Show>
@@ -1763,10 +2353,14 @@ export const DeliveryFlow: Component = () => {
           <Sheet open={sidebarOpen()} onOpenChange={setSidebarOpen}>
             <SheetContent position="right" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
               <SheetHeader>
-                <SheetTitle>Filters & Dispatch</SheetTitle>
+                <SheetTitle>
+                  {activeTab() === 'plan' ? 'Filters & Area Selection' : 'Driver Workload & Dispatch'}
+                </SheetTitle>
               </SheetHeader>
               <div class="mt-4">
-                <PlanSidebarContent />
+                <Show when={activeTab() === 'plan'} fallback={<ConfigureDispatchSidebarContent />}>
+                  <PlanSelectSidebarContent />
+                </Show>
               </div>
             </SheetContent>
           </Sheet>
