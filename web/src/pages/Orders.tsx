@@ -151,6 +151,15 @@ export const Orders: Component = () => {
     return [t('orders.allAreas'), ...names];
   });
 
+  const statusOptions = createMemo(() => [
+    t('orders.allStatuses'),
+    'BELUM SELESAI',
+    'SELESAI',
+    'PROSES',
+    'PENDING',
+    'BATAL',
+  ]);
+
   return (
     <div class="flex flex-1 flex-col gap-6">
       {/* Filter Toolbar (Tasks Example Pattern) */}
@@ -198,9 +207,9 @@ export const Orders: Component = () => {
             <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">{t('dashboard.status')}</label>
               <Select<string>
-                options={[t('orders.allStatuses'), 'BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                options={statusOptions()}
                 value={filters.values.status() || t('orders.allStatuses')}
-                onChange={(val) => filters.setters.status(!val || val === t('orders.allStatuses') ? '' : val)}
+                onChange={(val) => filters.setters.status(!val || val === t('orders.allStatuses') || val === 'All Statuses' || val === 'Semua Status' ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}

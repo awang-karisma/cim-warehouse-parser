@@ -130,6 +130,16 @@ export const Items: Component = () => {
     filters.setters.offset(0);
   };
 
+  const statusOrderOptions = createMemo(() => [
+    t('orders.allStatuses'),
+    ...VALID_STATUS_ORDERS,
+  ]);
+
+  const statusBarangOptions = createMemo(() => [
+    t('items.allStatusBarang'),
+    ...STATUS_BARANG_OPTIONS.filter((opt) => opt !== 'All'),
+  ]);
+
   const handleSort = (field: string) => {
     const currentSort = filters.values.sort();
     const currentOrder = filters.values.order();
@@ -192,9 +202,9 @@ export const Items: Component = () => {
             <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">{t('items.statusOrder')}</label>
               <Select<string>
-                options={[t('orders.allStatuses'), ...VALID_STATUS_ORDERS]}
+                options={statusOrderOptions()}
                 value={filters.values.status_order() || t('orders.allStatuses')}
-                onChange={(val) => filters.setters.status_order(!val || val === t('orders.allStatuses') ? '' : val)}
+                onChange={(val) => filters.setters.status_order(!val || val === t('orders.allStatuses') || val === 'All Statuses' || val === 'Semua Status' ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}
@@ -209,9 +219,9 @@ export const Items: Component = () => {
             <div class="w-full lg:w-auto lg:min-w-[150px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">{t('items.statusBarang')}</label>
               <Select<string>
-                options={STATUS_BARANG_OPTIONS as unknown as string[]}
+                options={statusBarangOptions()}
                 value={filters.values.status_barang() || t('items.allStatusBarang')}
-                onChange={(val) => filters.setters.status_barang(!val || val === 'All' || val === t('items.allStatusBarang') ? '' : val)}
+                onChange={(val) => filters.setters.status_barang(!val || val === 'All' || val === t('items.allStatusBarang') || val === 'Semua' ? '' : val)}
                 itemComponent={(props) => (
                   <SelectItem item={props.item}>{props.item.rawValue}</SelectItem>
                 )}

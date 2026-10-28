@@ -27,6 +27,7 @@ export interface AuthContextValue {
   login: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   refetch: () => Promise<void>;
+  setUserLocale: (locale: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue>();
@@ -119,6 +120,10 @@ export const AuthProvider: ParentComponent = (props) => {
     await fetchAuth();
   };
 
+  const setUserLocale = (locale: string) => {
+    setUser((prev) => (prev ? { ...prev, locale } : prev));
+  };
+
   const value: AuthContextValue = {
     user,
     authConfig,
@@ -126,6 +131,7 @@ export const AuthProvider: ParentComponent = (props) => {
     login,
     logout,
     refetch,
+    setUserLocale,
   };
 
   return <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>;

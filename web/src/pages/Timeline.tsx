@@ -122,6 +122,14 @@ export const Timeline: Component = () => {
     }
   };
 
+  const statusOptions = createMemo(() => [
+    t('orders.allStatuses'),
+    'SELESAI',
+    'PROSES',
+    'PENDING',
+    'BATAL',
+  ]);
+
   const handleLimitChange = (newLimit: number) => {
     filters.setters.limit(newLimit);
     filters.setters.offset(0);
@@ -198,10 +206,10 @@ export const Timeline: Component = () => {
             <div class="w-full lg:w-auto lg:min-w-[160px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">{t('timeline.deliveryStatus')}</label>
               <Select<string>
-                options={[t('orders.allStatuses'), 'SELESAI', 'PROSES', 'PENDING', 'BATAL']}
+                options={statusOptions()}
                 value={filters.values.status() || t('orders.allStatuses')}
                 onChange={(val) => {
-                  filters.setters.status(!val || val === t('orders.allStatuses') ? '' : val);
+                  filters.setters.status(!val || val === t('orders.allStatuses') || val === 'All Statuses' || val === 'Semua Status' ? '' : val);
                   filters.setters.offset(0);
                 }}
                 itemComponent={(props) => (

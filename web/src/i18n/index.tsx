@@ -49,27 +49,27 @@ export const I18nProvider: ParentComponent = (props) => {
   const email = () => auth?.user()?.email;
   const [locale, setLocaleSignal] = createSignal<Locale>(detectLocale(email()));
 
-  // Sync when user logs in / loads
+  let lastUserEmail: string | null | undefined = undefined;
+
+  // Sync initial locale when user logs in / loads session
   createEffect(() => {
     const user = auth?.user();
-    if (!user) return;
+    if (user === undefined) return; // Still loading session
 
-    // Backend-stored user locale
-    if (user.locale === "en" || user.locale === "id") {
-      if (locale() !== user.locale) {
+    const currentEmail = user?.email ?? null;
+    // Only synchronize from backend user if the user session changed (e.g. initial load or account switch)
+    if (currentEmail !== lastUserEmail) {
+      lastUserEmail = currentEmail;
+      if (user && (user.locale === "en" || user.locale === "id")) {
         setLocaleSignal(user.locale);
         localStorage.setItem(user.email ? `warehouse-ui-locale:${user.email}` : "warehouse-ui-locale", user.locale);
-        document.documentElement.lang = user.locale;
-        return;
-      }
-    }
-
-    // Per-user localStorage
-    if (user.email) {
-      const stored = localStorage.getItem(`warehouse-ui-locale:${user.email}`);
-      if (stored === "en" || stored === "id") {
-        if (locale() !== stored) {
-          setLocaleSignal(stored);
+        if (typeof document !== "undefined") {
+          document.documentElement.lang = user.locale;
+        }
+      } else {
+        const stored = detectLocale(currentEmail);
+        setLocaleSignal(stored);
+        if (typeof document !== "undefined") {
           document.documentElement.lang = stored;
         }
       }
@@ -78,6 +78,7 @@ export const I18nProvider: ParentComponent = (props) => {
 
   const setLocale = (l: Locale) => {
     setLocaleSignal(l);
+    auth?.setUserLocale?.(l);
     const userEmail = email();
     localStorage.setItem(userEmail ? `warehouse-ui-locale:${userEmail}` : "warehouse-ui-locale", l);
     localStorage.setItem("warehouse-ui-locale", l);
