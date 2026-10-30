@@ -623,6 +623,7 @@ export const dict: RawDictionary = {
     code39: "Code 39",
     ean13: "EAN-13 (13 digit)",
     qrCode: "Kode QR (2D)",
+    dataMatrix: "Data Matrix (2D)",
     heightCompact: "Kompak (18px)",
     heightMedium: "Sedang (24px)",
     heightLarge: "Besar (32px)",

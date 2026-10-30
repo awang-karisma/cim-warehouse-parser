@@ -1282,6 +1282,7 @@ export const Barcode: Component = () => {
                   <option value="CODE39">{t('barcode.code39')}</option>
                   <option value="EAN13">{t('barcode.ean13')}</option>
                   <option value="QRCODE">{t('barcode.qrCode')}</option>
+                  <option value="DATAMATRIX">{t('barcode.dataMatrix')}</option>
                 </select>
 
                 <div class="grid grid-cols-2 gap-1.5 pt-0.5">

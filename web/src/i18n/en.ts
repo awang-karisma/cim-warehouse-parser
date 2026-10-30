@@ -623,6 +623,7 @@ export const dict = {
     code39: "Code 39",
     ean13: "EAN-13 (13 digits)",
     qrCode: "QR Code (2D)",
+    dataMatrix: "Data Matrix (2D)",
     heightCompact: "Compact (18px)",
     heightMedium: "Medium (24px)",
     heightLarge: "Large (32px)",

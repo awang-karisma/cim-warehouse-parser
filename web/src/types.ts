@@ -334,7 +334,7 @@ export interface PresetConfig {
   isAuditSheet: boolean;
 }
 
-export type Symbology = 'CODE128' | 'CODE39' | 'EAN13' | 'QRCODE';
+export type Symbology = 'CODE128' | 'CODE39' | 'EAN13' | 'QRCODE' | 'DATAMATRIX';
 export type BarcodeHeight = 'compact' | 'medium' | 'large';
 export type FontSize = 'small' | 'medium' | 'large';
 export type QtyMode = 'single' | 'multiply';

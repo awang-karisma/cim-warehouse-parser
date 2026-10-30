@@ -2,6 +2,7 @@ import { type Component, createEffect, For, onCleanup, Show } from 'solid-js';
 import { useI18n } from '~/i18n';
 import JsBarcode from 'jsbarcode';
 import qrcode from 'qrcode-generator';
+import { DATAMatrix } from 'datamatrix-svg-ts';
 import { items } from '~/stores/barcodeItems';
 import {
   barcodeHeight,
@@ -430,6 +431,15 @@ const BarcodeGraphic: Component<BarcodeGraphicProps> = (props) => {
         }
       } catch {
         containerRef.innerHTML = `<span class="text-[9px] text-red-500">QR Error</span>`;
+      }
+    } else if (sym === 'DATAMATRIX') {
+      try {
+        const svg = DATAMatrix({ message: val, padding: 0, palette: { foreground: 'currentColor' } });
+        svg.style.width = `${props.height * 1.2}px`;
+        svg.style.height = `${props.height * 1.2}px`;
+        containerRef.appendChild(svg);
+      } catch {
+        containerRef.innerHTML = `<span class="text-[9px] text-red-500">Data Matrix Error</span>`;
       }
     } else {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

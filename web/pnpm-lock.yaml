@@ -184,6 +184,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      datamatrix-svg-ts:
+        specifier: ^1.1.0
+        version: 1.1.0
       jsbarcode:
         specifier: ^3.12.3
         version: 3.12.3
@@ -990,6 +993,10 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  datamatrix-svg-ts@1.1.0:
+    resolution: {integrity: sha512-9KdG3C4RiDXB28QMhb5QGfD+x/LbxWryuUv8s2fzJnc+fZGtlKYKOYf7403Uq6s3gAUCGh1wcHQWlGnvEnSi8A==}
+    engines: {node: '>=18'}
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -2175,6 +2182,8 @@ snapshots:
       which: 2.0.2
 
   csstype@3.2.3: {}
+
+  datamatrix-svg-ts@1.1.0: {}
 
   debug@4.4.3:
     dependencies:
