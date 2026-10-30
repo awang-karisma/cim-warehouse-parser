@@ -499,7 +499,7 @@ export const Barcode: Component = () => {
   };
 
   return (
-    <div class="space-y-6">
+    <div class="space-y-6 barcode-print-root">
       {/* Card 1: Quick Action Toolbar & Search */}
       <Card class="no-print">
         <CardContent class="p-4 md:p-6">
@@ -817,7 +817,7 @@ export const Barcode: Component = () => {
       </Card>
 
       {/* Card 3: Live Print Preview Canvas */}
-      <Card class="overflow-hidden">
+      <Card class="overflow-hidden barcode-print-card">
         <CardHeader class="no-print flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0 pb-4 border-b">
           <div>
             <CardTitle class="text-base font-semibold flex items-center gap-2">
@@ -1479,7 +1479,7 @@ export const Barcode: Component = () => {
           </div>
         </Show>
 
-        <CardContent class="p-0 bg-muted/20 min-h-[480px] flex flex-col">
+        <CardContent class="p-0 bg-muted/20 min-h-[480px] flex flex-col barcode-print-card">
           <PrintPreview />
         </CardContent>
       </Card>

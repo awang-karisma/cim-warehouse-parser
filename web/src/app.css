@@ -428,34 +428,57 @@ input[type="number"] {
     display: none !important;
   }
 
-  body, html, #root, main {
+  body, html, #root, main, .group\/sidebar-wrapper, .page-transition, .barcode-print-root, .barcode-print-card {
+    display: block !important;
     background: transparent !important;
     color: #000000 !important;
+    width: auto !important;
+    min-height: 0 !important;
     height: auto !important;
     overflow: visible !important;
     padding: 0 !important;
     margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    animation: none !important;
+    transform: none !important;
   }
 
   .preview-pane {
+    display: block !important;
     padding: 0 !important;
     margin: 0 !important;
     background: transparent !important;
     overflow: visible !important;
     height: auto !important;
+    min-height: 0 !important;
+    width: auto !important;
   }
 
   .sheet-wrapper {
+    display: block !important;
     transform: none !important;
     margin: 0 !important;
     padding: 0 !important;
+    width: auto !important;
   }
 
   .print-sheet {
     box-shadow: none !important;
     margin: 0 !important;
+    overflow: hidden !important;
     page-break-after: always !important;
     break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 
   .barcode-label {

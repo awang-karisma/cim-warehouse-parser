@@ -183,7 +183,7 @@ const Sidebar: Component<SidebarProps> = (rawProps) => {
       <Match when={local.collapsible === "none"}>
         <div
           class={cn(
-            "test w-(--sidebar-width) flex h-full flex-col bg-sidebar text-sidebar-foreground",
+            "no-print test w-(--sidebar-width) flex h-full flex-col bg-sidebar text-sidebar-foreground",
             local.class
           )}
           {...others}
@@ -208,8 +208,8 @@ const Sidebar: Component<SidebarProps> = (rawProps) => {
       </Match>
       <Match when={!isMobile()}>
         <div
-          class="group peer hidden md:block"
-          data-state={state()}
+          class="group peer hidden md:block no-print"
+          data-sidebar="sidebar-container"
           data-collapsible={state() === "collapsed" ? local.collapsible : ""}
           data-variant={local.variant}
           data-side={local.side}

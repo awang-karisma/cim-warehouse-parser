@@ -79,11 +79,9 @@ export const PrintPreview: Component = () => {
     }
 
     styleEl.innerHTML = `
-      @media print {
-        @page {
-          size: ${sheetW}mm ${sheetH}mm;
-          margin: 0;
-        }
+      @page {
+        size: ${sheetW}mm ${sheetH}mm;
+        margin: 0;
       }
     `;
   });
