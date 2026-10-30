@@ -76,6 +76,12 @@ import {
   IconArrowLeft,
   IconRefresh,
   IconX,
+  IconChevronDown,
+  IconChevronRight,
+  IconChevronUp,
+  IconBox,
+  IconClock,
+  IconAdjustmentsHorizontal,
 } from '@tabler/icons-solidjs';
 
 function parseQty(val?: string): number {
@@ -131,7 +137,6 @@ interface AreaGroupSummary {
   pendingItemsCount: number;
   selectedItemsCount: number;
 }
-
 export const DeliveryFlow: Component = () => {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -144,6 +149,21 @@ export const DeliveryFlow: Component = () => {
     return 'plan';
   };
 
+  const [dockFilterOpen, setDockFilterOpen] = createSignal(false);
+
+  const [expandedOrders, setExpandedOrders] = createSignal<Set<string>>(new Set());
+  const isOrderExpanded = (orderId: string) => expandedOrders().has(orderId);
+  const toggleOrderExpanded = (orderId: string) => {
+    setExpandedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
   // Backend resources
   const [candidatesData, { refetch: refetchCandidates }] = createResource(getDeliveryCandidates);
   const [driversData, { refetch: refetchDrivers }] = createResource(getDeliveryDrivers);
@@ -155,6 +175,15 @@ export const DeliveryFlow: Component = () => {
   const [readyInWarehouseOnly, setReadyInWarehouseOnly] = createSignal(true);
   const [includeClientHold, setIncludeClientHold] = createSignal(true);
   const [selectedAreaFilter, setSelectedAreaFilter] = createSignal<string | null>(null);
+
+  const enabledFilterCount = createMemo(() => {
+    let count = 0;
+    if (searchTerm().trim()) count++;
+    if (readyInWarehouseOnly()) count++;
+    if (includeClientHold()) count++;
+    if (selectedAreaFilter()) count++;
+    return count;
+  });
 
   // Draft Delivery Run state (Planner)
   const [selectedDriverId, setSelectedDriverId] = createSignal<number | null>(null);
@@ -458,6 +487,22 @@ export const DeliveryFlow: Component = () => {
       areas: Array.from(areaSet),
     };
   });
+  const removeDraftItem = (key: string) => {
+    setDraftItems((prev) => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const toggleExpandAll = () => {
+    const allIds = visibleOrders().map((o) => String(o.id || ''));
+    if (expandedOrders().size >= allIds.length) {
+      setExpandedOrders(new Set<string>());
+    } else {
+      setExpandedOrders(new Set<string>(allIds));
+    }
+  };
 
   // Group selected draft items by Order for Stage 2 (Quantities & Dispatch)
   const selectedOrderGroups = createMemo(() => {
@@ -936,6 +981,38 @@ export const DeliveryFlow: Component = () => {
   };
   const PlanSelectSidebarContent = () => (
     <div class="space-y-4">
+      {/* Card 0: Search Text Filter */}
+      <Card class="border-border shadow-xs animate-[card-enter_300ms_ease-out_both]">
+        <CardHeader class="p-3.5 pb-2">
+          <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
+            <IconSearch class="size-3.5" />
+            <span>{t('deliveryFlow.searchOrdersPlaceholder')}</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent class="p-3.5 pt-0">
+          <div class="relative w-full">
+            <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder={t('deliveryFlow.searchOrdersPlaceholder')}
+              value={searchTerm()}
+              onInput={(e) => setSearchTerm(e.currentTarget.value)}
+              class="w-full pl-8 pr-7 py-1.5 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <Show when={searchTerm()}>
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                class="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                title="Clear search"
+              >
+                <IconX class="size-3" />
+              </button>
+            </Show>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Card 1: Stock Readiness & Filters */}
       <Card class="border-primary/20 shadow-xs animate-[card-enter_400ms_ease-out_both]">
         <CardHeader class="p-3.5 pb-2">
@@ -1432,6 +1509,338 @@ export const DeliveryFlow: Component = () => {
     </div>
   );
 
+  // Canonical Mobile Order Card with Design-System Micro-Pills & Product Unit
+  const OrderCard = (props: { order: Order; index: number }) => {
+    const eligibleItems = () => (props.order.items || []).filter((it) => isItemEligible(it));
+    const orderAllSelected = () =>
+      eligibleItems().length > 0 &&
+      eligibleItems().every((it) => draftItems().has(makeItemKey(props.order, it)));
+
+    return (
+      <div
+        class="border rounded-xl bg-card overflow-hidden shadow-xs hover:border-primary/50 transition-all animate-[card-enter_400ms_ease-out_both]"
+        style={{ "animation-delay": `${props.index * 40}ms` }}
+      >
+        <div class="bg-muted/30 p-2.5 flex items-center justify-between gap-2 border-b">
+          <div class="flex items-center gap-2 min-w-0">
+            <input
+              type="checkbox"
+              checked={orderAllSelected()}
+              onChange={() => toggleOrderSelection(props.order)}
+              class="size-4 rounded text-primary shrink-0"
+            />
+            <span class="font-bold text-xs text-foreground truncate">{props.order.customer}</span>
+            <Show when={props.order.area}>
+              <span class="text-[9px] font-semibold px-1.5 py-0.2 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                {props.order.area}
+              </span>
+            </Show>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => selectReadyInOrder(props.order)}
+            class="text-[10px] h-6 px-2 gap-1 shrink-0"
+          >
+            <IconCheck class="size-2.5 text-primary" />
+            <span>Ready</span>
+          </Button>
+        </div>
+
+        <table class="w-full text-right text-xs border-collapse">
+          <thead>
+            <tr class="border-b bg-muted/20 text-muted-foreground text-[10px]">
+              <th class="py-2 px-2.5 w-8 text-center">{t('deliveryFlow.pick')}</th>
+              <th class="py-2 px-2 w-full text-left">{t('deliveryFlow.itemName')}</th>
+              <th class="py-2 px-2.5 w-24 whitespace-nowrap text-right">{t('deliveryFlow.remoteRemaining')}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-border">
+            <For each={eligibleItems()}>
+              {(item) => {
+                const key = makeItemKey(props.order, item);
+                const isSelected = () => draftItems().has(key);
+                const remaining = getItemRemainingQty(item);
+                const activeRunInfo = () => activeRunItemKeys().get(key);
+                const isClientPending = () => (item.status_order || '').trim().toUpperCase() === 'PENDING';
+
+                return (
+                  <tr
+                    onClick={() => toggleItemSelection(props.order, item)}
+                    class={cn(
+                      'transition-colors cursor-pointer select-none',
+                      isSelected() ? 'bg-muted' : isClientPending() ? 'bg-status-pending/5' : 'hover:bg-muted/40'
+                    )}
+                  >
+                    <td class="py-2.5 px-2.5 w-8 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected()}
+                        onChange={() => toggleItemSelection(props.order, item)}
+                        class="size-4 rounded text-primary focus:ring-ring cursor-pointer align-middle"
+                      />
+                    </td>
+                    <td class="py-2.5 px-2 w-full text-left">
+                      <div class="font-medium text-xs text-foreground leading-tight">{item.nama_barang}</div>
+                      <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <Badge
+                          status={item.status_barang || '-'}
+                          kind="item"
+                          pill
+                          class="text-[9.5px] font-bold px-2 py-0 h-4 leading-none"
+                        />
+                        <Badge
+                          status={item.status_order || '-'}
+                          pill
+                          class="text-[9.5px] font-bold px-2 py-0 h-4 leading-none"
+                        />
+                        <Show when={activeRunInfo()}>
+                          <span class="inline-flex items-center gap-1 text-[9.5px] font-bold px-2 py-0 h-4 leading-none rounded-full bg-status-pending/15 text-status-pending border border-status-pending/30">
+                            <IconTruckDelivery class="size-2.5" />
+                            <span>Run #{activeRunInfo()!.runId} ({activeRunInfo()!.plannedQty})</span>
+                          </span>
+                        </Show>
+                        <Show when={item.keterangan || item.catatan || isClientPending()}>
+                          <span class="text-status-pending text-[10px] font-medium truncate max-w-[130px] flex items-center gap-1">
+                            <IconAlertTriangle class="size-2.5 shrink-0" />
+                            <span>{item.keterangan || item.catatan || t('deliveryFlow.clientDelayRequest')}</span>
+                          </span>
+                        </Show>
+                      </div>
+                    </td>
+                    <td class="py-2.5 px-2.5 w-24 whitespace-nowrap text-right text-xs tabular-nums">
+                      <span class="font-bold text-foreground">{remaining}</span>
+                      <span class="text-[10px] text-muted-foreground font-normal"> / {item.jumlah || '0'} {item.satuan}</span>
+                    </td>
+                  </tr>
+                );
+              }}
+            </For>
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+
+  // The B4 Floating Pill Dock with Integrated Filter Drawer
+  const FloatingDock = () => (
+    <>
+      <Show when={dockFilterOpen()}>
+        <div class="df-dock-backdrop no-print" onClick={() => setDockFilterOpen(false)} />
+      </Show>
+      <div class="fixed bottom-2 left-2 right-2 z-40 p-3.5 sm:p-4 rounded-2xl border bg-card/98 backdrop-blur-md shadow-2xl no-print">
+        {/* Integrated Filter Drawer Content (Hidden by default) */}
+        <Show when={dockFilterOpen()}>
+          <div class="mb-3 p-3 rounded-xl border bg-background shadow-inner animate-[card-enter_200ms_ease-out_both] space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-xs text-foreground flex items-center gap-1.5">
+                <IconAdjustmentsHorizontal class="size-3.5 text-primary" />
+                <span>Filter Kesiapan & Area</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setDockFilterOpen(false)}
+                class="size-5 inline-flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground"
+              >
+                <IconX class="size-3" />
+              </button>
+            </div>
+
+            {/* Search Text Filter */}
+            <div class="relative w-full">
+              <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder={t('deliveryFlow.searchOrdersPlaceholder')}
+                value={searchTerm()}
+                onInput={(e) => setSearchTerm(e.currentTarget.value)}
+                class="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Show when={searchTerm()}>
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  class="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  title="Clear search"
+                >
+                  <IconX class="size-3" />
+                </button>
+              </Show>
+            </div>
+
+            {/* Quick Readiness Toggles */}
+            <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setReadyInWarehouseOnly(!readyInWarehouseOnly())}
+                class={cn(
+                  'p-2 rounded-lg border text-left flex items-center justify-between',
+                  readyInWarehouseOnly()
+                    ? 'border-blue-500 bg-blue-500/10 font-bold text-blue-600 dark:text-blue-400'
+                    : 'bg-muted/40 text-muted-foreground'
+                )}
+              >
+                <span>Stok Gudang</span>
+                <Show when={readyInWarehouseOnly()}><IconCheck class="size-3 text-blue-600" /></Show>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIncludeClientHold(!includeClientHold())}
+                class={cn(
+                  'p-2 rounded-lg border text-left flex items-center justify-between',
+                  includeClientHold()
+                    ? 'border-status-pending bg-status-pending/10 font-bold text-status-pending'
+                    : 'bg-muted/40 text-muted-foreground'
+                )}
+              >
+                <span>Client Hold</span>
+                <Show when={includeClientHold()}><IconCheck class="size-3 text-status-pending" /></Show>
+              </button>
+            </div>
+
+            {/* NTB Area Grid */}
+            <div class="space-y-1">
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Pilih Wilayah NTB</span>
+                <Show when={selectedAreaFilter()}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedAreaFilter()) selectReadyInArea(selectedAreaFilter()!);
+                    }}
+                    class="text-[10px] font-bold text-primary hover:underline"
+                  >
+                    + Select Ready in {selectedAreaFilter()}
+                  </button>
+                </Show>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-0.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAreaFilter(null)}
+                  class={cn(
+                    'p-2 rounded-lg border text-left text-xs transition-all',
+                    !selectedAreaFilter()
+                      ? 'border-primary bg-primary text-primary-foreground font-bold'
+                      : 'bg-muted/30 text-muted-foreground hover:bg-muted'
+                  )}
+                >
+                  Semua Area
+                </button>
+                <For each={areaGroups()}>
+                  {(grp) => (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAreaFilter(selectedAreaFilter() === grp.area ? null : grp.area)}
+                      class={cn(
+                        'p-2 rounded-lg border text-left text-xs transition-all flex flex-col justify-between',
+                        selectedAreaFilter() === grp.area
+                          ? 'border-primary bg-primary text-primary-foreground font-bold'
+                          : 'bg-muted/30 text-muted-foreground hover:bg-muted'
+                      )}
+                    >
+                      <span class="truncate">{grp.area}</span>
+                      <span class="text-[10px] opacity-80">{grp.readyItemsCount} ready</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+          </div>
+        </Show>
+
+        {/* Dock Controls */}
+        <div class="flex items-center justify-between text-xs mb-2.5">
+          <span class="text-xs text-muted-foreground">
+            <strong class="text-foreground font-semibold">{draftStats().totalItems}</strong> {t('deliveryFlow.selectedItemsCount', { count: draftStats().totalItems, units: draftStats().totalPlannedUnits })}
+          </span>
+          <Show when={draftStats().totalItems > 0}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDraftItems(new Map())}
+              class="h-6.5 px-2 text-[11px] text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive gap-1 rounded-lg"
+            >
+              <IconTrash class="size-3" />
+              <span>{t('deliveryFlow.clearSelection')}</span>
+            </Button>
+          </Show>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDockFilterOpen(!dockFilterOpen())}
+            class={cn(
+              'text-xs h-10 gap-1.5 rounded-xl font-medium transition-all',
+              dockFilterOpen() && 'border-primary ring-1 ring-primary/30 bg-primary/5'
+            )}
+          >
+            <IconFilter class="size-3.5 text-muted-foreground" />
+            <span>{t('deliveryFlow.filters')}</span>
+            <Show when={enabledFilterCount() > 0}>
+              <span class="inline-flex items-center justify-center h-[18px] min-w-[18px] px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold tabular-nums leading-none shrink-0 shadow-xs">
+                {enabledFilterCount()}
+              </span>
+            </Show>
+            <IconChevronDown class={cn('size-3.5 text-muted-foreground transition-transform duration-200', dockFilterOpen() && 'rotate-180')} />
+          </Button>
+          <Button
+            size="sm"
+            disabled={draftStats().totalItems === 0}
+            onClick={() => setSearchParams({ tab: 'configure' })}
+            class="text-xs h-10 gap-1.5 rounded-xl font-semibold"
+          >
+            <span>{t('deliveryFlow.continueToDispatch')}</span>
+            <IconArrowRight class="size-3.5" />
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+
+  // Persistent Bottom Dock for Stage 2 (Configure Dispatch)
+  const BottomDockConfigure = () => (
+    <div class="fixed bottom-2 left-2 right-2 z-40 p-3.5 sm:p-4 rounded-2xl border bg-card/98 backdrop-blur-md shadow-2xl no-print">
+      <div class="flex items-center justify-between text-xs mb-2.5">
+        <button
+          type="button"
+          onClick={() => setSearchParams({ tab: 'plan' })}
+          class="inline-flex items-center gap-1 text-xs text-primary hover:underline font-semibold"
+        >
+          <IconArrowLeft class="size-3.5" />
+          <span>{t('deliveryFlow.backToSelectItems')}</span>
+        </button>
+        <span class="text-[11px] text-muted-foreground tabular-nums">
+          <strong class="text-foreground font-semibold">{draftStats().totalItems}</strong> items ({draftStats().totalPlannedUnits} units)
+        </span>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setSidebarOpen(true)}
+          class="text-xs h-10 gap-1.5 rounded-xl font-medium"
+        >
+          <IconUser class="size-3.5" />
+          <span>Driver & Roster</span>
+        </Button>
+        <Button
+          size="sm"
+          disabled={isSavingRun() || draftStats().totalItems === 0}
+          onClick={handleSaveRun}
+          class="text-xs h-10 gap-1.5 rounded-xl font-semibold"
+        >
+          <Show when={isSavingRun()} fallback={<IconTruckDelivery class="size-3.5" />}>
+            <Spinner size="sm" />
+          </Show>
+          <span>{editingRunId() ? t('deliveryFlow.updateRun') : t('deliveryFlow.dispatchSaveRun')}</span>
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <div class="space-y-4">
       {/* Tab Navigation */}
@@ -1473,124 +1882,179 @@ export const DeliveryFlow: Component = () => {
         <Show when={activeTab() === 'plan'}>
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* MAIN CONTENT: ORDERS LIST */}
-            <div class={cn('space-y-4', isMobile() ? 'col-span-1' : 'lg:col-span-8')}>
+            <div
+              class={cn(
+                'space-y-4',
+                isMobile() ? 'col-span-1 pb-32' : 'lg:col-span-8'
+              )}
+            >
               {/* Main Content Sub-Header Toolbar */}
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-bold text-foreground">{t('deliveryFlow.candidateOrders')}</span>
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold">
-                    {t('deliveryFlow.ordersCount', { count: visibleOrders().length })}
-                  </span>
-                  <Show when={selectedAreaFilter()}>
-                    <div class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
-                      <span>{t('deliveryFlow.areaChip', { area: selectedAreaFilter() ?? '' })}</span>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAreaFilter(null)}
-                        class="hover:text-foreground"
-                        title={t('deliveryFlow.clearAreaFilter')}
-                      >
-                        <IconX class="size-3" />
-                      </button>
+              <Show
+                when={isMobile()}
+                fallback={
+                  /* Desktop Toolbar */
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card">
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm font-bold text-foreground">{t('deliveryFlow.candidateOrders')}</span>
+                      <span class="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold">
+                        {t('deliveryFlow.ordersCount', { count: visibleOrders().length })}
+                      </span>
+                      <Show when={selectedAreaFilter()}>
+                        <div class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
+                          <span>{t('deliveryFlow.areaChip', { area: selectedAreaFilter() ?? '' })}</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAreaFilter(null)}
+                            class="hover:text-foreground"
+                            title={t('deliveryFlow.clearAreaFilter')}
+                          >
+                            <IconX class="size-3" />
+                          </button>
+                        </div>
+                      </Show>
                     </div>
-                  </Show>
-                </div>
 
-                <div class="flex items-center gap-2 flex-wrap">
-                  <div class="relative w-full sm:w-64">
-                    <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder={t('deliveryFlow.searchOrdersPlaceholder')}
-                      value={searchTerm()}
-                      onInput={(e) => setSearchTerm(e.currentTarget.value)}
-                      class="w-full pl-8 pr-2.5 py-1 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <div class="relative w-full sm:w-64">
+                        <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder={t('deliveryFlow.searchOrdersPlaceholder')}
+                          value={searchTerm()}
+                          onInput={(e) => setSearchTerm(e.currentTarget.value)}
+                          class="w-full pl-8 pr-2.5 py-1 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          refetchCandidates();
+                          refetchRuns();
+                        }}
+                        class="text-xs h-7 px-2 shrink-0"
+                        title={t('deliveryFlow.refreshOrders')}
+                      >
+                        <IconRefresh class="size-3" />
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      refetchCandidates();
-                      refetchRuns();
-                    }}
-                    class="text-xs h-7 px-2 shrink-0"
-                    title={t('deliveryFlow.refreshOrders')}
-                  >
-                    <IconRefresh class="size-3" />
-                  </Button>
+                }
+              >
+                {/* Mobile Compact Toolbar */}
+                <div class="flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-card">
+                  <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
+                    <span class="text-xs font-bold text-foreground truncate">{t('deliveryFlow.candidateOrders')}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold">
+                      {visibleOrders().length}
+                    </span>
+                    <Show when={selectedAreaFilter()}>
+                      <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
+                        <span class="truncate max-w-[80px]">{selectedAreaFilter()}</span>
+                        <button type="button" onClick={() => setSelectedAreaFilter(null)}>
+                          <IconX class="size-2.5" />
+                        </button>
+                      </span>
+                    </Show>
+                    <Show when={searchTerm()}>
+                      <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                        <span class="truncate max-w-[80px]">"{searchTerm()}"</span>
+                        <button type="button" onClick={() => setSearchTerm('')}>
+                          <IconX class="size-2.5" />
+                        </button>
+                      </span>
+                    </Show>
+                  </div>
+
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        refetchCandidates();
+                        refetchRuns();
+                      }}
+                      class="h-7 w-7 p-0 shrink-0"
+                      title={t('deliveryFlow.refreshOrders')}
+                    >
+                      <IconRefresh class="size-3" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-              <div class="df-bulk-segmented">
-                <div class="df-seg-metrics">
-                  <span class="df-metric-chip">
-                    <span>{t('common.orders')}</span>
-                    <strong>{draftStats().totalOrders}</strong>
-                  </span>
-                  <span class="df-metric-chip">
-                    <span>{t('deliveryFlow.selected')}</span>
-                    <strong>{draftStats().totalItems}</strong>
-                  </span>
-                  <span class="df-metric-chip">
-                    <span>{t('deliveryFlow.units')}</span>
-                    <strong>{draftStats().totalPlannedUnits}</strong>
-                  </span>
-                </div>
-                <div class="df-btn-row" role="group" aria-label={t('deliveryFlow.bulkAriaLabel')}>
-                  <button
-                    type="button"
-                    class="df-normal-btn df-normal-btn-select"
-                    onClick={() => {
-                      const next = new Map(draftItems());
-                      for (const ord of visibleOrders()) {
-                        const readyItems = (ord.items || []).filter(
-                          (it) =>
-                            isItemEligible(it) &&
-                            (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
-                        );
-                        for (const it of readyItems) {
-                          const k = makeItemKey(ord, it);
-                          if (!next.has(k)) {
-                            const rem = getItemRemainingQty(it);
-                            next.set(k, {
-                              order: ord,
-                              item: it,
-                              planned_qty: rem > 0 ? rem.toString() : '1',
-                              note: '',
-                            });
-                          }
-                        }
-                      }
-                      setDraftItems(next);
-                    }}
-                  >
-                    <IconCheck class="size-3.5" />
-                    <span>{t('deliveryFlow.selectAllReady')}</span>
-                    <span class="df-btn-badge">
-                      {visibleOrders().reduce(
-                        (acc, ord) =>
-                          acc +
-                          (ord.items || []).filter(
+              </Show>
+
+              {/* Desktop Bulk Selection Bar (hidden on mobile, replaced by floating dock) */}
+              <Show when={!isMobile()}>
+                <div class="df-bulk-segmented">
+                  <div class="df-seg-metrics">
+                    <span class="df-metric-chip">
+                      <span>{t('common.orders')}</span>
+                      <strong>{draftStats().totalOrders}</strong>
+                    </span>
+                    <span class="df-metric-chip">
+                      <span>{t('deliveryFlow.selected')}</span>
+                      <strong>{draftStats().totalItems}</strong>
+                    </span>
+                    <span class="df-metric-chip">
+                      <span>{t('deliveryFlow.units')}</span>
+                      <strong>{draftStats().totalPlannedUnits}</strong>
+                    </span>
+                  </div>
+                  <div class="df-btn-row" role="group" aria-label={t('deliveryFlow.bulkAriaLabel')}>
+                    <button
+                      type="button"
+                      class="df-normal-btn df-normal-btn-select"
+                      onClick={() => {
+                        const next = new Map(draftItems());
+                        for (const ord of visibleOrders()) {
+                          const readyItems = (ord.items || []).filter(
                             (it) =>
                               isItemEligible(it) &&
                               (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
-                          ).length,
-                        0
-                      )}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    class="df-normal-btn df-normal-btn-clear"
-                    disabled={draftStats().totalItems === 0}
-                    onClick={() => setDraftItems(new Map())}
-                  >
-                    <IconX class="size-3.5" />
-                    <span>{t('deliveryFlow.clearSelection')}</span>
-                  </button>
+                          );
+                          for (const it of readyItems) {
+                            const k = makeItemKey(ord, it);
+                            if (!next.has(k)) {
+                              const rem = getItemRemainingQty(it);
+                              next.set(k, {
+                                order: ord,
+                                item: it,
+                                planned_qty: rem > 0 ? rem.toString() : '1',
+                                note: '',
+                              });
+                            }
+                          }
+                        }
+                        setDraftItems(next);
+                      }}
+                    >
+                      <IconCheck class="size-3.5" />
+                      <span>{t('deliveryFlow.selectAllReady')}</span>
+                      <span class="df-btn-badge">
+                        {visibleOrders().reduce(
+                          (acc, ord) =>
+                            acc +
+                            (ord.items || []).filter(
+                              (it) =>
+                                isItemEligible(it) &&
+                                (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
+                            ).length,
+                          0
+                        )}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="df-normal-btn df-normal-btn-clear"
+                      disabled={draftStats().totalItems === 0}
+                      onClick={() => setDraftItems(new Map())}
+                    >
+                      <IconX class="size-3.5" />
+                      <span>{t('deliveryFlow.clearSelection')}</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-
+              </Show>
               <Show when={plannerError()}>
                 <div class="p-3 rounded-lg bg-destructive/15 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
                   <IconAlertTriangle class="size-4 shrink-0" />
@@ -1615,7 +2079,10 @@ export const DeliveryFlow: Component = () => {
                     </div>
                   }
                 >
-                  <div class="space-y-4">
+                  <Show
+                    when={isMobile()}
+                    fallback={
+                      <div class="space-y-4">
                     <For each={visibleOrders()}>
                       {(order, index) => {
                         const eligibleItems = () => (order.items || []).filter((it) => isItemEligible(it));
@@ -1757,36 +2224,52 @@ export const DeliveryFlow: Component = () => {
                       }}
                     </For>
                   </div>
-                </Show>
+                }
+              >
+                <div class="space-y-3">
+                  <For each={visibleOrders()}>
+                    {(order, index) => <OrderCard order={order} index={index()} />}
+                  </For>
+                </div>
               </Show>
-            </div>
-
-            {/* FLOATING RIGHT SIDEBAR: FILTERS, AREAS & SELECTION SUMMARY (Col 4) */}
-            <Show when={!isMobile()}>
-              <div class="lg:col-span-4 space-y-4 lg:sticky lg:top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 scrollbar-thin">
-                <PlanSelectSidebarContent />
-              </div>
             </Show>
+          </Show>
+        </div>
+
+        {/* FLOATING RIGHT SIDEBAR: FILTERS, AREAS & SELECTION SUMMARY (Col 4) */}
+        <Show when={!isMobile()}>
+          <div class="lg:col-span-4 space-y-4 lg:sticky lg:top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 scrollbar-thin">
+            <PlanSelectSidebarContent />
           </div>
         </Show>
+      </div>
+
+      {/* Persistent B4 Floating Bottom Dock with Integrated Filters */}
+      <Show when={isMobile()}>
+        <FloatingDock />
+      </Show>
+    </Show>
 
         {/* TAB 2 (STAGE 2): QUANTITIES, NOTES & DRIVER DISPATCH (Identical Order Card/Table Shell) */}
         <Show when={activeTab() === 'configure'}>
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* MAIN CONTENT: SELECTED ORDERS & QUANTITY CONFIGURATION */}
-            <div class={cn('space-y-4', isMobile() ? 'col-span-1' : 'lg:col-span-8')}>
+            <div class={cn('space-y-4', isMobile() ? 'col-span-1 pb-32' : 'lg:col-span-8')}>
+              {/* Back link for second step */}
+              <div class="no-print">
+                <button
+                  type="button"
+                  onClick={() => setSearchParams({ tab: 'plan' })}
+                  class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors py-0.5"
+                >
+                  <IconArrowLeft class="size-3.5" />
+                  <span>{t('deliveryFlow.backToSelectItems')}</span>
+                </button>
+              </div>
+
               {/* Sub-Header Toolbar */}
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSearchParams({ tab: 'plan' })}
-                    class="text-xs h-7 px-2.5 gap-1"
-                  >
-                    <IconArrowLeft class="size-3.5" />
-                    <span>{t('deliveryFlow.selectItems')}</span>
-                  </Button>
                   <span class="text-sm font-bold text-foreground">{t('deliveryFlow.selectedOrdersTitle')}</span>
                   <span class="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold tabular-nums">
                     {t('deliveryFlow.selectedSummaryHeader', { orders: selectedOrderGroups().length, items: draftStats().totalItems })}
@@ -2035,6 +2518,10 @@ export const DeliveryFlow: Component = () => {
               </div>
             </Show>
           </div>
+          {/* Persistent Bottom Dock for Stage 2 (Configure Dispatch) */}
+          <Show when={isMobile()}>
+            <BottomDockConfigure />
+          </Show>
         </Show>
         {/* TAB 2: WAREHOUSE PICKING & RUNS (Full Detail & Checklist) */}
         <Show when={activeTab() === 'runs'}>
@@ -2331,24 +2818,25 @@ export const DeliveryFlow: Component = () => {
         {/* Mobile Floating Action Buttons & Drawers (Portaled to body to float relative to viewport) */}
         <Portal>
           <Show when={isMobile() && (activeTab() === 'plan' || activeTab() === 'configure')}>
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
-            >
-              <Show when={activeTab() === 'plan'} fallback={<IconTruckDelivery class="size-4" />}>
-                <IconFilter class="size-4" />
-              </Show>
-              <span class="text-sm font-semibold">
-                {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerBtnPlan') : t('deliveryFlow.mobileDrawerBtnConfigure')}
-              </span>
-              <Show when={draftStats().totalItems > 0}>
-                <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary tabular-nums">
-                  {draftStats().totalItems}
+            <Show when={false}>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
+              >
+                <Show when={activeTab() === 'plan'} fallback={<IconTruckDelivery class="size-4" />}>
+                  <IconFilter class="size-4" />
+                </Show>
+                <span class="text-sm font-semibold">
+                  {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerBtnPlan') : t('deliveryFlow.mobileDrawerBtnConfigure')}
                 </span>
-              </Show>
-            </button>
-
+                <Show when={draftStats().totalItems > 0}>
+                  <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary tabular-nums">
+                    {draftStats().totalItems}
+                  </span>
+                </Show>
+              </button>
+            </Show>
             <Sheet open={sidebarOpen()} onOpenChange={setSidebarOpen}>
               <SheetContent position="right" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
                 <SheetHeader>
