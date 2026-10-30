@@ -18,6 +18,11 @@ export const PageTransition: ParentComponent = (props) => {
     <div
       ref={ref!}
       class="flex flex-1 flex-col min-w-0 animate-[page-enter_250ms_ease-out_both]"
+      onAnimationEnd={() => {
+        if (ref) {
+          ref.style.animation = 'none';
+        }
+      }}
     >
       {props.children}
     </div>

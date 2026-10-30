@@ -8,6 +8,7 @@ import {
   For,
   batch,
 } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { useSearchParams } from '@solidjs/router';
 import {
   getDeliveryCandidates,
@@ -1621,7 +1622,6 @@ export const DeliveryFlow: Component = () => {
                         const orderAllSelected = () =>
                           eligibleItems().length > 0 &&
                           eligibleItems().every((it) => draftItems().has(makeItemKey(order, it)));
-
                         return (
                           <div
                             class="border rounded-xl bg-card overflow-hidden shadow-xs hover:border-primary/50 transition-all animate-[card-enter_400ms_ease-out_both]"
@@ -1715,7 +1715,6 @@ export const DeliveryFlow: Component = () => {
                                               class="size-4 rounded text-primary focus:ring-ring cursor-pointer align-middle"
                                             />
                                           </td>
-
                                           {/* Item Name & Active Badges (Only growing column) */}
                                           <td class="py-2.5 px-3 w-full text-left">
                                             <div class="font-medium text-foreground">{item.nama_barang}</div>
@@ -1734,17 +1733,14 @@ export const DeliveryFlow: Component = () => {
                                               </Show>
                                             </div>
                                           </td>
-
                                           {/* Stock Status */}
                                           <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
                                             <Badge status={item.status_barang || '-'} kind="item" />
                                           </td>
-
                                           {/* Order Status */}
                                           <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
                                             <Badge status={item.status_order || '-'} />
                                           </td>
-
                                           {/* Remaining Qty */}
                                           <td class="py-2.5 px-3 w-px whitespace-nowrap text-right text-muted-foreground font-medium tabular-nums">
                                             <span class="font-bold text-foreground">{remaining}</span> / {item.jumlah || '0'} {item.satuan}
@@ -2332,65 +2328,66 @@ export const DeliveryFlow: Component = () => {
             </Show>
           </div>
         </Show>
-        {/* Mobile Plan & Configure Drawer */}
-        <Show when={isMobile() && (activeTab() === 'plan' || activeTab() === 'configure')}>
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
-          >
-            <Show when={activeTab() === 'plan'} fallback={<IconTruckDelivery class="size-4" />}>
-              <IconFilter class="size-4" />
-            </Show>
-            <span class="text-sm font-semibold">
-              {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerBtnPlan') : t('deliveryFlow.mobileDrawerBtnConfigure')}
-            </span>
-            <Show when={draftStats().totalItems > 0}>
-              <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary tabular-nums">
-                {draftStats().totalItems}
+        {/* Mobile Floating Action Buttons & Drawers (Portaled to body to float relative to viewport) */}
+        <Portal>
+          <Show when={isMobile() && (activeTab() === 'plan' || activeTab() === 'configure')}>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
+            >
+              <Show when={activeTab() === 'plan'} fallback={<IconTruckDelivery class="size-4" />}>
+                <IconFilter class="size-4" />
+              </Show>
+              <span class="text-sm font-semibold">
+                {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerBtnPlan') : t('deliveryFlow.mobileDrawerBtnConfigure')}
               </span>
-            </Show>
-          </button>
+              <Show when={draftStats().totalItems > 0}>
+                <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary tabular-nums">
+                  {draftStats().totalItems}
+                </span>
+              </Show>
+            </button>
 
-          <Sheet open={sidebarOpen()} onOpenChange={setSidebarOpen}>
-            <SheetContent position="right" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
-              <SheetHeader>
-                <SheetTitle>
-                  {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerTitlePlan') : t('deliveryFlow.mobileDrawerTitleConfigure')}
-                </SheetTitle>
-              </SheetHeader>
-              <div class="mt-4">
-                <Show when={activeTab() === 'plan'} fallback={<ConfigureDispatchSidebarContent />}>
-                  <PlanSelectSidebarContent />
-                </Show>
-              </div>
-            </SheetContent>
-          </Sheet>
-        </Show>
+            <Sheet open={sidebarOpen()} onOpenChange={setSidebarOpen}>
+              <SheetContent position="right" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
+                <SheetHeader>
+                  <SheetTitle>
+                    {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerTitlePlan') : t('deliveryFlow.mobileDrawerTitleConfigure')}
+                  </SheetTitle>
+                </SheetHeader>
+                <div class="mt-4">
+                  <Show when={activeTab() === 'plan'} fallback={<ConfigureDispatchSidebarContent />}>
+                    <PlanSelectSidebarContent />
+                  </Show>
+                </div>
+              </SheetContent>
+            </Sheet>
+          </Show>
 
-        {/* Mobile Runs Drawer */}
-        <Show when={isMobile() && activeTab() === 'runs' && selectedRunId()}>
-          <button
-            type="button"
-            onClick={() => setRunsDrawerOpen(true)}
-            class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
-          >
-            <IconBuildingWarehouse class="size-4" />
-            <span class="text-sm font-semibold">{t('deliveryFlow.switchRun')}</span>
-          </button>
+          {/* Mobile Runs Drawer */}
+          <Show when={isMobile() && activeTab() === 'runs' && selectedRunId()}>
+            <button
+              type="button"
+              onClick={() => setRunsDrawerOpen(true)}
+              class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
+            >
+              <IconBuildingWarehouse class="size-4" />
+              <span class="text-sm font-semibold">{t('deliveryFlow.switchRun')}</span>
+            </button>
 
-          <Sheet open={runsDrawerOpen()} onOpenChange={setRunsDrawerOpen}>
-            <SheetContent position="left" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
-              <SheetHeader>
-                <SheetTitle>{t('deliveryFlow.dispatchRuns')}</SheetTitle>
-              </SheetHeader>
-              <div class="mt-4">
-                <RunsListContent onSelectRun={() => setRunsDrawerOpen(false)} />
-              </div>
-            </SheetContent>
-          </Sheet>
-        </Show>
-
+            <Sheet open={runsDrawerOpen()} onOpenChange={setRunsDrawerOpen}>
+              <SheetContent position="left" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
+                <SheetHeader>
+                  <SheetTitle>{t('deliveryFlow.dispatchRuns')}</SheetTitle>
+                </SheetHeader>
+                <div class="mt-4">
+                  <RunsListContent onSelectRun={() => setRunsDrawerOpen(false)} />
+                </div>
+              </SheetContent>
+            </Sheet>
+          </Show>
+        </Portal>
         {/* DRIVERS ROSTER MODAL */}
         <Dialog open={showDriverModal()} onOpenChange={setShowDriverModal}>
           <DialogContent class="sm:max-w-md">
