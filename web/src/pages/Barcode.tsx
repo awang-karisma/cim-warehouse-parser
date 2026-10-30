@@ -278,7 +278,7 @@ export const Barcode: Component = () => {
     return 'Custom';
   };
 
-  const isCustomPaper = () => selectedPaper() === 'Custom';
+  const isCustomPaper = () => selectedPaper() === 'Custom' || selectedPaper() === 'Roll';
 
   const handlePaperChange = (newPaper: string) => {
     const current = customConfig();
@@ -307,6 +307,10 @@ export const Barcode: Component = () => {
       setCustomConfig({
         ...current,
         paper: 'Roll',
+        paperWidthMM: current.labelWidthMM + current.marginLeftMM * 2,
+        paperHeightMM: current.labelHeightMM + current.marginTopMM * 2,
+        cols: 1,
+        rows: 1,
       });
     } else {
       setCustomConfig({
@@ -1165,13 +1169,13 @@ export const Barcode: Component = () => {
                           <input
                             type="number"
                             step="0.5"
-                            min="10"
+                            min="1"
                             disabled={!isCustomPaper()}
                             value={customConfig().paperWidthMM}
                             onInput={(e) =>
                               setCustomConfig({
                                 ...customConfig(),
-                                paperWidthMM: parseFloat(e.currentTarget.value) || 210,
+                                paperWidthMM: parseFloat(e.currentTarget.value) || 0,
                               })
                             }
                             class="w-full px-1.5 py-1 border rounded bg-background text-xs disabled:opacity-50 disabled:bg-muted/50 disabled:cursor-not-allowed"
@@ -1182,13 +1186,13 @@ export const Barcode: Component = () => {
                           <input
                             type="number"
                             step="0.5"
-                            min="10"
+                            min="1"
                             disabled={!isCustomPaper()}
                             value={customConfig().paperHeightMM}
                             onInput={(e) =>
                               setCustomConfig({
                                 ...customConfig(),
-                                paperHeightMM: parseFloat(e.currentTarget.value) || 297,
+                                paperHeightMM: parseFloat(e.currentTarget.value) || 0,
                               })
                             }
                             class="w-full px-1.5 py-1 border rounded bg-background text-xs disabled:opacity-50 disabled:bg-muted/50 disabled:cursor-not-allowed"

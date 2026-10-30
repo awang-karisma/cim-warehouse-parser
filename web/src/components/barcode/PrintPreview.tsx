@@ -40,8 +40,8 @@ function resolveSheetDimensions(cfg: PresetConfig) {
   let sheetW = cfg.paperWidthMM || 210;
   let sheetH = cfg.paperHeightMM || 297;
   if (cfg.paper === 'Roll') {
-    sheetW = lblW + mLeft * 2;
-    sheetH = lblH + mTop * 2;
+    sheetW = cfg.paperWidthMM > 0 ? cfg.paperWidthMM : lblW + mLeft * 2;
+    sheetH = cfg.paperHeightMM > 0 ? cfg.paperHeightMM : lblH + mTop * 2;
   }
 
   return { sheetW, sheetH, lblW, lblH, mTop, mLeft, isAudit };
