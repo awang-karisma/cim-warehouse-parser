@@ -362,11 +362,20 @@ func (s *Storage) migrate() error {
 		gap_x_mm REAL NOT NULL DEFAULT 0,
 		gap_y_mm REAL NOT NULL DEFAULT 0,
 		margin_top_mm REAL NOT NULL DEFAULT 0,
-		margin_left_mm REAL NOT NULL DEFAULT 0,
-		is_audit_sheet INTEGER NOT NULL DEFAULT 0,
+        margin_left_mm REAL NOT NULL DEFAULT 0,
+        is_audit_sheet INTEGER NOT NULL DEFAULT 0,
+        label_layout TEXT DEFAULT NULL,
+        created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+        updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+    );
+	CREATE TABLE IF NOT EXISTS label_layout_presets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		label_layout TEXT NOT NULL,
 		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	);
+
 
 	CREATE TABLE IF NOT EXISTS delivery_drivers (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -436,6 +445,7 @@ func (s *Storage) migrate() error {
 
 	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN provider TEXT NOT NULL DEFAULT 'web';`)
 	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN official_session TEXT NOT NULL DEFAULT '';`)
+	_, _ = s.db.Exec(`ALTER TABLE page_designs ADD COLUMN label_layout TEXT DEFAULT NULL;`)
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'id';`)
 	seedPolicyJSON, _ := json.Marshal(normalizer.BaselineWorkDays)
 	_, _ = s.db.Exec(`
@@ -2916,16 +2926,94 @@ func (s *Storage) ClearAccurateSession() error {
 	return err
 }
 
+// GetLabelLayoutPresets lists reusable label element layouts by name.
+func (s *Storage) GetLabelLayoutPresets(ctx context.Context) ([]model.LabelLayoutPreset, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, label_layout, created_at, updated_at
+		FROM label_layout_presets
+		ORDER BY name COLLATE NOCASE
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query label layout presets: %w", err)
+	}
+	defer rows.Close()
+
+	presets := make([]model.LabelLayoutPreset, 0)
+	for rows.Next() {
+		var preset model.LabelLayoutPreset
+		if err := rows.Scan(&preset.ID, &preset.Name, &preset.LabelLayout, &preset.CreatedAt, &preset.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan label layout preset: %w", err)
+		}
+		presets = append(presets, preset)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate label layout presets: %w", err)
+	}
+	return presets, nil
+}
+
+// CreateLabelLayoutPreset creates a reusable label element arrangement.
+func (s *Storage) CreateLabelLayoutPreset(ctx context.Context, preset model.LabelLayoutPreset) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
+		`INSERT INTO label_layout_presets (name, label_layout) VALUES (?, ?)`,
+		preset.Name, preset.LabelLayout,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert label layout preset: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get label layout preset ID: %w", err)
+	}
+	return id, nil
+}
+
+// UpdateLabelLayoutPreset updates an existing reusable label element arrangement.
+func (s *Storage) UpdateLabelLayoutPreset(ctx context.Context, id int64, preset model.LabelLayoutPreset) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE label_layout_presets
+		SET name = ?, label_layout = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`, preset.Name, preset.LabelLayout, id)
+	if err != nil {
+		return fmt.Errorf("failed to update label layout preset %d: %w", id, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get label layout preset rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("label layout preset %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// DeleteLabelLayoutPreset deletes a reusable label element arrangement.
+func (s *Storage) DeleteLabelLayoutPreset(ctx context.Context, id int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM label_layout_presets WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete label layout preset %d: %w", id, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get label layout preset rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("label layout preset %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
 // GetPageDesigns returns all custom page designs ordered alphabetically by name.
 func (s *Storage) GetPageDesigns(ctx context.Context) ([]model.PageDesign, error) {
 	query := `
-		SELECT id, name, paper, paper_width_mm, paper_height_mm,
-		       label_width_mm, label_height_mm, cols, rows,
-		       gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
-		       is_audit_sheet, created_at, updated_at
-		FROM page_designs
-		ORDER BY name COLLATE NOCASE
-	`
+        SELECT id, name, paper, paper_width_mm, paper_height_mm,
+               label_width_mm, label_height_mm, cols, rows,
+               gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
+               is_audit_sheet, label_layout, created_at, updated_at
+        FROM page_designs
+        ORDER BY name COLLATE NOCASE
+    `
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query page designs: %w", err)
@@ -2936,15 +3024,19 @@ func (s *Storage) GetPageDesigns(ctx context.Context) ([]model.PageDesign, error
 	for rows.Next() {
 		var d model.PageDesign
 		var isAuditSheetInt int
+		var labelLayout sql.NullString
 		if err := rows.Scan(
 			&d.ID, &d.Name, &d.Paper, &d.PaperWidthMM, &d.PaperHeightMM,
 			&d.LabelWidthMM, &d.LabelHeightMM, &d.Cols, &d.Rows,
 			&d.GapXMM, &d.GapYMM, &d.MarginTopMM, &d.MarginLeftMM,
-			&isAuditSheetInt, &d.CreatedAt, &d.UpdatedAt,
+			&isAuditSheetInt, &labelLayout, &d.CreatedAt, &d.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan page design: %w", err)
 		}
 		d.IsAuditSheet = isAuditSheetInt == 1
+		if labelLayout.Valid {
+			d.LabelLayout = &labelLayout.String
+		}
 		designs = append(designs, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -2959,21 +3051,22 @@ func (s *Storage) GetPageDesigns(ctx context.Context) ([]model.PageDesign, error
 // GetPageDesignByID returns a single page design by ID, or ErrNotFound if it does not exist.
 func (s *Storage) GetPageDesignByID(ctx context.Context, id int64) (*model.PageDesign, error) {
 	query := `
-		SELECT id, name, paper, paper_width_mm, paper_height_mm,
-		       label_width_mm, label_height_mm, cols, rows,
-		       gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
-		       is_audit_sheet, created_at, updated_at
-		FROM page_designs
-		WHERE id = ?
-	`
+        SELECT id, name, paper, paper_width_mm, paper_height_mm,
+               label_width_mm, label_height_mm, cols, rows,
+               gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
+               is_audit_sheet, label_layout, created_at, updated_at
+        FROM page_designs
+        WHERE id = ?
+    `
 	row := s.db.QueryRowContext(ctx, query, id)
 	var d model.PageDesign
 	var isAuditSheetInt int
+	var labelLayout sql.NullString
 	if err := row.Scan(
 		&d.ID, &d.Name, &d.Paper, &d.PaperWidthMM, &d.PaperHeightMM,
 		&d.LabelWidthMM, &d.LabelHeightMM, &d.Cols, &d.Rows,
 		&d.GapXMM, &d.GapYMM, &d.MarginTopMM, &d.MarginLeftMM,
-		&isAuditSheetInt, &d.CreatedAt, &d.UpdatedAt,
+		&isAuditSheetInt, &labelLayout, &d.CreatedAt, &d.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("page design %d: %w", id, ErrNotFound)
@@ -2981,29 +3074,31 @@ func (s *Storage) GetPageDesignByID(ctx context.Context, id int64) (*model.PageD
 		return nil, fmt.Errorf("failed to scan page design %d: %w", id, err)
 	}
 	d.IsAuditSheet = isAuditSheetInt == 1
+	if labelLayout.Valid {
+		d.LabelLayout = &labelLayout.String
+	}
 	return &d, nil
 }
 
 // CreatePageDesign inserts a new page design into storage and returns its generated ID.
 func (s *Storage) CreatePageDesign(ctx context.Context, d model.PageDesign) (int64, error) {
 	query := `
-		INSERT INTO page_designs (
-			name, paper, paper_width_mm, paper_height_mm,
-			label_width_mm, label_height_mm, cols, rows,
-			gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
-			is_audit_sheet
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
+        INSERT INTO page_designs (
+            name, paper, paper_width_mm, paper_height_mm,
+            label_width_mm, label_height_mm, cols, rows,
+            gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
+            is_audit_sheet, label_layout
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
 	isAuditSheetInt := 0
 	if d.IsAuditSheet {
 		isAuditSheetInt = 1
 	}
-	res, err := s.db.ExecContext(
-		ctx, query,
+	res, err := s.db.ExecContext(ctx, query,
 		d.Name, d.Paper, d.PaperWidthMM, d.PaperHeightMM,
 		d.LabelWidthMM, d.LabelHeightMM, d.Cols, d.Rows,
 		d.GapXMM, d.GapYMM, d.MarginTopMM, d.MarginLeftMM,
-		isAuditSheetInt,
+		isAuditSheetInt, d.LabelLayout,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert page design: %w", err)
@@ -3018,23 +3113,22 @@ func (s *Storage) CreatePageDesign(ctx context.Context, d model.PageDesign) (int
 // UpdatePageDesign updates an existing page design by ID. Returns ErrNotFound if the row does not exist.
 func (s *Storage) UpdatePageDesign(ctx context.Context, id int64, d model.PageDesign) error {
 	query := `
-		UPDATE page_designs SET
-			name = ?, paper = ?, paper_width_mm = ?, paper_height_mm = ?,
-			label_width_mm = ?, label_height_mm = ?, cols = ?, rows = ?,
-			gap_x_mm = ?, gap_y_mm = ?, margin_top_mm = ?, margin_left_mm = ?,
-			is_audit_sheet = ?, updated_at = datetime('now')
-		WHERE id = ?
-	`
+        UPDATE page_designs SET
+            name = ?, paper = ?, paper_width_mm = ?, paper_height_mm = ?,
+            label_width_mm = ?, label_height_mm = ?, cols = ?, rows = ?,
+            gap_x_mm = ?, gap_y_mm = ?, margin_top_mm = ?, margin_left_mm = ?,
+            is_audit_sheet = ?, label_layout = ?, updated_at = datetime('now')
+        WHERE id = ?
+    `
 	isAuditSheetInt := 0
 	if d.IsAuditSheet {
 		isAuditSheetInt = 1
 	}
-	res, err := s.db.ExecContext(
-		ctx, query,
+	res, err := s.db.ExecContext(ctx, query,
 		d.Name, d.Paper, d.PaperWidthMM, d.PaperHeightMM,
 		d.LabelWidthMM, d.LabelHeightMM, d.Cols, d.Rows,
 		d.GapXMM, d.GapYMM, d.MarginTopMM, d.MarginLeftMM,
-		isAuditSheetInt, id,
+		isAuditSheetInt, d.LabelLayout, id,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update page design %d: %w", id, err)

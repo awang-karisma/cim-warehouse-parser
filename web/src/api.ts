@@ -25,6 +25,8 @@ import type {
   AccurateNormalizedItem,
   PageDesign,
   PageDesignsResponse,
+  LabelLayoutPreset,
+  LabelLayoutPresetsResponse,
   DeliveryCandidatesResponse,
   DeliveryDriver,
   DeliveryDriversResponse,
@@ -298,6 +300,25 @@ export const deletePageDesign = (id: number) =>
   apiFetch<{ status: string }>(`/api/v1/page-designs/${id}`, {
     method: 'DELETE',
   });
+export const getLabelLayoutPresets = () =>
+  apiFetch<LabelLayoutPresetsResponse>('/api/v1/label-layout-presets');
+
+export const createLabelLayoutPreset = (preset: Pick<LabelLayoutPreset, 'name' | 'label_layout'>) =>
+  apiFetch<{ status: string; id: number }>('/api/v1/label-layout-presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(preset),
+  });
+
+export const updateLabelLayoutPreset = (id: number, preset: Pick<LabelLayoutPreset, 'name' | 'label_layout'>) =>
+  apiFetch<{ status: string }>(`/api/v1/label-layout-presets/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(preset),
+  });
+
+export const deleteLabelLayoutPreset = (id: number) =>
+  apiFetch<{ status: string }>(`/api/v1/label-layout-presets/${id}`, { method: 'DELETE' });
 
 export const getDeliveryCandidates = () =>
   apiFetch<DeliveryCandidatesResponse>('/api/v1/delivery-flow/candidates');

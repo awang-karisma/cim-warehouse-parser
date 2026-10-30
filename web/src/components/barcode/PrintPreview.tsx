@@ -6,26 +6,54 @@ import { DATAMatrix } from 'datamatrix-svg-ts';
 import { items } from '~/stores/barcodeItems';
 import {
   barcodeHeight,
-  companyName,
   fontSize,
   getEffectiveConfig,
   qtyMode,
-  showBarcodeImg,
-  showBarcodeTxt,
-  showCode,
-  showCompany,
-  showName,
-  showPrice,
   showScreenBorder,
-  showUnit,
   skipCount,
   symbology,
   zoom,
 } from '~/stores/barcodeConfig';
-import type { BarcodeItem, PresetConfig } from '~/types';
+import { companyName, labelLayout } from '~/stores/labelLayout';
+import type { BarcodeItem, LabelElement, PresetConfig } from '~/types';
 import { Button } from '~/components/ui/button';
 import { IconPrinter } from '@tabler/icons-solidjs';
 
+const LabelContent: Component<{
+  element: LabelElement;
+  item: BarcodeItem;
+  barcodeVal: string;
+  baseFontSize: string;
+  barcodeHeight: number;
+  barcodeWidth: number;
+  locale: string;
+}> = (props) => {
+  const el = () => props.element;
+  const style = () => ({
+    position: 'absolute' as const,
+    left: `${el().x}mm`,
+    top: `${el().y}mm`,
+    width: `${el().w}mm`,
+    height: `${el().h}mm`,
+    'text-align': el().align,
+    'font-size': `calc(${props.baseFontSize} * ${el().fontScale})`,
+    overflow: 'hidden',
+    'box-sizing': 'border-box' as const,
+  });
+  return <div style={style()}>
+    <Show when={el().type === 'company'}><div class="lbl-header text-gray-700">{el().customText || companyName()}</div></Show>
+    <Show when={el().type === 'itemName'}><div class="lbl-name text-black">{props.item.itemName}</div></Show>
+    <Show when={el().type === 'barcode'}><div class="lbl-barcode" style={{ 'justify-content': el().align === 'left' ? 'flex-start' : el().align === 'right' ? 'flex-end' : 'center', height: '100%' }}>
+      <BarcodeGraphic barcode={props.barcodeVal} symbology={symbology()} height={props.barcodeHeight} width={props.barcodeWidth} />
+    </div></Show>
+    <Show when={el().type === 'barcodeText'}><div class="lbl-code text-black">{props.barcodeVal}</div></Show>
+    <Show when={el().type === 'itemCode'}><span class="font-mono font-semibold text-gray-700">{props.item.itemNo}</span></Show>
+    <Show when={el().type === 'price'}><span class="lbl-price text-black">{formatRupiah(props.item.price, props.locale)}</span></Show>
+    <Show when={el().type === 'unit'}><span class="text-gray-700">/ {props.item.unit || 'Pcs'}</span></Show>
+    <Show when={el().type === 'separator'}><hr style={{ margin: 0, 'border-top': '0.5px solid #cbd5e1' }} /></Show>
+    <Show when={el().type === 'customText'}><span>{el().customText}</span></Show>
+  </div>;
+};
 function formatRupiah(num: number, loc = 'id-ID'): string {
   return 'Rp ' + Number(num || 0).toLocaleString(loc);
 }
@@ -328,62 +356,21 @@ export const PrintPreview: Component = () => {
                             style={{
                               width: `${info.lblW}mm`,
                               height: `${info.lblH}mm`,
-                              padding: '1.5mm',
+                              position: 'relative',
                               'font-size': fontSizeCss(),
                             }}
                           >
-                            {/* Company Header */}
-                            <Show when={showCompany() && companyName()}>
-                              <div
-                                class="lbl-header text-gray-700"
-                                style={{ 'font-size': `calc(${fontSizeCss()} * 0.9)` }}
-                              >
-                                {companyName()}
-                              </div>
-                            </Show>
-
-                            {/* Item Name */}
-                            <Show when={showName()}>
-                              <div class="lbl-name text-black" style={{ 'font-size': fontSizeCss() }}>
-                                {it.itemName}
-                              </div>
-                            </Show>
-
-                            {/* Barcode Graphic */}
-                            <Show when={showBarcodeImg()}>
-                              <div class="lbl-barcode">
-                                <BarcodeGraphic
-                                  barcode={barcodeVal}
-                                  symbology={symbology()}
-                                  height={barcodePxHeight()}
-                                  width={info.lblW < 45 ? 1.0 : 1.3}
-                                />
-                              </div>
-                            </Show>
-
-                            {/* Barcode Text */}
-                            <Show when={showBarcodeTxt()}>
-                              <div
-                                class="lbl-code text-black"
-                                style={{ 'font-size': `calc(${fontSizeCss()} * 0.95)` }}
-                              >
-                                {barcodeVal}
-                              </div>
-                            </Show>
-
-                            {/* Footer: Code and Price/Unit */}
-                            <Show when={showCode() || showPrice() || showUnit()}>
-                              <div
-                                class="lbl-footer text-gray-700 border-gray-300"
-                                style={{ 'font-size': `calc(${fontSizeCss()} * 0.85)` }}
-                              >
-                                <span>{showCode() ? it.itemNo : ''}</span>
-                                <span class="lbl-price text-black">
-                                  {showPrice() ? formatRupiah(it.price, intlLocale()) : ''}
-                                  {showUnit() ? ` / ${it.unit || 'Pcs'}` : ''}
-                                </span>
-                              </div>
-                            </Show>
+                            <For each={labelLayout().filter((el) => el.visible)}>
+                              {(el) => <LabelContent
+                                element={el}
+                                item={it}
+                                barcodeVal={barcodeVal}
+                                baseFontSize={fontSizeCss()}
+                                barcodeHeight={barcodePxHeight()}
+                                barcodeWidth={info.lblW < 45 ? 1.0 : 1.3}
+                                locale={intlLocale()}
+                              />}
+                            </For>
                           </div>
                         );
                       }}

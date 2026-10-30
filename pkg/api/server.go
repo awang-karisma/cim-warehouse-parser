@@ -496,6 +496,42 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"barcode"},
 		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeletePageDesign)
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-label-layout-presets",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/label-layout-presets",
+		Summary:     "List label layout presets",
+		Description: "List reusable barcode label element arrangements",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetLabelLayoutPresets)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "create-label-layout-preset",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/label-layout-presets",
+		Summary:     "Create label layout preset",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleCreateLabelLayoutPreset)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "update-label-layout-preset",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/label-layout-presets/{id}",
+		Summary:     "Update label layout preset",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleUpdateLabelLayoutPreset)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "delete-label-layout-preset",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/label-layout-presets/{id}",
+		Summary:     "Delete label layout preset",
+		Tags:        []string{"barcode"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleDeleteLabelLayoutPreset)
 
 	// Delivery Flow Endpoints
 	huma.Register(s.humaAPI, huma.Operation{

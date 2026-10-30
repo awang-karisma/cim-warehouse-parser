@@ -1240,6 +1240,110 @@ func (s *Server) handleDeletePageDesign(ctx context.Context, input *DeletePageDe
 	}, nil
 }
 
+type LabelLayoutPresetsOutput struct {
+	Body struct {
+		Presets []model.LabelLayoutPreset `json:"presets"`
+	}
+}
+
+type CreateLabelLayoutPresetOutput struct {
+	Body struct {
+		Status string `json:"status"`
+		ID     int64  `json:"id"`
+	}
+}
+
+type CreateLabelLayoutPresetInput struct {
+	Body model.LabelLayoutPreset
+}
+
+type UpdateLabelLayoutPresetInput struct {
+	ID   int64 `path:"id" doc:"Label layout preset ID"`
+	Body model.LabelLayoutPreset
+}
+
+type LabelLayoutPresetIDInput struct {
+	ID int64 `path:"id" doc:"Label layout preset ID"`
+}
+
+func validateLabelLayoutPreset(preset *model.LabelLayoutPreset) error {
+	preset.Name = strings.TrimSpace(preset.Name)
+	if preset.Name == "" {
+		return huma.Error400BadRequest("name cannot be empty")
+	}
+	if !json.Valid([]byte(preset.LabelLayout)) {
+		return huma.Error400BadRequest("label_layout must be valid JSON")
+	}
+	return nil
+}
+
+func (s *Server) handleGetLabelLayoutPresets(ctx context.Context, input *struct{}) (*LabelLayoutPresetsOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	presets, err := s.store.GetLabelLayoutPresets(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get label layout presets", err)
+	}
+	out := &LabelLayoutPresetsOutput{}
+	out.Body.Presets = presets
+	return out, nil
+}
+
+func (s *Server) handleCreateLabelLayoutPreset(ctx context.Context, input *CreateLabelLayoutPresetInput) (*CreateLabelLayoutPresetOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	preset := input.Body
+	if err := validateLabelLayoutPreset(&preset); err != nil {
+		return nil, err
+	}
+	id, err := s.store.CreateLabelLayoutPreset(ctx, preset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to create label layout preset", err)
+	}
+	out := &CreateLabelLayoutPresetOutput{}
+	out.Body.Status = "ok"
+	out.Body.ID = id
+	return out, nil
+}
+
+func (s *Server) handleUpdateLabelLayoutPreset(ctx context.Context, input *UpdateLabelLayoutPresetInput) (*StatusOKOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if input.ID <= 0 {
+		return nil, huma.Error400BadRequest("invalid label layout preset id")
+	}
+	preset := input.Body
+	if err := validateLabelLayoutPreset(&preset); err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdateLabelLayoutPreset(ctx, input.ID, preset); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound(fmt.Sprintf("label layout preset %d not found", input.ID))
+		}
+		return nil, huma.Error500InternalServerError("failed to update label layout preset", err)
+	}
+	return &StatusOKOutput{Body: StatusOKResponse{Status: "ok"}}, nil
+}
+
+func (s *Server) handleDeleteLabelLayoutPreset(ctx context.Context, input *LabelLayoutPresetIDInput) (*StatusOKOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if input.ID <= 0 {
+		return nil, huma.Error400BadRequest("invalid label layout preset id")
+	}
+	if err := s.store.DeleteLabelLayoutPreset(ctx, input.ID); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound(fmt.Sprintf("label layout preset %d not found", input.ID))
+		}
+		return nil, huma.Error500InternalServerError("failed to delete label layout preset", err)
+	}
+	return &StatusOKOutput{Body: StatusOKResponse{Status: "ok"}}, nil
+}
+
 type SetLocaleInput struct {
 	Body struct {
 		Locale string `json:"locale" enum:"en,id" doc:"Preferred language locale ('en' or 'id')"`

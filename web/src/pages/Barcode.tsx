@@ -14,6 +14,7 @@ import { createPageDesign, deletePageDesign, updatePageDesign } from '~/api';
 import { useAuth } from '~/auth';
 import { AccurateLoginModal } from '~/components/barcode/AccurateLoginModal';
 import { ItemSearchDrawer } from '~/components/barcode/ItemSearchDrawer';
+import { LabelLayoutDesigner } from '~/components/barcode/LabelLayoutDesigner';
 import { PrintPreview } from '~/components/barcode/PrintPreview';
 import { TransactionDrawer } from '~/components/barcode/TransactionDrawer';
 import {
@@ -29,7 +30,6 @@ import {
 } from '~/stores/accurateAuth';
 import {
   barcodeHeight,
-  companyName,
   customConfig,
   fontSize,
   fromPresetConfig,
@@ -41,35 +41,21 @@ import {
   selectPreset,
   serverDesigns,
   setBarcodeHeight,
-  setCompanyName,
   setCustomConfig,
   setFontSize,
   setPresetKey,
   setQtyMode,
-  setShowBarcodeImg,
-  setShowBarcodeTxt,
-  setShowCode,
-  setShowCompany,
-  setShowName,
-  setShowPrice,
   setShowScreenBorder,
-  setShowUnit,
   setSkipCount,
   setSymbology,
   setZoom,
-  showBarcodeImg,
-  showBarcodeTxt,
-  showCode,
-  showCompany,
-  showName,
-  showPrice,
   showScreenBorder,
-  showUnit,
   skipCount,
   symbology,
   toPresetConfig,
   zoom,
 } from '~/stores/barcodeConfig';
+import { labelLayout, serializeLayout } from '~/stores/labelLayout';
 import {
   addItem,
   clearItems,
@@ -184,7 +170,7 @@ export const Barcode: Component = () => {
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      const res = await createPageDesign(fromPresetConfig(cfg));
+      const res = await createPageDesign(fromPresetConfig(cfg, serializeLayout(labelLayout())));
       await refetchDesigns();
       setIsCreating(false);
       selectPreset(`server-${res.id}`);
@@ -209,7 +195,7 @@ export const Barcode: Component = () => {
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      await updatePageDesign(id, fromPresetConfig(cfg));
+      await updatePageDesign(id, fromPresetConfig(cfg, serializeLayout(labelLayout())));
       await refetchDesigns();
       setIsEditing(false);
       setStatusMessage({ type: 'success', text: t('barcode.changesSaved') });
@@ -228,7 +214,7 @@ export const Barcode: Component = () => {
     setStatusMessage(null);
     try {
       const copyCfg = { ...cfg, name };
-      const res = await createPageDesign(fromPresetConfig(copyCfg));
+      const res = await createPageDesign(fromPresetConfig(copyCfg, serializeLayout(labelLayout())));
       await refetchDesigns();
       setIsEditing(false);
       selectPreset(`server-${res.id}`);
@@ -1360,89 +1346,7 @@ export const Barcode: Component = () => {
                 </div>
               </div>
 
-              {/* Section 4: Label Elements */}
-              <div class="space-y-1.5">
-                <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
-                  {t('barcode.labelElements')}
-                </label>
-                <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showBarcodeImg()}
-                      onChange={(e) => setShowBarcodeImg(e.currentTarget.checked)}
-                      class="rounded border-border text-primary"
-                    />
-                    <span>{t('barcode.elemGraphic')}</span>
-                  </label>
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showBarcodeTxt()}
-                      onChange={(e) => setShowBarcodeTxt(e.currentTarget.checked)}
-                      class="rounded border-border text-primary"
-                    />
-                    <span>{t('barcode.elemBarcode')}</span>
-                  </label>
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showName()}
-                      onChange={(e) => setShowName(e.currentTarget.checked)}
-                      class="rounded border-border text-primary"
-                    />
-                    <span>{t('barcode.elemName')}</span>
-                  </label>
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showCode()}
-                      onChange={(e) => setShowCode(e.currentTarget.checked)}
-                      class="rounded border-border text-primary"
-                    />
-                    <span>{t('barcode.elemCode')}</span>
-                  </label>
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showPrice()}
-                      onChange={(e) => setShowPrice(e.currentTarget.checked)}
-                      class="rounded border-border text-primary"
-                    />
-                    <span>{t('barcode.elemPrice')}</span>
-                  </label>
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showUnit()}
-                      onChange={(e) => setShowUnit(e.currentTarget.checked)}
-                      class="rounded border-border text-primary"
-                    />
-                    <span>{t('barcode.elemUnit')}</span>
-                  </label>
-                </div>
-
-                <div class="pt-0.5">
-                  <label class="flex items-center gap-1.5 cursor-pointer text-xs mb-1">
-                    <input
-                      type="checkbox"
-                      checked={showCompany()}
-                      onChange={(e) => setShowCompany(e.currentTarget.checked)}
-                      class="rounded border-border text-primary"
-                    />
-                    <span>{t('barcode.elemCompany')}</span>
-                  </label>
-                  <Show when={showCompany()}>
-                    <input
-                      type="text"
-                      value={companyName()}
-                      onInput={(e) => setCompanyName(e.currentTarget.value)}
-                      placeholder={t('barcode.companyNamePlaceholder')}
-                      class="w-full px-2 py-1 text-xs border rounded bg-background"
-                    />
-                  </Show>
-                </div>
-              </div>
+              <LabelLayoutDesigner />
 
               {/* Section 5: Canvas Settings */}
               <div class="space-y-1.5 sm:col-span-2 lg:col-span-4 xl:col-span-1">

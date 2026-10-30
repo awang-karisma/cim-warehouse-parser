@@ -1,5 +1,7 @@
 import { createSignal, createResource, createEffect, untrack } from 'solid-js';
 import { getPageDesigns } from '~/api';
+import { loadLayoutFromDesign } from '~/stores/labelLayout';
+export { companyName, setCompanyName } from '~/stores/labelLayout';
 import type { BarcodeHeight, FontSize, PageDesign, PresetConfig, QtyMode, Symbology } from '~/types';
 
 export const PRESETS: Record<string, PresetConfig> = {
@@ -104,17 +106,9 @@ export const [fontSize, setFontSize] = createSignal<FontSize>('medium');
 export const [qtyMode, setQtyMode] = createSignal<QtyMode>('multiply');
 export const [skipCount, setSkipCount] = createSignal<number>(0);
 
-export const [showBarcodeImg, setShowBarcodeImg] = createSignal<boolean>(true);
-export const [showBarcodeTxt, setShowBarcodeTxt] = createSignal<boolean>(true);
-export const [showName, setShowName] = createSignal<boolean>(true);
-export const [showCode, setShowCode] = createSignal<boolean>(true);
-export const [showPrice, setShowPrice] = createSignal<boolean>(true);
-export const [showUnit, setShowUnit] = createSignal<boolean>(true);
-export const [showCompany, setShowCompany] = createSignal<boolean>(false);
-export const [companyName, setCompanyName] = createSignal<string>('WAREHOUSE');
-
 export const [showScreenBorder, setShowScreenBorder] = createSignal<boolean>(true);
 export const [zoom, setZoom] = createSignal<number>(1.0);
+
 
 export const [serverDesigns, { refetch: refetchDesigns }] = createResource(
   () => getPageDesigns().then(r => r.designs).catch(() => [] as PageDesign[])
@@ -138,7 +132,7 @@ export function toPresetConfig(d: PageDesign): PresetConfig {
   };
 }
 
-export function fromPresetConfig(cfg: PresetConfig): Omit<PageDesign, 'id' | 'created_at' | 'updated_at'> {
+export function fromPresetConfig(cfg: PresetConfig, labelLayout?: string): Omit<PageDesign, 'id' | 'created_at' | 'updated_at'> {
   return {
     name: cfg.name,
     paper: cfg.paper,
@@ -153,6 +147,7 @@ export function fromPresetConfig(cfg: PresetConfig): Omit<PageDesign, 'id' | 'cr
     margin_top_mm: cfg.marginTopMM,
     margin_left_mm: cfg.marginLeftMM,
     is_audit_sheet: cfg.isAuditSheet,
+    label_layout: labelLayout,
   };
 }
 
@@ -165,7 +160,9 @@ createEffect(() => {
     if (match) {
       const current = untrack(customConfig);
       if (current.name !== match.name) {
-        setCustomConfig(toPresetConfig(match));
+        const cfg = toPresetConfig(match);
+        setCustomConfig(cfg);
+        loadLayoutFromDesign(match, cfg.labelWidthMM, cfg.labelHeightMM);
       }
     }
   }
@@ -178,7 +175,9 @@ export function selectPreset(key: string): void {
     const designs = serverDesigns() ?? [];
     const match = designs.find((d) => d.id === id);
     if (match) {
-      setCustomConfig(toPresetConfig(match));
+      const cfg = toPresetConfig(match);
+      setCustomConfig(cfg);
+      loadLayoutFromDesign(match, cfg.labelWidthMM, cfg.labelHeightMM);
     }
     return;
   }
@@ -207,3 +206,4 @@ export function getEffectiveConfig(): PresetConfig {
   }
   return PRESETS[pk] || PRESETS['tj-108'];
 }
+

@@ -3174,6 +3174,7 @@ func TestStorage_PageDesigns(t *testing.T) {
 	}
 
 	// 2. Create designs
+	labelLayout := `[{"id":"name-1","type":"itemName","x":2,"y":3,"w":20,"h":4,"align":"center","fontScale":1,"visible":true}]`
 	d1 := model.PageDesign{
 		Name:          "Zebra 100x50",
 		Paper:         "Roll",
@@ -3188,6 +3189,7 @@ func TestStorage_PageDesigns(t *testing.T) {
 		MarginTopMM:   0,
 		MarginLeftMM:  0,
 		IsAuditSheet:  false,
+		LabelLayout:   &labelLayout,
 	}
 	id1, err := store.CreatePageDesign(ctx, d1)
 	if err != nil {
@@ -3222,8 +3224,11 @@ func TestStorage_PageDesigns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get page design by ID %d: %v", id1, err)
 	}
-	if fetched1.Name != d1.Name || fetched1.IsAuditSheet != false {
+	if fetched1.Name != d1.Name || fetched1.IsAuditSheet {
 		t.Errorf("fetched1 mismatch: %+v", fetched1)
+	}
+	if fetched1.LabelLayout == nil || *fetched1.LabelLayout != labelLayout {
+		t.Errorf("label layout was not restored: %#v", fetched1.LabelLayout)
 	}
 
 	fetched2, err := store.GetPageDesignByID(ctx, id2)
@@ -3249,6 +3254,8 @@ func TestStorage_PageDesigns(t *testing.T) {
 	// 5. Update design
 	d1Updated := d1
 	d1Updated.Name = "Zebra 100x50 Updated"
+	updatedLayout := `[]`
+	d1Updated.LabelLayout = &updatedLayout
 	d1Updated.LabelWidthMM = 105
 	if err := store.UpdatePageDesign(ctx, id1, d1Updated); err != nil {
 		t.Fatalf("failed to update page design: %v", err)
@@ -3259,6 +3266,9 @@ func TestStorage_PageDesigns(t *testing.T) {
 	}
 	if fetchedUpdated.Name != "Zebra 100x50 Updated" || fetchedUpdated.LabelWidthMM != 105 {
 		t.Errorf("update not reflected: %+v", fetchedUpdated)
+	}
+	if fetchedUpdated.LabelLayout == nil || *fetchedUpdated.LabelLayout != updatedLayout {
+		t.Errorf("updated label layout not reflected: %#v", fetchedUpdated.LabelLayout)
 	}
 
 	// 6. Not found checks
@@ -3294,5 +3304,38 @@ func TestStorage_PageDesigns(t *testing.T) {
 	}
 	if len(listAfterDelete) != 1 || listAfterDelete[0].ID != id2 {
 		t.Errorf("expected 1 design remaining with id %d, got %+v", id2, listAfterDelete)
+	}
+}
+func TestStorage_LabelLayoutPresets(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	layout := `[{"id":"itemName-1","type":"itemName","x":2,"y":3,"w":20,"h":4,"align":"center","fontScale":1,"visible":true}]`
+	id, err := store.CreateLabelLayoutPreset(ctx, model.LabelLayoutPreset{Name: "Compact", LabelLayout: layout})
+	if err != nil {
+		t.Fatalf("failed to create preset: %v", err)
+	}
+	presets, err := store.GetLabelLayoutPresets(ctx)
+	if err != nil || len(presets) != 1 || presets[0].ID != id || presets[0].LabelLayout != layout {
+		t.Fatalf("created preset was not returned: %+v, %v", presets, err)
+	}
+	updatedLayout := `[]`
+	if err := store.UpdateLabelLayoutPreset(ctx, id, model.LabelLayoutPreset{Name: "Updated", LabelLayout: updatedLayout}); err != nil {
+		t.Fatalf("failed to update preset: %v", err)
+	}
+	presets, err = store.GetLabelLayoutPresets(ctx)
+	if err != nil || len(presets) != 1 || presets[0].Name != "Updated" || presets[0].LabelLayout != updatedLayout {
+		t.Fatalf("updated preset was not returned: %+v, %v", presets, err)
+	}
+	if err := store.DeleteLabelLayoutPreset(ctx, id); err != nil {
+		t.Fatalf("failed to delete preset: %v", err)
+	}
+	presets, err = store.GetLabelLayoutPresets(ctx)
+	if err != nil || len(presets) != 0 {
+		t.Fatalf("expected no presets after delete, got %+v, %v", presets, err)
 	}
 }

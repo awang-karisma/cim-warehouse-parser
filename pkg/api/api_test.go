@@ -3042,4 +3042,78 @@ func TestPageDesignsRBAC(t *testing.T) {
 			t.Errorf("expected 200 for admin on DELETE page-designs, got %d", resp.StatusCode)
 		}
 	})
+	layoutPresetPayload := `{"name":"RBAC Layout","label_layout":"[]"}`
+	t.Run("GET /api/v1/label-layout-presets allows users", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/label-layout-presets", nil)
+		req.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		resp, _ := srv.App().Test(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for user listing layout presets, got %d", resp.StatusCode)
+		}
+	})
+	t.Run("POST /api/v1/label-layout-presets restricts writes to admins", func(t *testing.T) {
+		userReq, _ := http.NewRequest("POST", "/api/v1/label-layout-presets", strings.NewReader(layoutPresetPayload))
+		userReq.Header.Set("Content-Type", "application/json")
+		userReq.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+		userResp, _ := srv.App().Test(userReq)
+		if userResp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for user creating layout preset, got %d", userResp.StatusCode)
+		}
+		adminReq, _ := http.NewRequest("POST", "/api/v1/label-layout-presets", strings.NewReader(layoutPresetPayload))
+		adminReq.Header.Set("Content-Type", "application/json")
+		adminReq.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+		adminResp, _ := srv.App().Test(adminReq)
+		if adminResp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for admin creating layout preset, got %d", adminResp.StatusCode)
+		}
+	})
+}
+func TestLabelLayoutPresetEndpoints(t *testing.T) {
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+	srv := api.New(api.Config{Store: store})
+
+	layout := `[{"id":"itemName-1","type":"itemName","x":2,"y":3,"w":20,"h":4,"align":"center","fontScale":1,"visible":true}]`
+	createBody, _ := json.Marshal(model.LabelLayoutPreset{Name: "Compact", LabelLayout: layout})
+	createReq, _ := http.NewRequest("POST", "/api/v1/label-layout-presets", bytes.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := srv.App().Test(createReq)
+	if err != nil || createResp.StatusCode != http.StatusOK {
+		t.Fatalf("create preset failed: response=%v error=%v", createResp, err)
+	}
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("failed to decode create response: %v", err)
+	}
+
+	getReq, _ := http.NewRequest("GET", "/api/v1/label-layout-presets", nil)
+	getResp, err := srv.App().Test(getReq)
+	if err != nil || getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get presets failed: response=%v error=%v", getResp, err)
+	}
+	var listed struct {
+		Presets []model.LabelLayoutPreset `json:"presets"`
+	}
+	if err := json.NewDecoder(getResp.Body).Decode(&listed); err != nil || len(listed.Presets) != 1 || listed.Presets[0].LabelLayout != layout {
+		t.Fatalf("stored layout preset mismatch: %+v error=%v", listed, err)
+	}
+
+	updateBody, _ := json.Marshal(model.LabelLayoutPreset{Name: "Compact Updated", LabelLayout: `[]`})
+	updateReq, _ := http.NewRequest("PUT", fmt.Sprintf("/api/v1/label-layout-presets/%d", created.ID), bytes.NewReader(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp, err := srv.App().Test(updateReq)
+	if err != nil || updateResp.StatusCode != http.StatusOK {
+		t.Fatalf("update preset failed: response=%v error=%v", updateResp, err)
+	}
+
+	deleteReq, _ := http.NewRequest("DELETE", fmt.Sprintf("/api/v1/label-layout-presets/%d", created.ID), nil)
+	deleteResp, err := srv.App().Test(deleteReq)
+	if err != nil || deleteResp.StatusCode != http.StatusOK {
+		t.Fatalf("delete preset failed: response=%v error=%v", deleteResp, err)
+	}
 }

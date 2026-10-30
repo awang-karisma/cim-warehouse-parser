@@ -333,6 +333,43 @@ export interface PresetConfig {
   marginLeftMM: number;
   isAuditSheet: boolean;
 }
+export type LabelElementType =
+  | 'company'
+  | 'itemName'
+  | 'barcode'
+  | 'barcodeText'
+  | 'itemCode'
+  | 'price'
+  | 'unit'
+  | 'separator'
+  | 'customText';
+
+export interface LabelElement {
+  id: string;
+  type: LabelElementType;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  align: 'left' | 'center' | 'right';
+  fontScale: number;
+  visible: boolean;
+  customText?: string;
+}
+
+export type LabelLayout = LabelElement[];
+export interface LabelLayoutPreset {
+  id: number;
+  name: string;
+  label_layout: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface LabelLayoutPresetsResponse {
+  presets: LabelLayoutPreset[];
+}
+
 
 export type Symbology = 'CODE128' | 'CODE39' | 'EAN13' | 'QRCODE' | 'DATAMATRIX';
 export type BarcodeHeight = 'compact' | 'medium' | 'large';
@@ -354,6 +391,7 @@ export interface PageDesign {
   margin_top_mm: number;
   margin_left_mm: number;
   is_audit_sheet: boolean;
+  label_layout?: string;
   created_at?: string;
   updated_at?: string;
 }

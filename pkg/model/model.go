@@ -207,6 +207,15 @@ type WorkdayPolicy struct {
 	WorkDays      []string `json:"work_days"`
 }
 
+// LabelLayoutPreset stores a reusable label-element arrangement independently of paper dimensions.
+type LabelLayoutPreset struct {
+	ID          int64  `json:"id,omitempty"`
+	Name        string `json:"name"`
+	LabelLayout string `json:"label_layout"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
 // PageDesign represents a customizable barcode printing layout.
 type PageDesign struct {
 	ID            int64   `json:"id,omitempty"`
@@ -223,6 +232,7 @@ type PageDesign struct {
 	MarginTopMM   float64 `json:"margin_top_mm,omitempty"`
 	MarginLeftMM  float64 `json:"margin_left_mm,omitempty"`
 	IsAuditSheet  bool    `json:"is_audit_sheet,omitempty"`
+	LabelLayout   *string `json:"label_layout,omitempty"`
 	CreatedAt     string  `json:"created_at,omitempty"`
 	UpdatedAt     string  `json:"updated_at,omitempty"`
 }
