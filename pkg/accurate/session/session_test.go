@@ -7,6 +7,7 @@ import (
 
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/provider/official"
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate/provider/web"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/session"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 )
@@ -217,5 +218,33 @@ func TestSessionManager_OfficialPersistenceWithoutSessionID(t *testing.T) {
 	}
 	if offProv2.Host() != "https://zeus.accurate.id" {
 		t.Fatalf("expected provider host to be restored, got %q", offProv2.Host())
+	}
+}
+
+func TestSessionManager_LogoutReplacesWebProviderClient(t *testing.T) {
+	client := accurate.NewClient(nil)
+	client.Jar().LoadCookies([]*accurate.Cookie{{
+		Name:    "JSESSIONID",
+		Value:   "stale-session",
+		Domain:  "account.accurate.id",
+		Path:    "/",
+		Expires: time.Now().Add(time.Hour),
+	}})
+	provider := web.New("user@example.com", "password", client)
+	manager := session.NewManager(nil, provider)
+
+	if manager.Client() != provider.Client() {
+		t.Fatal("manager and provider should initially share the web client")
+	}
+	manager.Logout()
+
+	if manager.Client() != provider.Client() {
+		t.Fatal("logout should replace the provider client with the cleared client")
+	}
+	if manager.Client() == client {
+		t.Fatal("logout should not retain the old web client")
+	}
+	if cookies := provider.Client().Jar().AllCookies(); len(cookies) != 0 {
+		t.Fatalf("expected provider client to have no cookies after logout; got %d", len(cookies))
 	}
 }

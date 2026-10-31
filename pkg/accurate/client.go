@@ -146,6 +146,25 @@ func NewClient(transport http.RoundTripper) *Client {
 	return c
 }
 
+// idpRedirectClient follows only redirects that remain on the configured IdP host.
+func (c *Client) idpRedirectClient() *http.Client {
+	return &http.Client{
+		Jar:       c.jar,
+		Transport: c.httpClient.Transport,
+		Timeout:   c.httpClient.Timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if err := validateIdPHost(req.URL.String(), c.idpHost); err != nil {
+				return err
+			}
+			expected, err := url.Parse(c.idpHost)
+			if err != nil || req.URL.Scheme != expected.Scheme || req.URL.User != nil {
+				return ErrUntrustedHost
+			}
+			return nil
+		},
+	}
+}
+
 // SetIdPHost overrides the IdP host (primarily used in testing).
 func (c *Client) SetIdPHost(host string) {
 	c.idpHost = strings.TrimSuffix(host, "/")
@@ -185,12 +204,14 @@ func (c *Client) Login(ctx context.Context, email, password string) (*LoginResul
 	}
 
 	// 1. Initial page load to obtain IdP JSESSIONID
+	idpClient := c.idpRedirectClient()
 	initReq, err := http.NewRequestWithContext(ctx, "GET", c.idpHost+"/", nil)
 	if err != nil {
 		return nil, err
 	}
 	initReq.Header.Set("User-Agent", UserAgent)
-	initRes, err := c.httpClient.Do(initReq)
+	initRes, err := idpClient.Do(initReq)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Accurate IdP: %w", err)
 	}
@@ -217,7 +238,7 @@ func (c *Client) Login(ctx context.Context, email, password string) (*LoginResul
 	preReq.Header.Set("Referer", c.idpHost+"/")
 	preReq.Header.Set("User-Agent", UserAgent)
 
-	preRes, err := c.httpClient.Do(preReq)
+	preRes, err := idpClient.Do(preReq)
 	if err != nil {
 		return nil, fmt.Errorf("pre-login request failed: %w", err)
 	}
@@ -233,7 +254,7 @@ func (c *Client) Login(ctx context.Context, email, password string) (*LoginResul
 		} `json:"d"`
 	}
 	if err := json.NewDecoder(preRes.Body).Decode(&preData); err != nil {
-		return nil, fmt.Errorf("failed to parse pre-login response: %w", err)
+		return nil, fmt.Errorf("failed to parse pre-login response (status %d, content-type %q): %w", preRes.StatusCode, preRes.Header.Get("Content-Type"), err)
 	}
 
 	if !preData.S || !preData.D.Valid {

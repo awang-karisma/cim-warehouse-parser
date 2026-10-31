@@ -220,13 +220,17 @@ func (m *Manager) resetLocked() {
 	m.tenantSession = nil
 	m.officialSession = nil
 	m.email = ""
-	if wp, ok := m.prov.(*web.Provider); ok {
-		wp.ClearSession()
+	webProv, isWeb := m.prov.(*web.Provider)
+	if isWeb {
+		webProv.ClearSession()
 	}
 	if op, ok := m.prov.(*official.Provider); ok {
 		op.ClearSession()
 	}
 	m.client = accurate.NewClient(nil)
+	if isWeb {
+		webProv.SetClient(m.client)
+	}
 	if m.store != nil {
 		if err := m.store.ClearAccurateSession(); err != nil {
 			log.Printf("session: failed to clear session in store: %v", err)

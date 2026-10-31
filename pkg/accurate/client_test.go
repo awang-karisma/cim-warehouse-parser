@@ -311,3 +311,91 @@ func TestClient_PostTenant_Non302FailureDoesNotWrapSessionExpired(t *testing.T) 
 		t.Fatalf("expected errors.Is(err, ErrSessionExpired) to be false for 500, got err: %v", err)
 	}
 }
+
+func TestClient_LoginEmptyPreLoginResponseIncludesHTTPContext(t *testing.T) {
+	idpMux := http.NewServeMux()
+	idpMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	idpMux.HandleFunc("/pre-login.do", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	idpServer := httptest.NewServer(idpMux)
+	defer idpServer.Close()
+
+	client := accurate.NewClient(idpServer.Client().Transport)
+	client.SetIdPHost(idpServer.URL)
+	_, err := client.Login(context.Background(), "person@example.com", "secret")
+	if err == nil {
+		t.Fatal("expected empty pre-login response to fail")
+	}
+	if !strings.Contains(err.Error(), "status 503") || !strings.Contains(err.Error(), `content-type "text/html"`) {
+		t.Fatalf("expected status and content type in error, got: %v", err)
+	}
+}
+
+func TestClient_LoginFollowsSameHostRedirects(t *testing.T) {
+	idpMux := http.NewServeMux()
+	idpMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/login-page", http.StatusFound)
+	})
+	idpMux.HandleFunc("/login-page", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("initial redirect method = %s, want GET", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	idpMux.HandleFunc("/pre-login.do", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("pre-login method = %s, want POST", r.Method)
+		}
+		http.Redirect(w, r, "/pre-login-result", http.StatusFound)
+	})
+	idpMux.HandleFunc("/pre-login-result", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("302 pre-login redirect method = %s, want GET", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"s":true,"d":{"valid":true,"permit":"permit"}}`))
+	})
+	idpMux.HandleFunc("/auth.do", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusFound)
+	})
+	idpServer := httptest.NewServer(idpMux)
+	defer idpServer.Close()
+
+	client := accurate.NewClient(idpServer.Client().Transport)
+	client.SetIdPHost(idpServer.URL)
+	if _, err := client.Login(context.Background(), "person@example.com", "secret"); err != nil {
+		t.Fatalf("Login() after same-host redirects failed: %v", err)
+	}
+}
+
+func TestClient_LoginRejectsCrossHostRedirect(t *testing.T) {
+	crossHostCalled := false
+	crossHost := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		crossHostCalled = true
+	}))
+	defer crossHost.Close()
+
+	idpMux := http.NewServeMux()
+	idpMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	idpMux.HandleFunc("/pre-login.do", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, crossHost.URL+"/capture", http.StatusFound)
+	})
+	idpServer := httptest.NewServer(idpMux)
+	defer idpServer.Close()
+
+	client := accurate.NewClient(idpServer.Client().Transport)
+	client.SetIdPHost(idpServer.URL)
+	_, err := client.Login(context.Background(), "person@example.com", "secret")
+	if !errors.Is(err, accurate.ErrUntrustedHost) {
+		t.Fatalf("expected untrusted-host redirect error, got: %v", err)
+	}
+	if crossHostCalled {
+		t.Fatal("client followed a redirect to a different host")
+	}
+}
