@@ -1,3 +1,5 @@
+import { ROUTES, orderDetailPath } from '~/routes';
+
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
@@ -73,26 +75,26 @@ export const Search: Component = () => {
 
   const ordersLink = createMemo(() => {
     const q = currentQuery();
-    return q ? `/orders?customer=${encodeURIComponent(q)}` : '/orders';
+		return q ? `${ROUTES.orders}?customer=${encodeURIComponent(q)}` : ROUTES.orders;
   });
 
   const itemsLink = createMemo(() => {
     const q = currentQuery();
-    if (!q) return '/items';
+		if (!q) return ROUTES.items;
     const items = data()?.items?.results || [];
     const qLower = q.toLowerCase();
     const matchesNamaBarang = items.some((it) => it.nama_barang?.toLowerCase().includes(qLower));
     const matchesCustomer = items.some((it) => it.customer?.toLowerCase().includes(qLower));
 
     if (matchesCustomer && !matchesNamaBarang) {
-      return `/items?customer=${encodeURIComponent(q)}`;
+      return `${ROUTES.items}?customer=${encodeURIComponent(q)}`;
     }
-    return `/items?nama_barang=${encodeURIComponent(q)}`;
+    return `${ROUTES.items}?nama_barang=${encodeURIComponent(q)}`;
   });
 
   const customersLink = createMemo(() => {
     const q = currentQuery();
-    return q ? `/customers?search=${encodeURIComponent(q)}` : '/customers';
+		return q ? `${ROUTES.customers}?search=${encodeURIComponent(q)}` : ROUTES.customers;
   });
   const highlightMatch = (text: string, q: string) => {
     if (!q || !text) return text;
@@ -240,7 +242,7 @@ export const Search: Component = () => {
                         <TableRow>
                           <TableCell>
                             <A
-                              href={`/orders/${ord.id}`}
+								href={orderDetailPath(ord.id)}
                               class="font-mono text-xs font-semibold text-primary hover:underline"
                             >
                               {ord.id}
@@ -264,7 +266,7 @@ export const Search: Component = () => {
                           <TableCell class="text-right">
                             <Button
                               as={A}
-                              href={`/orders/${ord.id}`}
+								href={orderDetailPath(ord.id)}
                               variant="ghost"
                               size="sm"
                               class="text-xs"
@@ -338,7 +340,7 @@ export const Search: Component = () => {
                           <TableCell class="text-right">
                             <Button
                               as={A}
-                              href={`/items?nama_barang=${encodeURIComponent(item.nama_barang)}`}
+                              href={`${ROUTES.items}?nama_barang=${encodeURIComponent(item.nama_barang)}`}
                               variant="ghost"
                               size="sm"
                               class="text-xs"
@@ -400,7 +402,7 @@ export const Search: Component = () => {
                       <div class="pt-3 border-t mt-2">
                         <Button
                           as={A}
-                          href={`/orders?customer=${encodeURIComponent(cust.name)}`}
+                          href={`${ROUTES.orders}?customer=${encodeURIComponent(cust.name)}`}
                           variant="outline"
                           size="sm"
                           class="w-full text-xs h-8"

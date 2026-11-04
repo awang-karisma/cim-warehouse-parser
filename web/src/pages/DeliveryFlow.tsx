@@ -1,3 +1,5 @@
+import { DELIVERY_RUN_STATUS, ORDER_STATUS, STOCK_STATUS } from '~/domain';
+
 import { useI18n } from '~/i18n';
 import {
   type Component,
@@ -221,7 +223,7 @@ export const DeliveryFlow: Component = () => {
     const map = new Map<string, { runId: number; driverName: string; plannedQty: string; status: string }>();
     const runs = runsData()?.runs || [];
     for (const r of runs) {
-      if (['PLANNED', 'PICKING', 'READY'].includes(r.status || '')) {
+		if (([DELIVERY_RUN_STATUS.PLANNED, DELIVERY_RUN_STATUS.PICKING, DELIVERY_RUN_STATUS.READY] as readonly string[]).includes(r.status || '')) {
         for (const it of r.items || []) {
           if (it.source_key) {
             map.set(it.source_key, {
@@ -242,17 +244,17 @@ export const DeliveryFlow: Component = () => {
 
   const isItemEligible = (item: OrderItem) => {
     const sOrder = (item.status_order || '').trim().toUpperCase();
-    if (['SELESAI', 'COMPLETED', 'BATAL', 'CANCEL'].includes(sOrder)) return false;
+	if (([ORDER_STATUS.COMPLETE, 'COMPLETED', ORDER_STATUS.CANCELLED, ORDER_STATUS.CANCEL] as readonly string[]).includes(sOrder)) return false;
 
     const remaining = getItemRemainingQty(item);
     if (remaining <= 0) return false;
 
     if (readyInWarehouseOnly()) {
       const sBarang = (item.status_barang || '').trim().toUpperCase();
-      if (sBarang !== 'STOK GUDANG') return false;
+		if (sBarang !== STOCK_STATUS.WAREHOUSE) return false;
     }
 
-    if (!includeClientHold() && sOrder === 'PENDING') {
+	if (!includeClientHold() && sOrder === ORDER_STATUS.PENDING) {
       return false;
     }
 
@@ -291,16 +293,16 @@ export const DeliveryFlow: Component = () => {
       let orderHasReady = false;
       for (const it of ord.items || []) {
         const sOrder = (it.status_order || '').trim().toUpperCase();
-        if (['SELESAI', 'COMPLETED', 'BATAL', 'CANCEL'].includes(sOrder)) continue;
+		if (([ORDER_STATUS.COMPLETE, 'COMPLETED', ORDER_STATUS.CANCELLED, ORDER_STATUS.CANCEL] as readonly string[]).includes(sOrder)) continue;
         const rem = getItemRemainingQty(it);
         if (rem <= 0) continue;
 
         grp.totalItemsCount++;
-        if ((it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG') {
+		if ((it.status_barang || '').trim().toUpperCase() === STOCK_STATUS.WAREHOUSE) {
           grp.readyItemsCount++;
           orderHasReady = true;
         }
-        if (sOrder === 'PENDING') {
+		if (sOrder === ORDER_STATUS.PENDING) {
           grp.pendingItemsCount++;
         }
 
@@ -428,7 +430,7 @@ export const DeliveryFlow: Component = () => {
   // Quick select Ready in Order
   const selectReadyInOrder = (order: Order) => {
     const readyItems = (order.items || []).filter(
-      (it) => isItemEligible(it) && (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
+		(it) => isItemEligible(it) && (it.status_barang || '').trim().toUpperCase() === STOCK_STATUS.WAREHOUSE
     );
     const next = new Map(draftItems());
     for (const it of readyItems) {
@@ -452,7 +454,7 @@ export const DeliveryFlow: Component = () => {
     const next = new Map(draftItems());
     for (const ord of targetOrders) {
       const readyItems = (ord.items || []).filter(
-        (it) => isItemEligible(it) && (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
+		(it) => isItemEligible(it) && (it.status_barang || '').trim().toUpperCase() === STOCK_STATUS.WAREHOUSE
       );
       for (const it of readyItems) {
         const k = makeItemKey(ord, it);
@@ -563,7 +565,7 @@ export const DeliveryFlow: Component = () => {
           (d.id && r.driver_id === d.id) ||
           (!r.driver_id && r.driver_name.trim().toLowerCase() === d.name.trim().toLowerCase())
       );
-      const activeRuns = matchingRuns.filter((r) => (r.status || '').toUpperCase() !== 'COMPLETED');
+	const activeRuns = matchingRuns.filter((r) => (r.status || '').toUpperCase() !== DELIVERY_RUN_STATUS.COMPLETED);
       let assignedItems = 0;
       const orderSet = new Set<string>();
       const areaSet = new Set<string>();
@@ -679,7 +681,7 @@ export const DeliveryFlow: Component = () => {
         driver_name: dName,
         areas: draftStats().areas,
         delivery_date: dDate,
-        status: 'PLANNED',
+		status: DELIVERY_RUN_STATUS.PLANNED,
         notes: runNotes().trim(),
         items: runItems,
       };
@@ -1457,7 +1459,7 @@ export const DeliveryFlow: Component = () => {
             class="w-full py-1 px-2.5 text-xs rounded-md border bg-background"
           />
           <div class="flex flex-wrap gap-1">
-            <For each={['ALL', 'PLANNED', 'PICKING', 'READY', 'DISPATCHED', 'COMPLETED']}>
+			<For each={['ALL', DELIVERY_RUN_STATUS.PLANNED, DELIVERY_RUN_STATUS.PICKING, DELIVERY_RUN_STATUS.READY, DELIVERY_RUN_STATUS.DISPATCHED, DELIVERY_RUN_STATUS.COMPLETED]}>
               {(st) => (
                 <button
                   type="button"
@@ -1510,7 +1512,7 @@ export const DeliveryFlow: Component = () => {
                       <span>{run.driver_name || t('deliveryFlow.unassigned')}</span>
                     </div>
                   </div>
-                  <Badge status={run.status || 'PLANNED'} />
+				<Badge status={run.status || DELIVERY_RUN_STATUS.PLANNED} />
                 </div>
 
                 <div class="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -1578,7 +1580,7 @@ export const DeliveryFlow: Component = () => {
                 const isSelected = () => draftItems().has(key);
                 const remaining = getItemRemainingQty(item);
                 const activeRunInfo = () => activeRunItemKeys().get(key);
-                const isClientPending = () => (item.status_order || '').trim().toUpperCase() === 'PENDING';
+				const isClientPending = () => (item.status_order || '').trim().toUpperCase() === ORDER_STATUS.PENDING;
 
                 return (
                   <tr
@@ -2026,7 +2028,7 @@ export const DeliveryFlow: Component = () => {
                           const readyItems = (ord.items || []).filter(
                             (it) =>
                               isItemEligible(it) &&
-                              (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
+								(it.status_barang || '').trim().toUpperCase() === STOCK_STATUS.WAREHOUSE
                           );
                           for (const it of readyItems) {
                             const k = makeItemKey(ord, it);
@@ -2053,7 +2055,7 @@ export const DeliveryFlow: Component = () => {
                             (ord.items || []).filter(
                               (it) =>
                                 isItemEligible(it) &&
-                                (it.status_barang || '').trim().toUpperCase() === 'STOK GUDANG'
+								(it.status_barang || '').trim().toUpperCase() === STOCK_STATUS.WAREHOUSE
                             ).length,
                           0
                         )}
@@ -2172,7 +2174,7 @@ export const DeliveryFlow: Component = () => {
                                       const isSelected = () => draftItems().has(key);
                                       const activeRunInfo = () => activeRunItemKeys().get(key);
                                       const remaining = getItemRemainingQty(item);
-                                      const isClientPending = () => (item.status_order || '').trim().toUpperCase() === 'PENDING';
+								const isClientPending = () => (item.status_order || '').trim().toUpperCase() === ORDER_STATUS.PENDING;
 
                                       return (
                                         <tr
@@ -2417,7 +2419,7 @@ export const DeliveryFlow: Component = () => {
                                       const item = entry.item;
                                       const activeRunInfo = () => activeRunItemKeys().get(entry.key);
                                       const remaining = getItemRemainingQty(item);
-                                      const isClientPending = () => (item.status_order || '').trim().toUpperCase() === 'PENDING';
+								const isClientPending = () => (item.status_order || '').trim().toUpperCase() === ORDER_STATUS.PENDING;
 
                                       return (
                                         <tr
@@ -2623,16 +2625,16 @@ export const DeliveryFlow: Component = () => {
                           <div class="flex items-center gap-2">
                             <select
                               class="text-xs font-semibold py-1 px-2.5 rounded-md border bg-background"
-                              value={run().status || 'PLANNED'}
+							value={run().status || DELIVERY_RUN_STATUS.PLANNED}
                               onChange={(e) =>
                                 handleStatusChange(run().id!, e.currentTarget.value as DeliveryRunStatus)
                               }
                             >
-                              <option value="PLANNED">PLANNED</option>
-                              <option value="PICKING">PICKING</option>
-                              <option value="READY">READY</option>
-                              <option value="DISPATCHED">DISPATCHED</option>
-                              <option value="COMPLETED">COMPLETED</option>
+							<option value={DELIVERY_RUN_STATUS.PLANNED}>{DELIVERY_RUN_STATUS.PLANNED}</option>
+							<option value={DELIVERY_RUN_STATUS.PICKING}>{DELIVERY_RUN_STATUS.PICKING}</option>
+							<option value={DELIVERY_RUN_STATUS.READY}>{DELIVERY_RUN_STATUS.READY}</option>
+							<option value={DELIVERY_RUN_STATUS.DISPATCHED}>{DELIVERY_RUN_STATUS.DISPATCHED}</option>
+							<option value={DELIVERY_RUN_STATUS.COMPLETED}>{DELIVERY_RUN_STATUS.COMPLETED}</option>
                             </select>
 
                             <Button

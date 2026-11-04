@@ -7,25 +7,26 @@ import {
   type Accessor,
   type ParentComponent,
 } from "solid-js";
-import * as i18n from "@solid-primitives/i18n";
-import { dict as en_dict, type Locale, type RawDictionary, type Dictionary } from "./en";
-import { dict as id_dict } from "./id";
-import { useAuth, type AuthContextValue } from "~/auth";
+	import * as i18n from "@solid-primitives/i18n";
+	import { LOCALE, type Locale } from "~/domain";
+	import { dict as en_dict, type RawDictionary, type Dictionary } from "./en";
+	import { dict as id_dict } from "./id";
+	import { useAuth, type AuthContextValue } from "~/auth";
 
-const dicts: Record<Locale, Dictionary> = {
-  en: i18n.flatten(en_dict),
-  id: i18n.flatten(id_dict),
+	const dicts: Record<Locale, Dictionary> = {
+	[LOCALE.ENGLISH]: i18n.flatten(en_dict),
+	[LOCALE.INDONESIAN]: i18n.flatten(id_dict),
 };
 
 function detectLocale(email?: string | null): Locale {
-  if (typeof window === "undefined") return "id";
-  const key = email ? `warehouse-ui-locale:${email}` : "warehouse-ui-locale";
-  const stored = localStorage.getItem(key);
-  if (stored === "en" || stored === "id") return stored;
-  const globalStored = localStorage.getItem("warehouse-ui-locale");
-  if (globalStored === "en" || globalStored === "id") return globalStored;
-  if (typeof navigator !== "undefined" && navigator.language?.startsWith("id")) return "id";
-  return "id";
+	if (typeof window === "undefined") return LOCALE.INDONESIAN;
+	const key = email ? `warehouse-ui-locale:${email}` : "warehouse-ui-locale";
+	const stored = localStorage.getItem(key);
+	if (stored === LOCALE.ENGLISH || stored === LOCALE.INDONESIAN) return stored;
+	const globalStored = localStorage.getItem("warehouse-ui-locale");
+	if (globalStored === LOCALE.ENGLISH || globalStored === LOCALE.INDONESIAN) return globalStored;
+	if (typeof navigator !== "undefined" && navigator.language?.startsWith(LOCALE.INDONESIAN)) return LOCALE.INDONESIAN;
+	return LOCALE.INDONESIAN;
 }
 
 export interface I18nContextValue {
@@ -60,7 +61,7 @@ export const I18nProvider: ParentComponent = (props) => {
     // Only synchronize from backend user if the user session changed (e.g. initial load or account switch)
     if (currentEmail !== lastUserEmail) {
       lastUserEmail = currentEmail;
-      if (user && (user.locale === "en" || user.locale === "id")) {
+		if (user && (user.locale === LOCALE.ENGLISH || user.locale === LOCALE.INDONESIAN)) {
         setLocaleSignal(user.locale);
         localStorage.setItem(user.email ? `warehouse-ui-locale:${user.email}` : "warehouse-ui-locale", user.locale);
         if (typeof document !== "undefined") {
@@ -98,7 +99,7 @@ export const I18nProvider: ParentComponent = (props) => {
 
   const dict = createMemo(() => dicts[locale()]);
   const t = i18n.translator(dict, i18n.resolveTemplate);
-  const intlLocale = createMemo(() => (locale() === "id" ? "id-ID" : "en-US"));
+	const intlLocale = createMemo(() => (locale() === LOCALE.INDONESIAN ? "id-ID" : "en-US"));
 
   const formatDate = (date: Date | string, options?: Intl.DateTimeFormatOptions): string => {
     const d = typeof date === "string" ? new Date(date) : date;

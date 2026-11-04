@@ -132,7 +132,7 @@ func New(token string, opts ...Option) *Provider {
 }
 
 func (p *Provider) ID() string {
-	return "official"
+	return string(accurate.ProviderOfficial)
 }
 
 // sanitizeError redacts the API token and signature secret from any error message.
@@ -157,7 +157,7 @@ func (p *Provider) Login(ctx context.Context, challengeID, otp string) (accurate
 	if p.token == "" {
 		return accurate.LoginResult{}, fmt.Errorf("missing ACCURATE_API_TOKEN")
 	}
-	return accurate.LoginResult{Status: "success"}, nil
+	return accurate.LoginResult{Status: accurate.LoginSuccess}, nil
 }
 
 func (p *Provider) SetSession(host, sessionID string, db accurate.Database) {
@@ -528,7 +528,7 @@ func (p *Provider) SearchItems(ctx context.Context, query string, page, pageSize
 
 	q := url.Values{
 		"fields":          {"id,no,name,upcNo,unit1Name,unit2Name,unitPrice,allQuantity,availableToSell,itemType,itemTypeName"},
-		"filter.itemType": {"INVENTORY"},
+		"filter.itemType": {string(accurate.InventoryItemType)},
 		"sp.page":         {strconv.Itoa(page)},
 		"sp.pageSize":     {strconv.Itoa(pageSize)},
 	}
@@ -596,7 +596,7 @@ func (p *Provider) SearchItems(ctx context.Context, query string, page, pageSize
 		if it.Unit2Name != nil {
 			unit2 = strings.TrimSpace(*it.Unit2Name)
 		}
-		canPrint := it.ItemType == "INVENTORY"
+		canPrint := accurate.InventoryType(it.ItemType) == accurate.InventoryItemType
 
 		items = append(items, accurate.InventoryItem{
 			ID:              it.ID,
@@ -633,8 +633,8 @@ func (p *Provider) SupportsSource(sourceID string) (bool, string) {
 		return false, reason
 	}
 
-	switch sourceID {
-	case "sales-order", "delivery-order", "purchase-order", "receive-item", "stock-opname-order", "stock-opname-result":
+	switch accurate.SourceID(sourceID) {
+	case accurate.SourceSalesOrder, accurate.SourceDeliveryOrder, accurate.SourcePurchaseOrder, accurate.SourceReceiveItem, accurate.SourceStockOpnameOrder, accurate.SourceStockOpnameResult:
 		return true, ""
 	default:
 		return false, fmt.Sprintf("unsupported source: %s", sourceID)
@@ -842,7 +842,7 @@ func (p *Provider) GetDocumentItems(ctx context.Context, sourceID string, docume
 		barcode := accurate.ResolveBarcode(upc, itemNo)
 
 		qty := float64(it.Quantity)
-		if sourceID == "stock-opname-result" {
+		if accurate.SourceID(sourceID) == accurate.SourceStockOpnameResult {
 			if float64(it.ActualQuantity) > 0 {
 				qty = float64(it.ActualQuantity)
 			} else if float64(it.BookQuantity) > 0 {

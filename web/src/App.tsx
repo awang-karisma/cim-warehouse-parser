@@ -1,3 +1,9 @@
+import { Privacy } from '~/pages/Privacy';
+import { Terms } from '~/pages/Terms';
+
+import { USER_ROLE } from '~/domain';
+import { ROUTES } from '~/routes';
+
 import { type Component, createMemo, Show } from 'solid-js';
 import { type RouteSectionProps, useLocation } from '@solidjs/router';
 
@@ -33,35 +39,35 @@ export const App: Component<RouteSectionProps> = (props) => {
 
   const { t } = useI18n();
 
-  const routeTitle = createMemo(() => {
-    const path = location.pathname;
-    if (path === '/' || path === '/dashboard') return t('nav.dashboard');
-    if (path.startsWith('/orders/')) return t('routes.orderDetails');
-    if (path.startsWith('/orders')) return t('nav.orders');
-    if (path.startsWith('/items')) return t('nav.items');
-    if (path.startsWith('/customers')) return t('nav.customerView');
-    if (path.startsWith('/customer-aliases')) return t('nav.customerAliases');
-    if (path.startsWith('/areas')) return t('nav.areaMap');
-    if (path.startsWith('/delivery-flow')) return t('nav.deliveryFlow');
-    if (path.startsWith('/timeline')) return t('nav.deliveryTimeline');
-    if (path.startsWith('/barcode')) return t('nav.barcodePrinter');
-    if (path.startsWith('/sync')) return t('nav.syncManager');
-    if (path.startsWith('/search')) return t('nav.search');
-    if (path.startsWith('/settings')) return t('nav.settings');
-    if (path.startsWith('/admin/users')) return t('nav.userManagement');
-    if (path.startsWith('/privacy')) return t('nav.privacyPolicy');
-    if (path.startsWith('/terms')) return t('nav.termsOfService');
-    return t('routes.console');
-  });
+	const routeTitle = createMemo(() => {
+		const path = location.pathname;
+		if (path === ROUTES.root || path === ROUTES.dashboard) return t('nav.dashboard');
+		if (path.startsWith(`${ROUTES.orders}/`)) return t('routes.orderDetails');
+		if (path.startsWith(ROUTES.orders)) return t('nav.orders');
+		if (path.startsWith(ROUTES.items)) return t('nav.items');
+		if (path.startsWith(ROUTES.customers)) return t('nav.customerView');
+		if (path.startsWith(ROUTES.customerAliases)) return t('nav.customerAliases');
+		if (path.startsWith(ROUTES.areas)) return t('nav.areaMap');
+		if (path.startsWith(ROUTES.deliveryFlow)) return t('nav.deliveryFlow');
+		if (path.startsWith(ROUTES.timeline)) return t('nav.deliveryTimeline');
+		if (path.startsWith(ROUTES.barcode)) return t('nav.barcodePrinter');
+		if (path.startsWith(ROUTES.sync)) return t('nav.syncManager');
+		if (path.startsWith(ROUTES.search)) return t('nav.search');
+		if (path.startsWith(ROUTES.settings)) return t('nav.settings');
+		if (path.startsWith(ROUTES.users)) return t('nav.userManagement');
+		if (path.startsWith(ROUTES.privacy)) return t('nav.privacyPolicy');
+		if (path.startsWith(ROUTES.terms)) return t('nav.termsOfService');
+		return t('routes.console');
+	});
 
   const auth = useAuth();
   const currentUser = () => auth.user();
 
   return (
-    <Show
-      when={location.pathname !== '/privacy' && location.pathname !== '/terms'}
-      fallback={<PageTransition>{props.children}</PageTransition>}
-    >
+	<Show
+		when={location.pathname !== ROUTES.privacy && location.pathname !== ROUTES.terms}
+		fallback={<PageTransition>{location.pathname === ROUTES.privacy ? <Privacy /> : <Terms />}</PageTransition>}
+	>
     <Show
       when={!auth.loading() || currentUser() !== undefined}
       fallback={
@@ -74,7 +80,7 @@ export const App: Component<RouteSectionProps> = (props) => {
       }
     >
       <Show when={currentUser() !== null} fallback={<Login />}>
-        <Show when={currentUser()?.role !== 'guest'} fallback={<PendingApproval />}>
+		<Show when={currentUser()?.role !== USER_ROLE.GUEST} fallback={<PendingApproval />}>
           <SidebarProvider style={{ '--sidebar-width': '16rem' } as Record<string, string>}>
             <AppSidebar />
             <SidebarInset>

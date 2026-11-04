@@ -3,6 +3,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -22,12 +23,15 @@ type Claims struct {
 	Locale  string `json:"locale,omitempty"`
 }
 
+// ErrMissingJWTSecret identifies token operations attempted without a signing secret.
+var ErrMissingJWTSecret = errors.New("jwt secret cannot be empty")
+
 // GenerateToken creates an HS256 JWT session token with 24-hour expiry.
 // If the user's email matches any entry in superadminEmails, the role in claims
 // is set to "superadmin" regardless of the role stored in the database.
 func GenerateToken(secret string, user *model.User, superadminEmails []string) (string, error) {
 	if secret == "" {
-		return "", fmt.Errorf("jwt secret cannot be empty")
+		return "", ErrMissingJWTSecret
 	}
 	if user == nil {
 		return "", fmt.Errorf("user cannot be nil")
@@ -36,7 +40,7 @@ func GenerateToken(secret string, user *model.User, superadminEmails []string) (
 	role := user.Role
 	for _, admin := range superadminEmails {
 		if strings.EqualFold(strings.TrimSpace(admin), strings.TrimSpace(user.Email)) {
-			role = "superadmin"
+			role = string(model.RoleSuperadmin)
 			break
 		}
 	}
@@ -66,7 +70,7 @@ func GenerateToken(secret string, user *model.User, superadminEmails []string) (
 // ValidateToken parses and validates an HS256 JWT session token against the secret.
 func ValidateToken(secret string, tokenStr string) (*Claims, error) {
 	if secret == "" {
-		return nil, fmt.Errorf("jwt secret cannot be empty")
+		return nil, ErrMissingJWTSecret
 	}
 	if strings.TrimSpace(tokenStr) == "" {
 		return nil, fmt.Errorf("token cannot be empty")

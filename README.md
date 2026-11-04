@@ -366,6 +366,12 @@ cd web && pnpm exec tsc --noEmit
 cd web && pnpm run build
 ```
 
+## Typed Error and Vocabulary Policy
+
+- Reusable application failures use sentinel errors and `errors.Is`/`errors.As`. Wrapped upstream causes remain inspectable; duplicate delivery-driver names are identified by SQLite's unique-constraint code, not error-message text.
+- Closed business vocabularies are owned by `pkg/model/vocabulary.go`, `pkg/accurate/vocabulary.go`, and `web/src/domain.ts`; storage query/response and spreadsheet status fields remain strings to preserve unknown external values and exact wire/database spellings.
+- Frontend routes and sort directions are centralized in `web/src/routes.ts` and `web/src/utils/tableSorting.ts`.
+
 ---
 
 ## License

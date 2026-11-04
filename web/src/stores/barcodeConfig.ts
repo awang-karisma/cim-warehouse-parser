@@ -1,10 +1,11 @@
 import { createSignal, createResource, createEffect } from 'solid-js';
+import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE } from '~/domain';
 import { getPageDesigns } from '~/api';
 import { loadLayoutFromDesign, resetLayout } from '~/stores/labelLayout';
 export { companyName, setCompanyName } from '~/stores/labelLayout';
 import type { BarcodeHeight, BarcodePresetSettings, FontSize, PageDesign, PresetConfig, QtyMode, Symbology } from '~/types';
-
-export const PRESETS: Record<string, PresetConfig> = {
+export const SERVER_PRESET_PREFIX = 'server-';
+export const PRESETS = {
   'tj-108': {
     name: 'Tom & Jerry No. 108',
     paper: 'A4',
@@ -95,15 +96,15 @@ export const PRESETS: Record<string, PresetConfig> = {
     marginLeftMM: 5,
     isAuditSheet: false,
   },
-};
+} satisfies Record<string, PresetConfig>;
 
 export const [presetKey, setPresetKey] = createSignal<string>('tj-108');
 export const [customConfig, setCustomConfig] = createSignal<PresetConfig>({ ...PRESETS.custom });
 
-export const [symbology, setSymbology] = createSignal<Symbology>('CODE128');
-export const [barcodeHeight, setBarcodeHeight] = createSignal<BarcodeHeight>('medium');
-export const [fontSize, setFontSize] = createSignal<FontSize>('medium');
-export const [qtyMode, setQtyMode] = createSignal<QtyMode>('multiply');
+export const [symbology, setSymbology] = createSignal<Symbology>(BARCODE_SYMBOLOGY.CODE128);
+export const [barcodeHeight, setBarcodeHeight] = createSignal<BarcodeHeight>(BARCODE_HEIGHT.MEDIUM);
+export const [fontSize, setFontSize] = createSignal<FontSize>(FONT_SIZE.MEDIUM);
+export const [qtyMode, setQtyMode] = createSignal<QtyMode>(QTY_MODE.MULTIPLY);
 export const [skipCount, setSkipCount] = createSignal<number>(0);
 
 export const [showScreenBorder, setShowScreenBorder] = createSignal<boolean>(true);
@@ -113,7 +114,7 @@ export const [zoom, setZoom] = createSignal<number>(1);
 
 
 export const DEFAULT_BARCODE_PRESET_SETTINGS: BarcodePresetSettings = {
-  symbology: 'CODE128', barcode_height: 'medium', font_size: 'medium', qty_mode: 'multiply',
+  symbology: BARCODE_SYMBOLOGY.CODE128, barcode_height: BARCODE_HEIGHT.MEDIUM, font_size: FONT_SIZE.MEDIUM, qty_mode: QTY_MODE.MULTIPLY,
   skip_count: 0, show_screen_border: true, zoom: 1,
 };
 
@@ -193,8 +194,8 @@ export function applyPageDesign(design: PageDesign): void {
   lastAppliedDesignSignature = JSON.stringify(design);
 }
 
-const applyBuiltinPreset = (key: string): void => {
-  const cfg = PRESETS[key] || PRESETS['tj-108'];
+const applyBuiltinPreset = (key: keyof typeof PRESETS): void => {
+	const cfg = PRESETS[key] || PRESETS['tj-108'];
   setCustomConfig({ ...cfg });
   applyBarcodePresetSettings(DEFAULT_BARCODE_PRESET_SETTINGS);
   resetLayout(cfg.labelWidthMM, cfg.labelHeightMM);
@@ -203,8 +204,8 @@ const applyBuiltinPreset = (key: string): void => {
 createEffect(() => {
   const key = presetKey();
   const designs = serverDesigns();
-  if (!key.startsWith('server-') || !designs) return;
-  const id = Number.parseInt(key.slice(7), 10);
+	if (!key.startsWith(SERVER_PRESET_PREFIX) || !designs) return;
+	const id = Number.parseInt(key.slice(SERVER_PRESET_PREFIX.length), 10);
   const match = designs.find((design) => design.id === id);
   if (match) {
     const signature = JSON.stringify(match);
@@ -220,13 +221,13 @@ createEffect(() => {
 export function selectPreset(key: string): void {
   lastAppliedDesignSignature = '';
   setPresetKey(key);
-  if (key.startsWith('server-')) {
-    const id = Number.parseInt(key.slice(7), 10);
+	if (key.startsWith(SERVER_PRESET_PREFIX)) {
+		const id = Number.parseInt(key.slice(SERVER_PRESET_PREFIX.length), 10);
     const match = (serverDesigns() ?? []).find((design) => design.id === id);
     if (match) applyPageDesign(match);
     return;
   }
-  applyBuiltinPreset(key);
+	applyBuiltinPreset(key as keyof typeof PRESETS);
 }
 
 export function getEffectiveConfig(): PresetConfig {
@@ -234,13 +235,13 @@ export function getEffectiveConfig(): PresetConfig {
   if (pk === 'custom') {
     return customConfig();
   }
-  if (pk.startsWith('server-')) {
-    const id = parseInt(pk.slice(7), 10);
+	if (pk.startsWith(SERVER_PRESET_PREFIX)) {
+		const id = parseInt(pk.slice(SERVER_PRESET_PREFIX.length), 10);
     const designs = serverDesigns() ?? [];
     const match = designs.find((d) => d.id === id);
     if (match) return customConfig();
     return PRESETS['tj-108'];
   }
-  return PRESETS[pk] || PRESETS['tj-108'];
+	return PRESETS[pk as keyof typeof PRESETS] || PRESETS['tj-108'];
 }
 

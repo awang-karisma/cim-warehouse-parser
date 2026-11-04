@@ -231,7 +231,7 @@ func DefaultBarcodePresetSettings() BarcodePresetSettings {
 	showScreenBorder := true
 	zoom := 1.0
 	return BarcodePresetSettings{
-		Symbology: "CODE128", BarcodeHeight: "medium", FontSize: "medium", QtyMode: "multiply",
+		Symbology: string(BarcodeCode128), BarcodeHeight: string(BarcodeHeightMedium), FontSize: string(BarcodeFontMedium), QtyMode: string(BarcodeQuantityMultiply),
 		SkipCount: &skipCount, ShowScreenBorder: &showScreenBorder, Zoom: &zoom,
 	}
 }

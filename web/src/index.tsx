@@ -1,3 +1,5 @@
+import { ROUTES } from './routes';
+
 import { ColorModeProvider, ColorModeScript, createLocalStorageManager } from '@kobalte/core';
 import { Route, Router } from '@solidjs/router';
 import { render } from 'solid-js/web';
@@ -34,23 +36,23 @@ if (root) {
           <AuthProvider>
             <I18nProvider>
               <Router root={App}>
-                <Route path="/" component={Dashboard} />
-                <Route path="/dashboard" component={Dashboard} />
-                <Route path="/orders" component={Orders} />
-                <Route path="/orders/:id" component={OrderDetail} />
-                <Route path="/items" component={Items} />
-                <Route path="/customers" component={Customers} />
-                <Route path="/customer-aliases" component={CustomerAliases} />
-                <Route path="/areas" component={Areas} />
-                <Route path="/delivery-flow" component={DeliveryFlow} />
-                <Route path="/timeline" component={Timeline} />
-                <Route path="/barcode" component={Barcode} />
-                <Route path="/sync" component={SyncManager} />
-                <Route path="/search" component={Search} />
-                <Route path="/settings" component={Settings} />
-                <Route path="/admin/users" component={UserManagement} />
-                <Route path="/privacy" component={Privacy} />
-                <Route path="/terms" component={Terms} />
+				<Route path={ROUTES.root} component={Dashboard} />
+				<Route path={ROUTES.dashboard} component={Dashboard} />
+				<Route path={ROUTES.orders} component={Orders} />
+				<Route path={ROUTES.orderDetailPattern} component={OrderDetail} />
+				<Route path={ROUTES.items} component={Items} />
+				<Route path={ROUTES.customers} component={Customers} />
+				<Route path={ROUTES.customerAliases} component={CustomerAliases} />
+				<Route path={ROUTES.areas} component={Areas} />
+				<Route path={ROUTES.deliveryFlow} component={DeliveryFlow} />
+				<Route path={ROUTES.timeline} component={Timeline} />
+				<Route path={ROUTES.barcode} component={Barcode} />
+				<Route path={ROUTES.sync} component={SyncManager} />
+				<Route path={ROUTES.search} component={Search} />
+				<Route path={ROUTES.settings} component={Settings} />
+				<Route path={ROUTES.users} component={UserManagement} />
+				<Route path={ROUTES.privacy} component={Privacy} />
+				<Route path={ROUTES.terms} component={Terms} />
               </Router>
             </I18nProvider>
           </AuthProvider>

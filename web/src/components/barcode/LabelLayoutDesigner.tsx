@@ -1,3 +1,5 @@
+import { USER_ROLE } from '~/domain';
+
 import { createEffect, createResource, For, Show, createSignal } from 'solid-js';
 import { createLabelLayoutPreset, deleteLabelLayoutPreset, getLabelLayoutPresets, updateLabelLayoutPreset } from '~/api';
 import { useAuth } from '~/auth';
@@ -16,7 +18,7 @@ export function LabelLayoutDesigner() {
   const pxPerMm = () => Math.min(280 / Math.max(cfg().labelWidthMM, 1), 200 / Math.max(cfg().labelHeightMM, 1));
   const selected = () => labelLayout().find((el) => el.id === selectedId());
   const auth = useAuth();
-  const isAdmin = () => auth.user()?.role === 'admin' || auth.user()?.role === 'superadmin';
+	const isAdmin = () => auth.user()?.role === USER_ROLE.ADMIN || auth.user()?.role === USER_ROLE.SUPERADMIN;
   const [layoutPresets, { refetch: refetchLayoutPresets }] = createResource(() => getLabelLayoutPresets().then((result) => result.presets).catch(() => [] as LabelLayoutPreset[]));
   const [selectedPresetId, setSelectedPresetId] = createSignal('');
   const [presetName, setPresetName] = createSignal('');

@@ -1,3 +1,5 @@
+import { SYNC_STATUS, USER_ROLE, WORKER_STATE } from '~/domain';
+
 import { type Component, createSignal, createResource, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
@@ -42,7 +44,7 @@ export const SyncManager: Component = () => {
   const auth = useAuth();
   const canSync = () => {
     const role = auth.user()?.role;
-    return role === 'admin' || role === 'superadmin';
+	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
   };
 
   const handleManualSync = async () => {
@@ -56,17 +58,17 @@ export const SyncManager: Component = () => {
 
     try {
       es = subscribeSyncEvents((evt: SyncEvent) => {
-        if (evt.status === 'SYNCING') {
-          setSyncProgressMsg(evt.message || t('sync.synchronizingRemote'));
-        } else if (evt.status === 'SUCCESS') {
-          setSyncProgressMsg(
-            t('sync.syncSuccessDetail', { count: evt.record?.items_count ?? 0, duration: evt.duration_ms ?? 0 })
-          );
-          setIsSyncing(false);
-          if (es) es.close();
-          refetchStatus();
-          refetchHistory();
-        } else if (evt.status === 'ERROR') {
+		if (evt.status === SYNC_STATUS.SYNCING) {
+			setSyncProgressMsg(evt.message || t('sync.synchronizingRemote'));
+		} else if (evt.status === SYNC_STATUS.SUCCESS) {
+			setSyncProgressMsg(
+				t('sync.syncSuccessDetail', { count: evt.record?.items_count ?? 0, duration: evt.duration_ms ?? 0 })
+			);
+			setIsSyncing(false);
+			if (es) es.close();
+			refetchStatus();
+			refetchHistory();
+		} else if (evt.status === SYNC_STATUS.ERROR) {
           setSyncError(evt.error || t('sync.syncFailed'));
           setIsSyncing(false);
           if (es) es.close();
@@ -102,7 +104,7 @@ export const SyncManager: Component = () => {
             <div class="flex items-center gap-2">
               <CardTitle class="text-base font-semibold">{t('syncManager.liveState')}</CardTitle>
               <Badge
-                status={isSyncing() ? 'SYNCING' : status()?.status || 'IDLE'}
+				status={isSyncing() ? SYNC_STATUS.SYNCING : status()?.status || WORKER_STATE.IDLE}
                 kind="sync"
                 pill
               />

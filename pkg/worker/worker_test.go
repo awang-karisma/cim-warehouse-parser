@@ -589,7 +589,7 @@ collect:
 		select {
 		case evt := <-ch:
 			events = append(events, evt)
-			if evt.Status == "SUCCESS" {
+			if model.SyncStatus(evt.Status) == model.SyncSuccess {
 				break collect
 			}
 		case <-timeout:

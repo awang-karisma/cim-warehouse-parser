@@ -1,3 +1,7 @@
+import { orderDetailPath } from '~/routes';
+
+import { ORDER_STATUS } from '~/domain';
+
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { A, useNavigate } from '@solidjs/router';
@@ -45,7 +49,7 @@ const formatShippedQuantity = (qty?: string, unit?: string): string => {
   return `${trimmedQty} ${unit.trim()}`;
 };
 
-const VALID_STATUSES = ['SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
+const VALID_STATUSES = [ORDER_STATUS.COMPLETE, ORDER_STATUS.PROCESSING, ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED] as const;
 
 export const Timeline: Component = () => {
   const { t } = useI18n();
@@ -124,10 +128,10 @@ export const Timeline: Component = () => {
 
   const statusOptions = createMemo(() => [
     t('orders.allStatuses'),
-    'SELESAI',
-    'PROSES',
-    'PENDING',
-    'BATAL',
+		ORDER_STATUS.COMPLETE,
+		ORDER_STATUS.PROCESSING,
+		ORDER_STATUS.PENDING,
+		ORDER_STATUS.CANCELLED,
   ]);
 
   const handleLimitChange = (newLimit: number) => {
@@ -318,7 +322,7 @@ export const Timeline: Component = () => {
                             const selection = window.getSelection();
                             if (selection && selection.toString().length > 0) return;
                             if (del.item.order_id) {
-                              navigate(`/orders/${del.item.order_id}`);
+								navigate(orderDetailPath(del.item.order_id));
                             }
                           }}
                         >
@@ -330,7 +334,7 @@ export const Timeline: Component = () => {
                           <TableCell class="text-xs font-medium">
                             <Show when={del.item.order_id} fallback={del.item.nama_barang}>
                               <A
-                                href={`/orders/${del.item.order_id}`}
+					href={orderDetailPath(del.item.order_id!)}
                                 class="text-primary hover:underline hover:text-primary/80 transition-colors font-medium inline-block"
                                 onClick={(e) => e.stopPropagation()}
                               >

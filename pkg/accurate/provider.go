@@ -120,8 +120,8 @@ type Database struct {
 
 // LoginResult contains the result of a login or MFA step.
 type LoginResult struct {
-	Status      string `json:"status"` // "success" or "mfa_required"
-	ChallengeID string `json:"challengeId,omitempty"`
+	Status      LoginStatus `json:"status"`
+	ChallengeID string      `json:"challengeId,omitempty"`
 }
 
 // SearchItemsResult contains items and pagination metadata.

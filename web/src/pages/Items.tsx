@@ -1,3 +1,7 @@
+import { orderDetailPath } from '~/routes';
+
+import { ORDER_STATUS, STOCK_STATUS } from '~/domain';
+
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
@@ -29,8 +33,8 @@ import { SortableTableHead } from '~/components/SortableTableHead';
 import { createUrlFilter } from '../utils/tableFilters';
 import { DeliveryDateBadges } from '~/components/DeliveryDateBadges';
 
-const VALID_STATUS_ORDERS = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
-const STATUS_BARANG_OPTIONS = ['All', 'PROSES ORDER', 'STOK GUDANG', 'STOK KOSONG', 'DELIVERY VENDOR', 'DONE', 'OTHER'] as const;
+const VALID_STATUS_ORDERS = [ORDER_STATUS.UNFINISHED, ORDER_STATUS.COMPLETE, ORDER_STATUS.PROCESSING, ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED] as const;
+const STATUS_BARANG_OPTIONS = ['All', STOCK_STATUS.PROCESSING_ORDER, STOCK_STATUS.WAREHOUSE, STOCK_STATUS.EMPTY, STOCK_STATUS.VENDOR_DELIVERY, STOCK_STATUS.DONE, 'OTHER'] as const;
 export const Items: Component = () => {
   const { t } = useI18n();
   const filters = createUrlFilter({
@@ -380,7 +384,7 @@ export const Items: Component = () => {
                               }
                             >
                               <A
-                                href={`/orders/${item.order_id}`}
+					href={orderDetailPath(item.order_id!)}
                                 class="font-medium text-primary hover:underline font-mono text-xs"
                               >
                                 {item.order_number || item.order_id}

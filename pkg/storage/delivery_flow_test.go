@@ -2,11 +2,13 @@ package storage_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"modernc.org/sqlite"
 )
 
 func newTestStorage(t *testing.T) *storage.Storage {
@@ -225,6 +227,13 @@ func TestDeliveryDriversCRUD(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected duplicate name error, got nil")
 	}
+	if !errors.Is(err, storage.ErrDuplicateDriver) {
+		t.Fatalf("expected ErrDuplicateDriver, got: %v", err)
+	}
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		t.Fatalf("expected duplicate error to retain SQLite cause, got: %v", err)
+	}
 
 	// Create driver 2
 	d2 := model.DeliveryDriver{
@@ -236,6 +245,11 @@ func TestDeliveryDriversCRUD(t *testing.T) {
 	id2, err := store.CreateDeliveryDriver(ctx, d2)
 	if err != nil {
 		t.Fatalf("failed to create driver 2: %v", err)
+	}
+	if err := store.UpdateDeliveryDriver(ctx, id2, model.DeliveryDriver{Name: "BUDI SANTOSO", Active: true}); err == nil {
+		t.Fatal("expected duplicate rename error, got nil")
+	} else if !errors.Is(err, storage.ErrDuplicateDriver) {
+		t.Fatalf("expected duplicate rename to return ErrDuplicateDriver, got: %v", err)
 	}
 
 	// List drivers

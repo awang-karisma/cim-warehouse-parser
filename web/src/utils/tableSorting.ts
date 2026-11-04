@@ -1,4 +1,5 @@
-export type SortDirection = 'asc' | 'desc';
+export const SORT_DIRECTION = { ASCENDING: 'asc', DESCENDING: 'desc' } as const;
+export type SortDirection = (typeof SORT_DIRECTION)[keyof typeof SORT_DIRECTION];
 
 export interface SortState {
   field: string;
@@ -30,7 +31,7 @@ export function compareValues(left: unknown, right: unknown): number {
 }
 
 export function sortRows<T>(rows: readonly T[], state: SortState, valueFor: (row: T, field: string) => unknown): T[] {
-  const direction = state.direction === 'asc' ? 1 : -1;
+  const direction = state.direction === SORT_DIRECTION.ASCENDING ? 1 : -1;
   return rows.map((row, index) => ({ row, index })).sort((a, b) => {
     const result = compareValues(valueFor(a.row, state.field), valueFor(b.row, state.field)) * direction;
     return result || a.index - b.index;
@@ -38,5 +39,5 @@ export function sortRows<T>(rows: readonly T[], state: SortState, valueFor: (row
 }
 
 export function nextSortState(current: SortState, field: string): SortState {
-  return { field, direction: current.field === field && current.direction === 'asc' ? 'desc' : 'asc' };
+  return { field, direction: current.field === field && current.direction === SORT_DIRECTION.ASCENDING ? SORT_DIRECTION.DESCENDING : SORT_DIRECTION.ASCENDING };
 }

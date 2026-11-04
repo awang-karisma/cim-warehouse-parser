@@ -1,3 +1,5 @@
+import { ROUTES } from '~/routes';
+
 import { type Component, createResource, Show, For, createMemo, createSignal } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { useParams, useNavigate, A } from '@solidjs/router';
@@ -94,7 +96,7 @@ export const OrderDetail: Component = () => {
     if (window.history.length > 1) {
       window.history.back();
     } else {
-      navigate('/orders');
+		navigate(ROUTES.orders);
     }
   };
 
@@ -131,7 +133,7 @@ export const OrderDetail: Component = () => {
                 <p class="text-sm text-muted-foreground mb-4">
                   {t('orderDetail.notFoundDesc', { id: params.id ?? '' })}
                 </p>
-                <Button as={A} href="/orders" variant="outline" size="sm">
+				<Button as={A} href={ROUTES.orders} variant="outline" size="sm">
                   {t('orderDetail.returnToOrders')}
                 </Button>
               </CardContent>

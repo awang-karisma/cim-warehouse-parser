@@ -1,3 +1,6 @@
+import { USER_ROLE } from '~/domain';
+import { ROUTES } from '~/routes';
+
 import { type Component, For, Show, createMemo, createSignal, onMount, onCleanup, createResource } from 'solid-js';
 import { getStatus, getConfig } from '~/api';
 import { cn } from '~/lib/utils';
@@ -195,51 +198,51 @@ export const AppSidebar: Component = () => {
       setOpenMobile(false);
     }
   };
-  const isPrivileged = createMemo(() => {
-    const role = auth.user()?.role;
-    return role === 'admin' || role === 'superadmin';
-  });
+	const isPrivileged = createMemo(() => {
+		const role = auth.user()?.role;
+		return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
+	});
 
   const currentNavGroups = createMemo<NavGroup[]>(() => {
     const groups: NavGroup[] = [
-      { id: 'overview', label: t('navGroups.overview'), items: [
-        { href: '/', label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
-      ] },
-      { id: 'operations', label: t('navGroups.operations'), items: [
-        { href: '/orders', label: t('nav.orders'), icon: IconClipboardList },
-        { href: '/items', label: t('nav.items'), icon: IconPackage },
-        { href: '/delivery-flow', label: t('nav.deliveryFlow'), icon: IconTruckDelivery },
-        { href: '/timeline', label: t('nav.deliveryTimeline'), icon: IconTimeline },
-      ] },
-      { id: 'customersAndAreas', label: t('navGroups.customersAndAreas'), items: [
-        { href: '/customers', label: t('nav.customerView'), icon: IconUsers },
-        { href: '/customer-aliases', label: t('nav.customerAliases'), icon: IconAddressBook },
-        { href: '/areas', label: t('nav.areaMap'), icon: IconMapPin },
-      ] },
-      { id: 'tools', label: t('navGroups.tools'), items: [
-        { href: '/barcode', label: t('nav.barcodePrinter'), icon: IconBarcode },
-        { href: '/search', label: t('nav.search'), icon: IconSearch },
-      ] },
-      { id: 'administration', label: t('navGroups.administration'), items: [
-        { href: '/sync', label: t('nav.syncManager'), icon: IconRefresh },
-        { href: '/settings', label: t('nav.settings'), icon: IconSettings },
-        ...(isPrivileged() ? [{ href: '/admin/users', label: t('nav.userManagement'), icon: IconUserCog }] : []),
-      ] },
+		{ id: 'overview', label: t('navGroups.overview'), items: [
+			{ href: ROUTES.root, label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
+		] },
+		{ id: 'operations', label: t('navGroups.operations'), items: [
+			{ href: ROUTES.orders, label: t('nav.orders'), icon: IconClipboardList },
+			{ href: ROUTES.items, label: t('nav.items'), icon: IconPackage },
+			{ href: ROUTES.deliveryFlow, label: t('nav.deliveryFlow'), icon: IconTruckDelivery },
+			{ href: ROUTES.timeline, label: t('nav.deliveryTimeline'), icon: IconTimeline },
+		] },
+		{ id: 'customersAndAreas', label: t('navGroups.customersAndAreas'), items: [
+			{ href: ROUTES.customers, label: t('nav.customerView'), icon: IconUsers },
+			{ href: ROUTES.customerAliases, label: t('nav.customerAliases'), icon: IconAddressBook },
+			{ href: ROUTES.areas, label: t('nav.areaMap'), icon: IconMapPin },
+	] },
+	{ id: 'tools', label: t('navGroups.tools'), items: [
+		{ href: ROUTES.barcode, label: t('nav.barcodePrinter'), icon: IconBarcode },
+		{ href: ROUTES.search, label: t('nav.search'), icon: IconSearch },
+	] },
+	{ id: 'administration', label: t('navGroups.administration'), items: [
+		{ href: ROUTES.sync, label: t('nav.syncManager'), icon: IconRefresh },
+		{ href: ROUTES.settings, label: t('nav.settings'), icon: IconSettings },
+		...(isPrivileged() ? [{ href: ROUTES.users, label: t('nav.userManagement'), icon: IconUserCog }] : []),
+	] },
     ];
     return groups;
   });
 
-  const isActive = (item: NavItem) => item.exact
-    ? location.pathname === '/' || location.pathname === '/dashboard'
-    : location.pathname.startsWith(item.href);
-  const activeGroupId = createMemo<NavGroup['id']>(() => {
-    const path = location.pathname;
-    if (path === '/' || path === '/dashboard') return 'overview';
-    if (['/orders', '/items', '/delivery-flow', '/timeline'].some((prefix) => path.startsWith(prefix))) return 'operations';
-    if (['/customers', '/customer-aliases', '/areas'].some((prefix) => path.startsWith(prefix))) return 'customersAndAreas';
-    if (['/barcode', '/search'].some((prefix) => path.startsWith(prefix))) return 'tools';
-    return 'administration';
-  });
+	const isActive = (item: NavItem) => item.exact
+		? location.pathname === ROUTES.root || location.pathname === ROUTES.dashboard
+		: location.pathname.startsWith(item.href);
+	const activeGroupId = createMemo<NavGroup['id']>(() => {
+		const path = location.pathname;
+		if (path === ROUTES.root || path === ROUTES.dashboard) return 'overview';
+		if ([ROUTES.orders, ROUTES.items, ROUTES.deliveryFlow, ROUTES.timeline].some((prefix) => path.startsWith(prefix))) return 'operations';
+		if ([ROUTES.customers, ROUTES.customerAliases, ROUTES.areas].some((prefix) => path.startsWith(prefix))) return 'customersAndAreas';
+		if ([ROUTES.barcode, ROUTES.search].some((prefix) => path.startsWith(prefix))) return 'tools';
+		return 'administration';
+	});
   const [userOpenGroups, setUserOpenGroups] = createSignal<string[]>([]);
   const expandedGroups = createMemo(() => [...new Set([...userOpenGroups(), activeGroupId()])]);
   const handleAccordionChange = (value: string[]) => {

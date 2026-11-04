@@ -1,3 +1,5 @@
+import type { Locale } from "~/domain";
+
 import type * as i18n from "@solid-primitives/i18n";
 
 export const dict = {
@@ -878,6 +880,6 @@ export const dict = {
   },
 };
 
-export type Locale = "en" | "id";
+export type { Locale };
 export type RawDictionary = typeof dict;
 export type Dictionary = i18n.Flatten<RawDictionary>;

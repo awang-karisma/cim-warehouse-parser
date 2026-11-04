@@ -88,7 +88,7 @@ func (s *Server) handleCreateDeliveryDriver(ctx context.Context, input *CreateDe
 
 	id, err := s.store.CreateDeliveryDriver(ctx, input.Body)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if errors.Is(err, storage.ErrDuplicateDriver) {
 			return nil, huma.Error400BadRequest(fmt.Sprintf("driver '%s' already exists", name))
 		}
 		return nil, huma.Error500InternalServerError("failed to create delivery driver", err)
@@ -121,14 +121,14 @@ func (s *Server) handleUpdateDeliveryDriver(ctx context.Context, input *UpdateDe
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, huma.Error404NotFound(fmt.Sprintf("driver %d not found", input.ID))
 		}
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if errors.Is(err, storage.ErrDuplicateDriver) {
 			return nil, huma.Error400BadRequest(fmt.Sprintf("driver '%s' already exists", name))
 		}
 		return nil, huma.Error500InternalServerError("failed to update delivery driver", err)
 	}
 
 	return &StatusOKOutput{
-		Body: StatusOKResponse{Status: "ok"},
+		Body: StatusOKResponse{Status: string(ResultOK)},
 	}, nil
 }
 
@@ -146,7 +146,7 @@ func (s *Server) handleDeleteDeliveryDriver(ctx context.Context, input *DeleteDe
 		return nil, huma.Error500InternalServerError("failed to delete delivery driver", err)
 	}
 	return &StatusOKOutput{
-		Body: StatusOKResponse{Status: "ok"},
+		Body: StatusOKResponse{Status: string(ResultOK)},
 	}, nil
 }
 
@@ -348,8 +348,8 @@ func (s *Server) handleUpdateDeliveryRunStatus(ctx context.Context, input *Updat
 		return nil, huma.Error400BadRequest("invalid delivery run id")
 	}
 	cleanStatus := strings.ToUpper(strings.TrimSpace(input.Body.Status))
-	switch cleanStatus {
-	case "PLANNED", "PICKING", "READY", "DISPATCHED", "COMPLETED":
+	switch model.DeliveryRunStatus(cleanStatus) {
+	case model.RunPlanned, model.RunPicking, model.RunReady, model.RunDispatched, model.RunCompleted:
 		// valid
 	default:
 		return nil, huma.Error400BadRequest("invalid status: must be PLANNED, PICKING, READY, DISPATCHED, or COMPLETED")
@@ -428,6 +428,6 @@ func (s *Server) handleDeleteDeliveryRun(ctx context.Context, input *DeleteDeliv
 		return nil, huma.Error500InternalServerError("failed to delete delivery run", err)
 	}
 	return &StatusOKOutput{
-		Body: StatusOKResponse{Status: "ok"},
+		Body: StatusOKResponse{Status: string(ResultOK)},
 	}, nil
 }

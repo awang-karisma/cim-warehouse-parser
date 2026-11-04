@@ -15,7 +15,7 @@ func NewDeliveryOrderAdapter(prov accurate.Provider) *DeliveryOrderAdapter {
 }
 
 func (a *DeliveryOrderAdapter) ID() string {
-	return "delivery-order"
+	return string(accurate.SourceDeliveryOrder)
 }
 
 func (a *DeliveryOrderAdapter) Name() string {

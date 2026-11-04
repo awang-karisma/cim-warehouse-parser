@@ -3,7 +3,6 @@ package api
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -24,6 +23,10 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/gofiber/fiber/v3"
 )
+
+type ResultStatus string
+
+const ResultOK ResultStatus = "ok"
 
 // HealthResponse defines the health check response.
 type HealthResponse struct {
@@ -260,7 +263,7 @@ func resolveSortAndOrder(sort, orderBy, order, dir, direction string) (string, s
 	}
 
 	o := strings.TrimSpace(order)
-	if strings.EqualFold(o, "asc") || strings.EqualFold(o, "desc") {
+	if strings.EqualFold(o, string(storage.SortAscending)) || strings.EqualFold(o, string(storage.SortDescending)) {
 		if d == "" {
 			d = o
 		}
@@ -299,14 +302,14 @@ type ListItemsInput struct {
 func (s *Server) handleHealth(ctx context.Context, input *struct{}) (*HealthOutput, error) {
 	return &HealthOutput{
 		Body: HealthResponse{
-			Status: "ok",
+			Status: string(ResultOK),
 		},
 	}, nil
 }
 
 func (s *Server) handleStatus(ctx context.Context, input *struct{}) (*StatusOutput, error) {
 	resp := StatusResponse{
-		Status: "IDLE",
+		Status: string(model.WorkerIdle),
 	}
 
 	if s.worker != nil {
@@ -431,7 +434,7 @@ func (s *Server) handleGetOrderByID(ctx context.Context, input *GetOrderByIDInpu
 
 	order, err := s.store.GetOrderByID(ctx, input.ID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(strings.ToLower(err.Error()), "not found") {
+		if errors.Is(err, storage.ErrNotFound) {
 			return nil, huma.Error404NotFound("order not found")
 		}
 		return nil, huma.Error500InternalServerError(err.Error())
@@ -754,7 +757,7 @@ func (s *Server) handleConfig(ctx context.Context, input *struct{}) (*ConfigOutp
 		WorkHoursStart: cfg.WorkHoursStart,
 		WorkHoursEnd:   cfg.WorkHoursEnd,
 		Timezone:       cfg.Timezone,
-		WorkDays:       []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"},
+		WorkDays:       []string{string(model.WeekdayMonday), string(model.WeekdayTuesday), string(model.WeekdayWednesday), string(model.WeekdayThursday), string(model.WeekdayFriday), string(model.WeekdaySaturday)},
 		SpreadsheetID:  cfg.SpreadsheetID,
 	}
 	return &ConfigOutput{Body: resp}, nil
@@ -797,7 +800,7 @@ func (s *Server) handleSystem(ctx context.Context, input *struct{}) (*SystemOutp
 }
 
 func (s *Server) handleExportItems(c fiber.Ctx) error {
-	if err := s.requireRole(c, "user"); err != nil {
+	if err := s.requireRole(c, string(model.RoleUser)); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -878,7 +881,7 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 	return writer.Error()
 }
 func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
-	if err := s.requireRole(c, "user"); err != nil {
+	if err := s.requireRole(c, string(model.RoleUser)); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -898,19 +901,19 @@ func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
 }
 
 func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
-	if err := s.requireRole(c, "admin"); err != nil {
+	if err := s.requireRole(c, string(model.RoleAdmin)); err != nil {
 		return err
 	}
 	if s.store == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
 	}
 
-	mode := c.Query("mode", "merge")
+	mode := c.Query("mode", string(storage.AliasMerge))
 	if mode == "" {
-		mode = "merge"
+		mode = string(storage.AliasMerge)
 	}
 	normMode := strings.ToLower(strings.TrimSpace(mode))
-	if normMode != "merge" && normMode != "replace" {
+	if storage.AliasImportMode(normMode) != storage.AliasMerge && storage.AliasImportMode(normMode) != storage.AliasReplace {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("invalid import mode %q: must be merge or replace", mode)})
 	}
 
@@ -950,7 +953,7 @@ func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
 
 	res, err := s.store.ImportCustomerAliasesJSON(c.Context(), data, normMode)
 	if err != nil {
-		if storage.IsValidationError(err) {
+		if errors.Is(err, storage.ErrValidation) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -962,7 +965,7 @@ func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"status":   "ok",
+		"status":   string(ResultOK),
 		"imported": res.Imported,
 		"skipped":  res.Skipped,
 		"errors":   errorsList,
@@ -970,7 +973,7 @@ func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
 }
 
 func (s *Server) handleSyncSSE(c fiber.Ctx) error {
-	if err := s.requireRole(c, "user"); err != nil {
+	if err := s.requireRole(c, string(model.RoleUser)); err != nil {
 		return err
 	}
 	if s.worker == nil {
@@ -1079,7 +1082,7 @@ func (s *Server) handleSetCustomerAlias(ctx context.Context, input *SetCustomerA
 		return nil, huma.Error500InternalServerError("failed to set customer alias", err)
 	}
 	return &StatusOKOutput{
-		Body: StatusOKResponse{Status: "ok"},
+		Body: StatusOKResponse{Status: string(ResultOK)},
 	}, nil
 }
 
@@ -1099,7 +1102,7 @@ func (s *Server) handleDeleteCustomerAlias(ctx context.Context, input *DeleteCus
 		return nil, huma.Error500InternalServerError("failed to delete customer alias", err)
 	}
 	return &StatusOKOutput{
-		Body: StatusOKResponse{Status: "ok"},
+		Body: StatusOKResponse{Status: string(ResultOK)},
 	}, nil
 }
 
@@ -1119,13 +1122,13 @@ type SetWorkdayPolicyInput struct {
 }
 
 var canonicalWeekdaySet = map[string]bool{
-	"Monday":    true,
-	"Tuesday":   true,
-	"Wednesday": true,
-	"Thursday":  true,
-	"Friday":    true,
-	"Saturday":  true,
-	"Sunday":    true,
+	string(model.WeekdayMonday):    true,
+	string(model.WeekdayTuesday):   true,
+	string(model.WeekdayWednesday): true,
+	string(model.WeekdayThursday):  true,
+	string(model.WeekdayFriday):    true,
+	string(model.WeekdaySaturday):  true,
+	string(model.WeekdaySunday):    true,
 }
 
 func (s *Server) handleGetWorkdayPolicies(ctx context.Context, input *struct{}) (*WorkdayPoliciesOutput, error) {
@@ -1257,23 +1260,23 @@ func validatePageDesign(d *model.PageDesign) error {
 		d.Settings = &defaults
 	} else {
 		settings := d.Settings
-		switch settings.Symbology {
-		case "CODE128", "CODE39", "EAN13", "QRCODE", "DATAMATRIX":
+		switch model.BarcodeSymbology(settings.Symbology) {
+		case model.BarcodeCode128, model.BarcodeCode39, model.BarcodeEAN13, model.BarcodeQRCode, model.BarcodeDataMatrix:
 		default:
 			return huma.Error400BadRequest("settings.symbology is invalid")
 		}
-		switch settings.BarcodeHeight {
-		case "compact", "medium", "large":
+		switch model.BarcodeHeight(settings.BarcodeHeight) {
+		case model.BarcodeHeightCompact, model.BarcodeHeightMedium, model.BarcodeHeightLarge:
 		default:
 			return huma.Error400BadRequest("settings.barcode_height is invalid")
 		}
-		switch settings.FontSize {
-		case "small", "medium", "large":
+		switch model.BarcodeFontSize(settings.FontSize) {
+		case model.BarcodeFontSmall, model.BarcodeFontMedium, model.BarcodeFontLarge:
 		default:
 			return huma.Error400BadRequest("settings.font_size is invalid")
 		}
-		switch settings.QtyMode {
-		case "single", "multiply":
+		switch model.BarcodeQuantityMode(settings.QtyMode) {
+		case model.BarcodeQuantitySingle, model.BarcodeQuantityMultiply:
 		default:
 			return huma.Error400BadRequest("settings.qty_mode is invalid")
 		}
@@ -1339,7 +1342,7 @@ func (s *Server) handleUpdatePageDesign(ctx context.Context, input *UpdatePageDe
 		return nil, huma.Error500InternalServerError("failed to update page design", err)
 	}
 	return &StatusOKOutput{
-		Body: StatusOKResponse{Status: "ok"},
+		Body: StatusOKResponse{Status: string(ResultOK)},
 	}, nil
 }
 
@@ -1357,7 +1360,7 @@ func (s *Server) handleDeletePageDesign(ctx context.Context, input *DeletePageDe
 		return nil, huma.Error500InternalServerError("failed to delete page design", err)
 	}
 	return &StatusOKOutput{
-		Body: StatusOKResponse{Status: "ok"},
+		Body: StatusOKResponse{Status: string(ResultOK)},
 	}, nil
 }
 
@@ -1446,7 +1449,7 @@ func (s *Server) handleUpdateLabelLayoutPreset(ctx context.Context, input *Updat
 		}
 		return nil, huma.Error500InternalServerError("failed to update label layout preset", err)
 	}
-	return &StatusOKOutput{Body: StatusOKResponse{Status: "ok"}}, nil
+	return &StatusOKOutput{Body: StatusOKResponse{Status: string(ResultOK)}}, nil
 }
 
 func (s *Server) handleDeleteLabelLayoutPreset(ctx context.Context, input *LabelLayoutPresetIDInput) (*StatusOKOutput, error) {
@@ -1462,7 +1465,7 @@ func (s *Server) handleDeleteLabelLayoutPreset(ctx context.Context, input *Label
 		}
 		return nil, huma.Error500InternalServerError("failed to delete label layout preset", err)
 	}
-	return &StatusOKOutput{Body: StatusOKResponse{Status: "ok"}}, nil
+	return &StatusOKOutput{Body: StatusOKResponse{Status: string(ResultOK)}}, nil
 }
 
 type SetLocaleInput struct {
@@ -1482,7 +1485,7 @@ func (s *Server) handleSetUserLocale(ctx context.Context, input *SetLocaleInput)
 		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
 	locale := strings.ToLower(strings.TrimSpace(input.Body.Locale))
-	if locale != "en" && locale != "id" {
+	if model.Locale(locale) != model.LocaleEnglish && model.Locale(locale) != model.LocaleIndonesian {
 		return nil, huma.Error400BadRequest("invalid locale: must be 'en' or 'id'")
 	}
 	claims := claimsFromContext(ctx)

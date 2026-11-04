@@ -15,7 +15,7 @@ func NewReceiveItemAdapter(prov accurate.Provider) *ReceiveItemAdapter {
 }
 
 func (a *ReceiveItemAdapter) ID() string {
-	return "receive-item"
+	return string(accurate.SourceReceiveItem)
 }
 
 func (a *ReceiveItemAdapter) Name() string {

@@ -9,6 +9,7 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/session"
 	"github.com/awang-karisma/warehouse-parser/pkg/auth"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
+	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/awang-karisma/warehouse-parser/pkg/version"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
@@ -43,14 +44,14 @@ func claimsFromContext(ctx context.Context) *auth.Claims {
 }
 
 func roleLevel(role string) int {
-	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "superadmin":
+	switch model.UserRole(strings.ToLower(strings.TrimSpace(role))) {
+	case model.RoleSuperadmin:
 		return 4
-	case "admin":
+	case model.RoleAdmin:
 		return 3
-	case "user":
+	case model.RoleUser:
 		return 2
-	case "guest":
+	case model.RoleGuest:
 		return 1
 	default:
 		return 0

@@ -1,3 +1,7 @@
+import { ROUTES, orderDetailPath } from '~/routes';
+
+import { ORDER_STATUS } from '~/domain';
+
 import { type Component, createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import {
@@ -70,24 +74,24 @@ export const Dashboard: Component = () => {
     let other = 0;
     for (const [status, count] of Object.entries(counts)) {
       const upper = status.trim().toUpperCase();
-      if (upper === 'SELESAI' || upper === 'COMPLETED') selesai += count;
-      else if (upper === 'PROSES' || upper === 'PARTIAL') proses += count;
-      else if (upper === 'BELUM SELESAI') belumSelesai += count;
-      else if (upper === 'PENDING') pending += count;
-      else if (upper === 'BATAL' || upper === 'CANCEL') batal += count;
-      else other += count;
-    }
-    const total = selesai + proses + belumSelesai + pending + batal + other;
-    const series = [
-      { key: 'SELESAI', label: t('status.selesai'), count: selesai, color: 'var(--color-status-selesai)' },
-      { key: 'PROSES', label: t('status.proses'), count: proses, color: 'var(--color-status-proses)' },
-      { key: 'BELUM SELESAI', label: t('status.belumSelesai'), count: belumSelesai, color: 'var(--color-status-belum-selesai)' },
-      { key: 'PENDING', label: t('status.pending'), count: pending, color: 'var(--color-status-pending)' },
-      { key: 'BATAL', label: t('status.batal'), count: batal, color: 'var(--color-status-batal)' },
-      { key: 'OTHER', label: t('dashboard.otherStatus'), count: other, color: 'var(--color-muted-foreground)' },
-    ];
-    return { total, series: series.filter((item) => item.count > 0) };
-  });
+		if (upper === ORDER_STATUS.COMPLETE || upper === 'COMPLETED') selesai += count;
+		else if (upper === ORDER_STATUS.PROCESSING || upper === 'PARTIAL') proses += count;
+		else if (upper === ORDER_STATUS.UNFINISHED) belumSelesai += count;
+		else if (upper === ORDER_STATUS.PENDING) pending += count;
+		else if (upper === ORDER_STATUS.CANCELLED || upper === ORDER_STATUS.CANCEL) batal += count;
+		else other += count;
+	}
+	const total = selesai + proses + belumSelesai + pending + batal + other;
+	const series = [
+		{ key: ORDER_STATUS.COMPLETE, label: t('status.selesai'), count: selesai, color: 'var(--color-status-selesai)' },
+		{ key: ORDER_STATUS.PROCESSING, label: t('status.proses'), count: proses, color: 'var(--color-status-proses)' },
+		{ key: ORDER_STATUS.UNFINISHED, label: t('status.belumSelesai'), count: belumSelesai, color: 'var(--color-status-belum-selesai)' },
+		{ key: ORDER_STATUS.PENDING, label: t('status.pending'), count: pending, color: 'var(--color-status-pending)' },
+		{ key: ORDER_STATUS.CANCELLED, label: t('status.batal'), count: batal, color: 'var(--color-status-batal)' },
+		{ key: 'OTHER', label: t('dashboard.otherStatus'), count: other, color: 'var(--color-muted-foreground)' },
+	];
+	return { total, series: series.filter((item) => item.count > 0) };
+});
 
   const dailyPoints = createMemo(() => {
     const selected = range();
@@ -102,27 +106,28 @@ export const Dashboard: Component = () => {
   });
   const maxDailyCount = createMemo(() => Math.max(1, ...dailyPoints().map((point) => point.count)));
 
-  const trendSeries = () => [
-    { key: 'SELESAI', label: t('status.selesai'), color: 'var(--color-status-selesai)' },
-    { key: 'PROSES', label: t('status.proses'), color: 'var(--color-status-proses)' },
-    { key: 'BELUM SELESAI', label: t('status.belumSelesai'), color: 'var(--color-status-belum-selesai)' },
-    { key: 'PENDING', label: t('status.pending'), color: 'var(--color-status-pending)' },
-    { key: 'BATAL', label: t('status.batal'), color: 'var(--color-status-batal)' },
-    { key: 'OTHER', label: t('dashboard.otherStatus'), color: 'var(--color-muted-foreground)' },
-  ];
+	const trendSeries = () => [
+		{ key: ORDER_STATUS.COMPLETE, label: t('status.selesai'), color: 'var(--color-status-selesai)' },
+		{ key: ORDER_STATUS.PROCESSING, label: t('status.proses'), color: 'var(--color-status-proses)' },
+		{ key: ORDER_STATUS.UNFINISHED, label: t('status.belumSelesai'), color: 'var(--color-status-belum-selesai)' },
+		{ key: ORDER_STATUS.PENDING, label: t('status.pending'), color: 'var(--color-status-pending)' },
+		{ key: ORDER_STATUS.CANCELLED, label: t('status.batal'), color: 'var(--color-status-batal)' },
+		{ key: 'OTHER', label: t('dashboard.otherStatus'), color: 'var(--color-muted-foreground)' },
+	];
 
   const trendPoints = createMemo(() => (statusTrend()?.points ?? []).map((point) => {
-    const counts: Record<string, number> = {
-      'SELESAI': 0, 'PROSES': 0, 'BELUM SELESAI': 0, 'PENDING': 0, 'BATAL': 0, OTHER: 0,
-    };
-    for (const [status, count] of Object.entries(point.status_counts ?? {})) {
-      const upper = status.trim().toUpperCase();
-      const key = upper === 'COMPLETED' ? 'SELESAI'
-        : upper === 'PARTIAL' ? 'PROSES'
-          : upper === 'CANCEL' ? 'BATAL'
-            : upper in counts ? upper : 'OTHER';
-      counts[key] += count;
-    }
+		const counts: Record<string, number> = {
+			[ORDER_STATUS.COMPLETE]: 0, [ORDER_STATUS.PROCESSING]: 0, [ORDER_STATUS.UNFINISHED]: 0,
+			[ORDER_STATUS.PENDING]: 0, [ORDER_STATUS.CANCELLED]: 0, OTHER: 0,
+		};
+		for (const [status, count] of Object.entries(point.status_counts ?? {})) {
+			const upper = status.trim().toUpperCase();
+			const key = upper === 'COMPLETED' ? ORDER_STATUS.COMPLETE
+				: upper === 'PARTIAL' ? ORDER_STATUS.PROCESSING
+					: upper === ORDER_STATUS.CANCEL ? ORDER_STATUS.CANCELLED
+						: upper in counts ? upper : 'OTHER';
+			counts[key] += count;
+		}
     return { date: point.date.slice(0, 10), counts };
   }));
 
@@ -299,7 +304,7 @@ export const Dashboard: Component = () => {
         <Card>
           <CardHeader class="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-center sm:justify-between">
             <div><CardTitle class="text-base font-semibold">{t('dashboard.recentOrders')}</CardTitle><CardDescription>{t('dashboard.recentOrdersDesc')}</CardDescription></div>
-            <Button variant="outline" size="sm" as={A} href="/orders" class="gap-1 text-xs self-start sm:self-auto">{t('dashboard.viewAllOrders')} <IconArrowRight class="size-3.5" /></Button>
+			<Button variant="outline" size="sm" as={A} href={ROUTES.orders} class="gap-1 text-xs self-start sm:self-auto">{t('dashboard.viewAllOrders')} <IconArrowRight class="size-3.5" /></Button>
           </CardHeader>
           <CardContent>
             <Show when={!recentOrders.error} fallback={
@@ -314,7 +319,7 @@ export const Dashboard: Component = () => {
                   <Show when={!recentOrders.loading} fallback={<TableSkeleton columns={7} rows={3} />}>
                     <Show when={(recentOrders()?.orders.length ?? 0) > 0} fallback={<TableRow><TableCell colspan={7} class="h-24 text-center text-muted-foreground">{t('dashboard.noOrdersFound')}</TableCell></TableRow>}>
                       <For each={recentOrders()?.orders}>{(order) => <TableRow>
-                        <TableCell><A href={`/orders/${order.id}`} class="font-medium text-primary hover:underline">{order.id}</A></TableCell>
+		<TableCell><A href={orderDetailPath(order.id)} class="font-medium text-primary hover:underline">{order.id}</A></TableCell>
                         <TableCell class="font-mono text-xs text-muted-foreground">{order.order_number || order.ecatalog_number || '-'}</TableCell>
                         <TableCell class="text-muted-foreground text-xs">{order.tanggal}</TableCell>
                         <TableCell class="font-medium">{order.customer}</TableCell>

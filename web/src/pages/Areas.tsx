@@ -1,3 +1,5 @@
+import { ORDER_STATUS } from '~/domain';
+
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
@@ -24,10 +26,10 @@ const MiniStatusBreakdown: Component<{ counts?: Record<string, number> }> = (pro
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total === 0) return { total: 0, items: [] };
 
-    const selesai = (counts.SELESAI || 0) + (counts.COMPLETED || 0);
-    const proses = (counts.PROSES || 0) + (counts.PARTIAL || 0);
-    const belumSelesai = counts['BELUM SELESAI'] || 0;
-    const batal = (counts.BATAL || 0) + (counts.CANCEL || 0);
+	const selesai = (counts[ORDER_STATUS.COMPLETE] || 0) + (counts.COMPLETED || 0);
+	const proses = (counts[ORDER_STATUS.PROCESSING] || 0) + (counts.PARTIAL || 0);
+	const belumSelesai = counts[ORDER_STATUS.UNFINISHED] || 0;
+	const batal = (counts[ORDER_STATUS.CANCELLED] || 0) + (counts[ORDER_STATUS.CANCEL] || 0);
     const pending = Math.max(0, total - selesai - proses - belumSelesai - batal);
 
     const items = [
@@ -186,7 +188,7 @@ export const Areas: Component = () => {
                           <TableCell class="text-right">
                             <Button
                               as={A}
-                              href={`/orders?area=${encodeURIComponent(area.name)}`}
+                              href={`${ROUTES.orders}?area=${encodeURIComponent(area.name)}`}
                               variant="ghost"
                               size="sm"
                               class="text-xs"
@@ -216,7 +218,7 @@ export const Areas: Component = () => {
             </div>
             <Button
               as={A}
-              href={`/orders?area=${encodeURIComponent(currentArea())}`}
+              href={`${ROUTES.orders}?area=${encodeURIComponent(currentArea())}`}
               variant="outline"
               size="sm"
               class="gap-1 text-xs self-start sm:self-auto"
@@ -263,7 +265,7 @@ export const Areas: Component = () => {
                           <TableCell class="text-right">
                             <Button
                               as={A}
-                              href={`/orders?customer=${encodeURIComponent(cust.name)}`}
+                              href={`${ROUTES.orders}?customer=${encodeURIComponent(cust.name)}`}
                               variant="ghost"
                               size="sm"
                               class="text-xs"

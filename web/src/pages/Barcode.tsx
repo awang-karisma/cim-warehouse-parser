@@ -1,3 +1,5 @@
+import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE, USER_ROLE } from '~/domain';
+
 import { useI18n } from '~/i18n';
 import {
   type Component,
@@ -38,6 +40,7 @@ import {
   fromPresetConfig,
   getEffectiveConfig,
   presetKey,
+	SERVER_PRESET_PREFIX,
   PRESETS,
   qtyMode,
   refetchDesigns,
@@ -109,7 +112,7 @@ export const Barcode: Component = () => {
   const auth = useAuth();
   const isAdmin = () => {
     const role = auth.user()?.role;
-    return role === 'admin' || role === 'superadmin';
+	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
   };
 
   const [isEditing, setIsEditing] = createSignal(false);
@@ -129,7 +132,7 @@ export const Barcode: Component = () => {
   const cancelCreating = () => {
     setIsCreating(false);
     setPresetDraftActive(false);
-    const fallback = previousPresetKey.startsWith('server-') || PRESETS[previousPresetKey] ? previousPresetKey : 'tj-108';
+		const fallback = previousPresetKey.startsWith(SERVER_PRESET_PREFIX) || PRESETS[previousPresetKey as keyof typeof PRESETS] ? previousPresetKey : 'tj-108';
     selectPreset(fallback);
     setStatusMessage(null);
   };
@@ -139,8 +142,8 @@ export const Barcode: Component = () => {
     setIsEditing(true);
     setPresetDraftActive(true);
     const pk = presetKey();
-    if (pk.startsWith('server-')) {
-      const id = parseInt(pk.slice(7), 10);
+	if (pk.startsWith(SERVER_PRESET_PREFIX)) {
+		const id = parseInt(pk.slice(SERVER_PRESET_PREFIX.length), 10);
       const design = (serverDesigns() ?? []).find((d) => d.id === id);
       if (design) applyPageDesign(design);
     }
@@ -160,14 +163,14 @@ export const Barcode: Component = () => {
   const [isDeletingDesign, setIsDeletingDesign] = createSignal(false);
 
   const retrySavedPresetRefresh = async () => {
-    const id = Number.parseInt(presetKey().slice(7), 10);
+	const id = Number.parseInt(presetKey().slice(SERVER_PRESET_PREFIX.length), 10);
     try {
       const designs = await refetchDesigns();
       const design = (designs ?? []).find((entry) => entry.id === id);
       if (!design) throw new Error('Saved preset was not returned by the refreshed list');
       applyPageDesign(design);
       setPresetKey('custom');
-      setPresetKey(`server-${id}`);
+		setPresetKey(`${SERVER_PRESET_PREFIX}${id}`);
       setIsCreating(false);
       setIsEditing(false);
       setPresetDraftActive(false);
@@ -178,7 +181,7 @@ export const Barcode: Component = () => {
   };
 
   const refreshAfterPresetSave = async (id: number, successText: string) => {
-    setPresetKey(`server-${id}`);
+	setPresetKey(`${SERVER_PRESET_PREFIX}${id}`);
     setPresetDraftActive(true);
     try {
       const designs = await refetchDesigns();
@@ -186,7 +189,7 @@ export const Barcode: Component = () => {
       if (!design) throw new Error('Saved preset was not returned by the refreshed list');
       applyPageDesign(design);
       setPresetKey('custom');
-      setPresetKey(`server-${id}`);
+		setPresetKey(`${SERVER_PRESET_PREFIX}${id}`);
       setIsCreating(false);
       setIsEditing(false);
       setPresetDraftActive(false);
@@ -217,8 +220,8 @@ export const Barcode: Component = () => {
 
   const handleUpdateDesign = async () => {
     const pk = presetKey();
-    if (!pk.startsWith('server-')) return;
-    const id = Number.parseInt(pk.slice(7), 10);
+	if (!pk.startsWith(SERVER_PRESET_PREFIX)) return;
+	const id = Number.parseInt(pk.slice(SERVER_PRESET_PREFIX.length), 10);
     const cfg = customConfig();
     const name = cfg.name.trim();
     if (!name) {
@@ -256,8 +259,8 @@ export const Barcode: Component = () => {
 
   const handleDeleteCurrentDesign = () => {
     const pk = presetKey();
-    if (!pk.startsWith('server-')) return;
-    const id = parseInt(pk.slice(7), 10);
+	if (!pk.startsWith(SERVER_PRESET_PREFIX)) return;
+	const id = parseInt(pk.slice(SERVER_PRESET_PREFIX.length), 10);
     const design = (serverDesigns() ?? []).find((d) => d.id === id);
     if (design) {
       setDesignToDelete(design);
@@ -273,7 +276,7 @@ export const Barcode: Component = () => {
       await refetchDesigns();
       setIsEditing(false);
       setIsCreating(false);
-      if (presetKey() === `server-${target.id}`) {
+		if (presetKey() === `${SERVER_PRESET_PREFIX}${target.id}`) {
         selectPreset('tj-108');
       }
       setDesignToDelete(null);
@@ -371,7 +374,7 @@ export const Barcode: Component = () => {
 
   const selectedItems = createMemo(() => items().filter((it) => it.selected));
   const totalLabels = createMemo(() => {
-    if (qtyMode() === 'multiply') {
+	if (qtyMode() === QTY_MODE.MULTIPLY) {
       return selectedItems().reduce((acc, it) => acc + (it.quantity > 0 ? it.quantity : 1), 0);
     }
     return selectedItems().length;
@@ -892,7 +895,7 @@ export const Barcode: Component = () => {
                   <Show when={(serverDesigns() ?? []).length > 0}>
                     <optgroup label={t('barcode.customPresets')}>
                       <For each={serverDesigns() ?? []}>
-                        {(d) => <option value={`server-${d.id}`}>{d.name}</option>}
+						{(d) => <option value={`${SERVER_PRESET_PREFIX}${d.id}`}>{d.name}</option>}
                       </For>
                     </optgroup>
                   </Show>
@@ -916,13 +919,13 @@ export const Barcode: Component = () => {
                         variant={isEditing() ? 'secondary' : 'outline'}
                         size="sm"
                         class="w-full h-7 text-xs gap-1 px-1"
-                        disabled={!presetKey().startsWith('server-') || isCreating()}
+						disabled={!presetKey().startsWith(SERVER_PRESET_PREFIX) || isCreating()}
                         onClick={() => {
                           if (isEditing()) cancelEditing();
                           else startEditing();
                         }}
                         title={
-                          !presetKey().startsWith('server-')
+						!presetKey().startsWith(SERVER_PRESET_PREFIX)
                             ? t('barcode.builtinCannotEdit')
                             : isEditing()
                             ? t('barcode.closePresetEditor')
@@ -939,10 +942,10 @@ export const Barcode: Component = () => {
                         variant="outline"
                         size="sm"
                         class="w-full h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 disabled:text-muted-foreground disabled:hover:bg-transparent disabled:opacity-40 gap-1 px-1"
-                        disabled={!presetKey().startsWith('server-') || isCreating()}
+						disabled={!presetKey().startsWith(SERVER_PRESET_PREFIX) || isCreating()}
                         onClick={handleDeleteCurrentDesign}
                         title={
-                          !presetKey().startsWith('server-')
+						!presetKey().startsWith(SERVER_PRESET_PREFIX)
                             ? t('barcode.builtinCannotDelete')
                             : t('barcode.deleteCustomPreset')
                         }
@@ -1281,11 +1284,11 @@ export const Barcode: Component = () => {
                   onChange={(e) => setSymbology(e.currentTarget.value as Symbology)}
                   class="w-full h-8 text-xs px-2.5 border rounded-md bg-background"
                 >
-                  <option value="CODE128">{t('barcode.code128')}</option>
-                  <option value="CODE39">{t('barcode.code39')}</option>
-                  <option value="EAN13">{t('barcode.ean13')}</option>
-                  <option value="QRCODE">{t('barcode.qrCode')}</option>
-                  <option value="DATAMATRIX">{t('barcode.dataMatrix')}</option>
+					<option value={BARCODE_SYMBOLOGY.CODE128}>{t('barcode.code128')}</option>
+					<option value={BARCODE_SYMBOLOGY.CODE39}>{t('barcode.code39')}</option>
+					<option value={BARCODE_SYMBOLOGY.EAN13}>{t('barcode.ean13')}</option>
+					<option value={BARCODE_SYMBOLOGY.QRCODE}>{t('barcode.qrCode')}</option>
+					<option value={BARCODE_SYMBOLOGY.DATAMATRIX}>{t('barcode.dataMatrix')}</option>
                 </select>
 
                 <div class="grid grid-cols-2 gap-1.5 pt-0.5">
@@ -1296,9 +1299,9 @@ export const Barcode: Component = () => {
                       onChange={(e) => setBarcodeHeight(e.currentTarget.value as BarcodeHeight)}
                       class="w-full h-7 text-xs px-2 border rounded bg-background"
                     >
-                      <option value="compact">{t('barcode.heightCompact')}</option>
-                      <option value="medium">{t('barcode.heightMedium')}</option>
-                      <option value="large">{t('barcode.heightLarge')}</option>
+						<option value={BARCODE_HEIGHT.COMPACT}>{t('barcode.heightCompact')}</option>
+						<option value={BARCODE_HEIGHT.MEDIUM}>{t('barcode.heightMedium')}</option>
+						<option value={BARCODE_HEIGHT.LARGE}>{t('barcode.heightLarge')}</option>
                     </select>
                   </div>
                   <div>
@@ -1308,9 +1311,9 @@ export const Barcode: Component = () => {
                       onChange={(e) => setFontSize(e.currentTarget.value as FontSize)}
                       class="w-full h-7 text-xs px-2 border rounded bg-background"
                     >
-                      <option value="small">{t('barcode.fontSmall')}</option>
-                      <option value="medium">{t('barcode.fontMedium')}</option>
-                      <option value="large">{t('barcode.fontLarge')}</option>
+						<option value={FONT_SIZE.SMALL}>{t('barcode.fontSmall')}</option>
+						<option value={FONT_SIZE.MEDIUM}>{t('barcode.fontMedium')}</option>
+						<option value={FONT_SIZE.LARGE}>{t('barcode.fontLarge')}</option>
                     </select>
                   </div>
                 </div>
@@ -1324,9 +1327,9 @@ export const Barcode: Component = () => {
                 <div class="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setQtyMode('multiply')}
+					onClick={() => setQtyMode(QTY_MODE.MULTIPLY)}
                     class={`h-8 rounded-md border text-xs font-medium transition-colors flex items-center justify-center text-center px-1 truncate ${
-                      qtyMode() === 'multiply'
+						qtyMode() === QTY_MODE.MULTIPLY
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background hover:bg-muted'
                     }`}
@@ -1336,9 +1339,9 @@ export const Barcode: Component = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setQtyMode('single')}
+					onClick={() => setQtyMode(QTY_MODE.SINGLE)}
                     class={`h-8 rounded-md border text-xs font-medium transition-colors flex items-center justify-center text-center px-1 truncate ${
-                      qtyMode() === 'single'
+						qtyMode() === QTY_MODE.SINGLE
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background hover:bg-muted'
                     }`}

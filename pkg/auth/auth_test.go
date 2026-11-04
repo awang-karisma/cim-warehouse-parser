@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -44,6 +45,16 @@ func TestTokenGenerationAndValidation(t *testing.T) {
 	}
 	if claims.Role != "user" {
 		t.Errorf("expected role 'user', got %q", claims.Role)
+	}
+}
+
+func TestMissingJWTSecretHasStableIdentity(t *testing.T) {
+	user := &model.User{Email: "user@example.com", Role: "user"}
+	if _, err := auth.GenerateToken("", user, nil); !errors.Is(err, auth.ErrMissingJWTSecret) {
+		t.Fatalf("GenerateToken missing secret should return ErrMissingJWTSecret, got: %v", err)
+	}
+	if _, err := auth.ValidateToken("", "token"); !errors.Is(err, auth.ErrMissingJWTSecret) {
+		t.Fatalf("ValidateToken missing secret should return ErrMissingJWTSecret, got: %v", err)
 	}
 }
 

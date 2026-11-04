@@ -1,3 +1,7 @@
+import { ROUTES } from '~/routes';
+
+import { USER_ROLE } from '~/domain';
+
 import { type Component, createSignal, createResource, createMemo, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
@@ -58,7 +62,7 @@ export const CustomerAliases: Component = () => {
   const auth = useAuth();
   const isAdmin = () => {
     const role = auth.user()?.role;
-    return role === 'admin' || role === 'superadmin';
+	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
   };
 
   const [aliasesData, { refetch: refetchAliases }] = createResource(getCustomerAliases);
@@ -509,7 +513,7 @@ export const CustomerAliases: Component = () => {
         <AlertTitle class="text-xs font-semibold">{t('customerAliases.syncNoticeTitle')}</AlertTitle>
         <AlertDescription class="text-xs text-muted-foreground mt-0.5">
           {t('customerAliases.syncNoticeDesc')}{' '}
-          <A href="/sync" class="underline text-foreground font-medium hover:text-primary">
+			<A href={ROUTES.sync} class="underline text-foreground font-medium hover:text-primary">
             {t('nav.syncManager')}
           </A>
           .

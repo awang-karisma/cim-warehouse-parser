@@ -34,7 +34,7 @@ func New(email, password string, client *accurate.Client) *Provider {
 }
 
 func (p *Provider) ID() string {
-	return "web"
+	return string(accurate.ProviderWeb)
 }
 
 func (p *Provider) Login(ctx context.Context, challengeID, otp string) (accurate.LoginResult, error) {
@@ -49,7 +49,7 @@ func (p *Provider) Login(ctx context.Context, challengeID, otp string) (accurate
 		if err != nil {
 			return accurate.LoginResult{}, fmt.Errorf("MFA login failed: %w", err)
 		}
-		return accurate.LoginResult{Status: "success"}, nil
+		return accurate.LoginResult{Status: accurate.LoginSuccess}, nil
 	}
 
 	res, err := p.client.Login(ctx, p.email, p.password)
@@ -57,14 +57,14 @@ func (p *Provider) Login(ctx context.Context, challengeID, otp string) (accurate
 		return accurate.LoginResult{}, fmt.Errorf("login failed: %w", err)
 	}
 
-	if res.Status == "mfa_required" {
+	if res.Status == accurate.LoginMFARequired {
 		return accurate.LoginResult{
-			Status:      "mfa_required",
+			Status:      accurate.LoginMFARequired,
 			ChallengeID: res.ChallengeID,
 		}, nil
 	}
 
-	return accurate.LoginResult{Status: "success"}, nil
+	return accurate.LoginResult{Status: accurate.LoginSuccess}, nil
 }
 
 func (p *Provider) ListDatabases(ctx context.Context) ([]accurate.Database, error) {
@@ -165,7 +165,7 @@ func (p *Provider) SearchItems(ctx context.Context, query string, page, pageSize
 	form := url.Values{
 		"_dsi":            {sess.DSI},
 		"fields":          {"id,no,name,upcNo,unit1Name,unit2Name,unitPrice,allQuantity,availableToSell,itemType,itemTypeName"},
-		"filter.itemType": {"INVENTORY"},
+		"filter.itemType": {string(accurate.InventoryItemType)},
 		"keywords":        {strings.TrimSpace(query)},
 		"sp.page":         {strconv.Itoa(page)},
 		"sp.pageSize":     {strconv.Itoa(pageSize)},
@@ -222,7 +222,7 @@ func (p *Provider) SearchItems(ctx context.Context, query string, page, pageSize
 		}
 
 		barcode := accurate.ResolveBarcode(upc, it.No)
-		canPrint := it.ItemType == "INVENTORY"
+		canPrint := accurate.InventoryType(it.ItemType) == accurate.InventoryItemType
 
 		items = append(items, accurate.InventoryItem{
 			ID:              it.ID,
@@ -252,8 +252,8 @@ func (p *Provider) SearchItems(ctx context.Context, query string, page, pageSize
 }
 
 func (p *Provider) SupportsSource(sourceID string) (bool, string) {
-	switch sourceID {
-	case "sales-order", "delivery-order", "purchase-order", "receive-item", "stock-opname-order", "stock-opname-result":
+	switch accurate.SourceID(sourceID) {
+	case accurate.SourceSalesOrder, accurate.SourceDeliveryOrder, accurate.SourcePurchaseOrder, accurate.SourceReceiveItem, accurate.SourceStockOpnameOrder, accurate.SourceStockOpnameResult:
 		return true, ""
 	default:
 		return false, fmt.Sprintf("unsupported source: %s", sourceID)
@@ -267,18 +267,18 @@ func (p *Provider) ListDocuments(ctx context.Context, sourceID, query, from, to 
 	}
 
 	var endpoint string
-	switch sourceID {
-	case "sales-order":
+	switch accurate.SourceID(sourceID) {
+	case accurate.SourceSalesOrder:
 		endpoint = "/accurate/customer/search-sales-order.do"
-	case "delivery-order":
+	case accurate.SourceDeliveryOrder:
 		endpoint = "/accurate/customer/search-delivery-order.do"
-	case "purchase-order":
+	case accurate.SourcePurchaseOrder:
 		endpoint = "/accurate/vendor/search-purchase-order.do"
-	case "receive-item":
+	case accurate.SourceReceiveItem:
 		endpoint = "/accurate/vendor/search-receive-item.do"
-	case "stock-opname-order":
+	case accurate.SourceStockOpnameOrder:
 		endpoint = "/accurate/inventory/search-stock-opname-order.do"
-	case "stock-opname-result":
+	case accurate.SourceStockOpnameResult:
 		endpoint = "/accurate/inventory/search-stock-opname-result.do"
 	default:
 		return nil, accurate.Pagination{}, fmt.Errorf("unsupported source: %s", sourceID)
@@ -380,18 +380,18 @@ func (p *Provider) GetDocumentItems(ctx context.Context, sourceID string, docume
 	}
 
 	var endpoint string
-	switch sourceID {
-	case "sales-order":
+	switch accurate.SourceID(sourceID) {
+	case accurate.SourceSalesOrder:
 		endpoint = "/accurate/customer/view-sales-order.do"
-	case "delivery-order":
+	case accurate.SourceDeliveryOrder:
 		endpoint = "/accurate/customer/view-delivery-order.do"
-	case "purchase-order":
+	case accurate.SourcePurchaseOrder:
 		endpoint = "/accurate/vendor/view-purchase-order.do"
-	case "receive-item":
+	case accurate.SourceReceiveItem:
 		endpoint = "/accurate/vendor/view-receive-item.do"
-	case "stock-opname-order":
+	case accurate.SourceStockOpnameOrder:
 		endpoint = "/accurate/inventory/detail-stock-opname-order.do"
-	case "stock-opname-result":
+	case accurate.SourceStockOpnameResult:
 		endpoint = "/accurate/inventory/view-stock-opname-result.do"
 	default:
 		return nil, fmt.Errorf("unsupported source: %s", sourceID)
@@ -464,7 +464,7 @@ func (p *Provider) GetDocumentItems(ctx context.Context, sourceID string, docume
 		barcode := accurate.ResolveBarcode(upc, itemNo)
 
 		qty := float64(it.Quantity)
-		if sourceID == "stock-opname-result" {
+		if accurate.SourceID(sourceID) == accurate.SourceStockOpnameResult {
 			if float64(it.ActualQuantity) > 0 {
 				qty = float64(it.ActualQuantity)
 			} else if float64(it.BookQuantity) > 0 {

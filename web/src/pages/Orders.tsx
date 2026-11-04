@@ -1,3 +1,7 @@
+import { orderDetailPath } from '~/routes';
+
+import { ORDER_STATUS } from '~/domain';
+
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { A, useNavigate } from '@solidjs/router';
@@ -35,7 +39,7 @@ import { SortableTableHead } from '~/components/SortableTableHead';
 import { createUrlFilter } from '../utils/tableFilters';
 import { getDominantOrderStatus } from '~/utils/orderStatus';
 
-const VALID_STATUSES = ['BELUM SELESAI', 'SELESAI', 'PROSES', 'PENDING', 'BATAL'] as const;
+const VALID_STATUSES = [ORDER_STATUS.UNFINISHED, ORDER_STATUS.COMPLETE, ORDER_STATUS.PROCESSING, ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED] as const;
 
 export const Orders: Component = () => {
   const { t } = useI18n();
@@ -153,11 +157,11 @@ export const Orders: Component = () => {
 
   const statusOptions = createMemo(() => [
     t('orders.allStatuses'),
-    'BELUM SELESAI',
-    'SELESAI',
-    'PROSES',
-    'PENDING',
-    'BATAL',
+		ORDER_STATUS.UNFINISHED,
+		ORDER_STATUS.COMPLETE,
+		ORDER_STATUS.PROCESSING,
+		ORDER_STATUS.PENDING,
+		ORDER_STATUS.CANCELLED,
   ]);
 
   return (
@@ -343,7 +347,7 @@ export const Orders: Component = () => {
                               <TableCell class="text-right" onClick={(e) => e.stopPropagation()}>
                                 <Button
                                   as={A}
-                                  href={`/orders/${order.id}`}
+								href={orderDetailPath(order.id)}
                                   variant="ghost"
                                   size="sm"
                                   class="text-xs"
@@ -387,11 +391,11 @@ export const Orders: Component = () => {
                                                   tabIndex={0}
                                                   role="link"
                                                   aria-label={t('orders.viewItemDetailAria', { id: order.id, item: item.nama_barang })}
-                                                  onClick={() => navigate(`/orders/${order.id}`)}
+										onClick={() => navigate(orderDetailPath(order.id))}
                                                   onKeyDown={(e) => {
                                                     if (e.key === 'Enter' || e.key === ' ') {
                                                       e.preventDefault();
-                                                      navigate(`/orders/${order.id}`);
+													navigate(orderDetailPath(order.id));
                                                     }
                                                   }}
                                                 >

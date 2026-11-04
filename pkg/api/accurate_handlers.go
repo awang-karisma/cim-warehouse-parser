@@ -98,13 +98,13 @@ func (s *Server) handleAccurateLogin(ctx context.Context, input *AccurateLoginIn
 		return nil, huma.Error401Unauthorized(fmt.Sprintf("Login failed: %v", err))
 	}
 
-	if res.Status == "mfa_required" {
+	if res.Status == accurate.LoginMFARequired {
 		return &AccurateLoginOutput{
 			Body: struct {
 				Status      string `json:"status" doc:"'success' or 'mfa_required'"`
 				ChallengeID string `json:"challengeId,omitempty" doc:"Challenge ID if mfa_required"`
 			}{
-				Status:      "mfa_required",
+				Status:      string(accurate.LoginMFARequired),
 				ChallengeID: res.ChallengeID,
 			},
 		}, nil
@@ -115,7 +115,7 @@ func (s *Server) handleAccurateLogin(ctx context.Context, input *AccurateLoginIn
 			Status      string `json:"status" doc:"'success' or 'mfa_required'"`
 			ChallengeID string `json:"challengeId,omitempty" doc:"Challenge ID if mfa_required"`
 		}{
-			Status: "success",
+			Status: string(accurate.LoginSuccess),
 		},
 	}, nil
 }

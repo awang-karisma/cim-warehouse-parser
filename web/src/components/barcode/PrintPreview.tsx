@@ -1,3 +1,5 @@
+import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE } from '~/domain';
+
 import { type Component, createEffect, For, onCleanup, Show } from 'solid-js';
 import { useI18n } from '~/i18n';
 import JsBarcode from 'jsbarcode';
@@ -82,7 +84,7 @@ export const PrintPreview: Component = () => {
   // Expand list based on qtyMode (single vs multiply)
   const expandedItems = () => {
     const list: BarcodeItem[] = [];
-    const isMultiply = qtyMode() === 'multiply';
+	const isMultiply = qtyMode() === QTY_MODE.MULTIPLY;
     for (const it of selectedItems()) {
       const count = isMultiply ? Math.floor(it.quantity > 0 ? it.quantity : 1) : 1;
       for (let i = 0; i < count; i++) {
@@ -183,12 +185,12 @@ export const PrintPreview: Component = () => {
 
   const fontSizeCss = () => {
     const fs = fontSize();
-    return fs === 'small' ? '0.55rem' : fs === 'large' ? '0.75rem' : '0.65rem';
+	return fs === FONT_SIZE.SMALL ? '0.55rem' : fs === FONT_SIZE.LARGE ? '0.75rem' : '0.65rem';
   };
 
   const barcodePxHeight = () => {
     const bh = barcodeHeight();
-    return bh === 'compact' ? 18 : bh === 'large' ? 32 : 24;
+	return bh === BARCODE_HEIGHT.COMPACT ? 18 : bh === BARCODE_HEIGHT.LARGE ? 32 : 24;
   };
 
   return (
@@ -403,21 +405,21 @@ const BarcodeGraphic: Component<BarcodeGraphicProps> = (props) => {
     const val = props.barcode || '12345678';
     const sym = props.symbology;
 
-    if (sym === 'QRCODE') {
-      try {
-        const qr = qrcode(0, 'M');
-        qr.addData(val);
-        qr.make();
-        containerRef.innerHTML = qr.createSvgTag({ scalable: true, margin: 0 });
-        const svg = containerRef.querySelector('svg');
-        if (svg) {
-          svg.style.width = `${props.height * 1.2}px`;
-          svg.style.height = `${props.height * 1.2}px`;
-        }
-      } catch {
-        containerRef.innerHTML = `<span class="text-[9px] text-red-500">QR Error</span>`;
-      }
-    } else if (sym === 'DATAMATRIX') {
+	if (sym === BARCODE_SYMBOLOGY.QRCODE) {
+		try {
+			const qr = qrcode(0, 'M');
+			qr.addData(val);
+			qr.make();
+			containerRef.innerHTML = qr.createSvgTag({ scalable: true, margin: 0 });
+			const svg = containerRef.querySelector('svg');
+			if (svg) {
+				svg.style.width = `${props.height * 1.2}px`;
+				svg.style.height = `${props.height * 1.2}px`;
+			}
+		} catch {
+			containerRef.innerHTML = `<span class="text-[9px] text-red-500">QR Error</span>`;
+		}
+	} else if (sym === BARCODE_SYMBOLOGY.DATAMATRIX) {
       try {
         const svg = DATAMatrix({ message: val, padding: 0, palette: { foreground: 'currentColor' } });
         svg.style.width = `${props.height * 1.2}px`;
@@ -441,7 +443,7 @@ const BarcodeGraphic: Component<BarcodeGraphicProps> = (props) => {
         // Fallback to CODE128
         try {
           JsBarcode(svg, val, {
-            format: 'CODE128',
+					format: BARCODE_SYMBOLOGY.CODE128,
             width: 1.0,
             height: props.height,
             displayValue: false,

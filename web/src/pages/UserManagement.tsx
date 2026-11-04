@@ -1,3 +1,5 @@
+import { USER_ROLE } from '~/domain';
+
 import { type Component, createSignal, createResource, createMemo, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
@@ -43,7 +45,7 @@ export const UserManagement: Component = () => {
   const [updatingEmail, setUpdatingEmail] = createSignal<string | null>(null);
 
   const currentUser = () => auth.user();
-  const isSuperadmin = () => currentUser()?.role === 'superadmin';
+	const isSuperadmin = () => currentUser()?.role === USER_ROLE.SUPERADMIN;
 
   const filteredUsers = createMemo(() => {
     const users = data()?.users || [];
@@ -77,7 +79,7 @@ export const UserManagement: Component = () => {
   };
 
   const handleApprove = async (targetUser: User) => {
-    await handleRoleChange(targetUser, 'user');
+	await handleRoleChange(targetUser, USER_ROLE.USER);
   };
 
   const confirmDelete = async () => {
@@ -98,15 +100,15 @@ export const UserManagement: Component = () => {
   const getRoleBadgeVariant = (
     role: string
   ): 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'error' => {
-    switch (role) {
-      case 'superadmin':
-        return 'default';
-      case 'admin':
-        return 'secondary';
-      case 'user':
-        return 'success';
-      case 'guest':
-        return 'warning';
+	switch (role) {
+		case USER_ROLE.SUPERADMIN:
+			return 'default';
+		case USER_ROLE.ADMIN:
+			return 'secondary';
+		case USER_ROLE.USER:
+			return 'success';
+		case USER_ROLE.GUEST:
+			return 'warning';
       default:
         return 'outline';
     }
@@ -195,7 +197,7 @@ export const UserManagement: Component = () => {
                     <For each={filteredUsers()}>
                       {(u) => {
                         const isSelf = currentUser()?.email.toLowerCase() === u.email.toLowerCase();
-                        const isTargetSuper = u.role === 'superadmin';
+						const isTargetSuper = u.role === USER_ROLE.SUPERADMIN;
                         const isUpdating = () => updatingEmail() === u.email;
                         return (
                           <TableRow>
@@ -227,7 +229,7 @@ export const UserManagement: Component = () => {
 
                             <TableCell>
                               <Badge variant={getRoleBadgeVariant(u.role)}>
-                                {u.role === 'guest' ? 'Pending' : u.role}
+								{u.role === USER_ROLE.GUEST ? 'Pending' : u.role}
                               </Badge>
                             </TableCell>
 
@@ -238,7 +240,7 @@ export const UserManagement: Component = () => {
                             <TableCell class="text-right">
                               <div class="flex items-center justify-end gap-2">
                                 {/* Guest approval button */}
-                                <Show when={u.role === 'guest' && !isSelf}>
+								<Show when={u.role === USER_ROLE.GUEST && !isSelf}>
                                   <Button
                                     size="sm"
                                     class="h-8 gap-1 text-xs"
@@ -258,18 +260,18 @@ export const UserManagement: Component = () => {
                                     disabled={isUpdating()}
                                     onChange={(e) => handleRoleChange(u, e.currentTarget.value)}
                                   >
-                                    <Show when={u.role === 'guest'}>
-                                      <option value="guest" disabled>
-                                        Guest
-                                      </option>
-                                    </Show>
-                                    <option value="user">User</option>
-                                    <option value="admin">Admin</option>
+									<Show when={u.role === USER_ROLE.GUEST}>
+										<option value={USER_ROLE.GUEST} disabled>
+											Guest
+										</option>
+									</Show>
+									<option value={USER_ROLE.USER}>User</option>
+									<option value={USER_ROLE.ADMIN}>Admin</option>
                                   </select>
                                 </Show>
 
                                 {/* Delete button: superadmins can delete any non-superadmin target; admins can delete guest/user targets */}
-                                <Show when={!isSelf && !isTargetSuper && (isSuperadmin() || u.role === 'guest' || u.role === 'user')}>
+								<Show when={!isSelf && !isTargetSuper && (isSuperadmin() || u.role === USER_ROLE.GUEST || u.role === USER_ROLE.USER)}>
                                   <Button
                                     variant="ghost"
                                     size="sm"

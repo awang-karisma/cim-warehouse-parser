@@ -1,3 +1,7 @@
+import { USER_ROLE } from '~/domain';
+
+import type { UserRole } from "~/domain";
+
 import {
   createContext,
   useContext,
@@ -11,7 +15,7 @@ export interface AuthUser {
   email: string;
   name: string;
   picture: string;
-  role: 'guest' | 'user' | 'admin' | 'superadmin';
+  role: UserRole;
   locale?: string;
 }
 
@@ -55,8 +59,8 @@ export const AuthProvider: ParentComponent = (props) => {
         setUser({
           email: '',
           name: 'Developer',
-          picture: '',
-          role: 'superadmin',
+			picture: '',
+			role: USER_ROLE.SUPERADMIN,
         });
         setLoading(false);
         return;

@@ -118,7 +118,7 @@ func TestDeliveryCandidatesIncludeBlankStockStatuses(t *testing.T) {
 }
 
 func TestDeliveryDriversAPI(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, store, _ := setupTestServer(t)
 
 	// List initial drivers (empty)
 	req, _ := http.NewRequest("GET", "/api/v1/delivery-drivers", nil)
@@ -169,6 +169,27 @@ func TestDeliveryDriversAPI(t *testing.T) {
 		t.Errorf("expected 400 for duplicate name, got %d", resp.StatusCode)
 	}
 
+	// A conflicting case-insensitive rename returns 400.
+	secondPayload := `{"name": "Budi Santoso", "phone": "0812000000", "vehicle": "Motor Box"}`
+	req, _ = http.NewRequest("POST", "/api/v1/delivery-drivers", strings.NewReader(secondPayload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = srv.App().Test(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 creating second driver, got %d", resp.StatusCode)
+	}
+	var secondBody struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&secondBody); err != nil {
+		t.Fatalf("failed to decode second driver: %v", err)
+	}
+	req, _ = http.NewRequest("PUT", fmt.Sprintf("/api/v1/delivery-drivers/%d", secondBody.ID), strings.NewReader(createPayload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = srv.App().Test(req)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for duplicate rename, got %d", resp.StatusCode)
+	}
+
 	// Update driver
 	updatePayload := `{"name": "Ahmad Dani Updated", "phone": "0899999999", "vehicle": "Blind Van", "active": true}`
 	req, _ = http.NewRequest("PUT", fmt.Sprintf("/api/v1/delivery-drivers/%d", driverID), strings.NewReader(updatePayload))
@@ -198,6 +219,17 @@ func TestDeliveryDriversAPI(t *testing.T) {
 	resp, _ = srv.App().Test(req)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404 for deleting already deleted driver, got %d", resp.StatusCode)
+	}
+
+	// A non-unique database failure remains a server error rather than a duplicate response.
+	if err := store.Close(); err != nil {
+		t.Fatalf("failed to close test storage: %v", err)
+	}
+	req, _ = http.NewRequest("POST", "/api/v1/delivery-drivers", strings.NewReader(secondPayload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = srv.App().Test(req)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500 for closed database, got %d", resp.StatusCode)
 	}
 }
 

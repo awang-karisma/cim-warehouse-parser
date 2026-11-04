@@ -1,3 +1,5 @@
+import { ROUTES } from '~/routes';
+
 import { type Component, createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { useI18n } from '~/i18n';
@@ -151,9 +153,9 @@ export const Login: Component = () => {
           </Show>
         </CardContent>
         <div class="p-4 sm:p-6 pt-0 sm:pt-0 pb-4 sm:pb-6 flex items-center justify-center gap-3 text-xs text-muted-foreground">
-          <A href="/privacy" class="underline hover:text-foreground transition-colors">{t('nav.privacyPolicy')}</A>
-          <span>·</span>
-          <A href="/terms" class="underline hover:text-foreground transition-colors">{t('nav.termsOfService')}</A>
+			<A href={ROUTES.privacy} class="underline hover:text-foreground transition-colors">{t('nav.privacyPolicy')}</A>
+			<span>·</span>
+			<A href={ROUTES.terms} class="underline hover:text-foreground transition-colors">{t('nav.termsOfService')}</A>
         </div>
       </Card>
     </div>

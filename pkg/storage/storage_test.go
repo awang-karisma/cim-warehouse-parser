@@ -371,6 +371,9 @@ func TestSyncMirror_AndQueries(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-existent order, got nil")
 	}
+	if !errors.Is(err, storage.ErrNotFound) || !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected missing order to wrap storage.ErrNotFound and sql.ErrNoRows, got: %v", err)
+	}
 
 	// Test GetItems - no filter
 	allItems, total, err := store.GetItems(ctx, storage.ItemFilter{})
@@ -2126,8 +2129,8 @@ func TestImportCustomerAliasesJSON_ValidationAndAtomicity(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for case %q, got nil", tc.name)
 			}
-			if !storage.IsValidationError(err) {
-				t.Errorf("expected ValidationError for case %q, got: %v", tc.name, err)
+			if !errors.Is(err, storage.ErrValidation) {
+				t.Errorf("expected ErrValidation for case %q, got: %v", tc.name, err)
 			}
 		})
 	}
@@ -2145,8 +2148,8 @@ func TestImportCustomerAliasesJSON_ValidationAndAtomicity(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error on atomic invalid payload, got nil")
 	}
-	if !storage.IsValidationError(err) {
-		t.Fatalf("expected ValidationError, got: %v", err)
+	if !errors.Is(err, storage.ErrValidation) {
+		t.Fatalf("expected ErrValidation, got: %v", err)
 	}
 
 	// Verify Initial Alias is still present
@@ -2543,6 +2546,13 @@ func TestUserCRUD(t *testing.T) {
 	}
 	if err := store.UpdateUserLocale(ctx, "test@example.com", "de"); err == nil {
 		t.Error("expected error for invalid locale 'de', got nil")
+	}
+	if err := store.UpdateUserLocale(ctx, "missing@example.com", "en"); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("missing locale update should return ErrNotFound, got: %v", err)
+	}
+
+	if err := store.SetUserRole(ctx, "missing@example.com", "user"); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("missing role update should return ErrNotFound, got: %v", err)
 	}
 
 	// 3. Set role to 'user'

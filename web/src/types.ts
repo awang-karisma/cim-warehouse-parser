@@ -1,3 +1,6 @@
+import type { BarcodeHeight, BarcodeSymbology, DeliveryRunStatus, FontSize, QtyMode, UserRole } from "~/domain";
+export type { BarcodeHeight, DeliveryRunStatus, FontSize, QtyMode } from "~/domain";
+
 export interface OrderItem {
   row_index: number;
   order_number?: string;
@@ -235,7 +238,7 @@ export interface User {
   email: string;
   name: string;
   picture: string;
-  role: 'guest' | 'user' | 'admin' | 'superadmin';
+  role: UserRole;
   created_at: string;
   updated_at: string;
 }
@@ -394,10 +397,7 @@ export interface LabelLayoutPresetsResponse {
 }
 
 
-export type Symbology = 'CODE128' | 'CODE39' | 'EAN13' | 'QRCODE' | 'DATAMATRIX';
-export type BarcodeHeight = 'compact' | 'medium' | 'large';
-export type FontSize = 'small' | 'medium' | 'large';
-export type QtyMode = 'single' | 'multiply';
+export type Symbology = BarcodeSymbology;
 
 export interface BarcodePresetSettings {
   symbology: Symbology;
@@ -448,7 +448,7 @@ export interface DeliveryDriversResponse {
   drivers: DeliveryDriver[];
 }
 
-export type DeliveryRunStatus = 'PLANNED' | 'PICKING' | 'READY' | 'DISPATCHED' | 'COMPLETED';
+
 
 export interface DeliveryRunItem {
   id?: number;

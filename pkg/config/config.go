@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/joho/godotenv"
@@ -143,14 +144,13 @@ func Load(envFiles ...string) (*Config, error) {
 	}
 
 	prov := strings.ToLower(strings.TrimSpace(cfg.AccurateProvider))
-	switch prov {
+	switch accurate.ProviderKind(prov) {
 	case "":
-		// Accurate integration disabled
-	case "web":
+	case accurate.ProviderWeb:
 		if strings.TrimSpace(cfg.AccurateEmail) == "" || strings.TrimSpace(cfg.AccuratePassword) == "" {
 			return nil, fmt.Errorf("ACCURATE_EMAIL and ACCURATE_PASSWORD are required when ACCURATE_PROVIDER=web")
 		}
-	case "official":
+	case accurate.ProviderOfficial:
 		if strings.TrimSpace(cfg.AccurateAPIToken) == "" {
 			return nil, fmt.Errorf("ACCURATE_API_TOKEN is required when ACCURATE_PROVIDER=official")
 		}

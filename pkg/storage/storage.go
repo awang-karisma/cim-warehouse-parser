@@ -16,7 +16,8 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/normalizer"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // Storage wraps a SQLite database handle.
@@ -26,6 +27,58 @@ type Storage struct {
 
 // ErrNotFound is returned when an entity is not found in storage.
 var ErrNotFound = errors.New("not found")
+
+// ErrDuplicateDriver is returned when a delivery driver name conflicts case-insensitively.
+var ErrDuplicateDriver = errors.New("delivery driver already exists")
+
+// ErrValidation identifies invalid client-provided storage input.
+var ErrValidation = errors.New("validation error")
+
+type AliasImportMode string
+
+const (
+	AliasMerge   AliasImportMode = "merge"
+	AliasReplace AliasImportMode = "replace"
+)
+
+type SearchType string
+
+const (
+	SearchTypeAll       SearchType = "all"
+	SearchTypeOrders    SearchType = "orders"
+	SearchTypeItems     SearchType = "items"
+	SearchTypeCustomers SearchType = "customers"
+)
+
+type SortDirection string
+
+const (
+	SortAscending  SortDirection = "asc"
+	SortDescending SortDirection = "desc"
+)
+
+type SortField string
+
+const (
+	SortDate              SortField = "date"
+	SortTanggal           SortField = "tanggal"
+	SortStatus            SortField = "status"
+	SortID                SortField = "id"
+	SortOrderNumber       SortField = "order_number"
+	SortEcatalogNumber    SortField = "ecatalog_number"
+	SortCustomer          SortField = "customer"
+	SortArea              SortField = "area"
+	SortItems             SortField = "items"
+	SortTotalItems        SortField = "total_items"
+	SortStatusOrder       SortField = "status_order"
+	SortRowIndex          SortField = "row_index"
+	SortNamaBarang        SortField = "nama_barang"
+	SortJumlah            SortField = "jumlah"
+	SortStatusBarang      SortField = "status_barang"
+	SortTanggalPengiriman SortField = "tanggal_pengiriman"
+	SortCatatan           SortField = "catatan"
+	SortNotes             SortField = "notes"
+)
 
 // OrderFilter defines filtering criteria for order queries.
 type OrderFilter struct {
@@ -189,8 +242,8 @@ type SearchOrders struct {
 // SearchOrderResult represents an order matching a search query.
 type SearchOrderResult struct {
 	ID           string   `json:"id"`
-	Customer     string   `json:"customer"`
 	Tanggal      string   `json:"tanggal"`
+	Customer     string   `json:"customer"`
 	MatchedItems []string `json:"matched_items"`
 }
 
@@ -1128,7 +1181,7 @@ func orderStatusCounts(ctx context.Context, tx *sql.Tx) (map[string]int, error) 
 		statuses := statusesByOrder[orderID]
 		allCancelled := len(statuses) > 0
 		for _, status := range statuses {
-			if status != "BATAL" && status != "CANCEL" {
+			if model.OrderStatus(status) != model.OrderCancelled && model.OrderStatus(status) != model.OrderCancel {
 				allCancelled = false
 				break
 			}
@@ -1151,7 +1204,7 @@ func orderStatusCounts(ctx context.Context, tx *sql.Tx) (map[string]int, error) 
 		}
 		if chosen == "" {
 			for _, status := range statuses {
-				if status != "" && status != "BATAL" && status != "CANCEL" {
+				if status != "" && model.OrderStatus(status) != model.OrderCancelled && model.OrderStatus(status) != model.OrderCancel {
 					chosen = status
 					break
 				}
@@ -1316,10 +1369,9 @@ func (e *ValidationError) Error() string {
 	return e.Message
 }
 
-// IsValidationError returns true if err was caused by client-side validation failure.
-func IsValidationError(err error) bool {
-	var ve *ValidationError
-	return errors.As(err, &ve)
+// Unwrap identifies validation failures while preserving the specific message.
+func (e *ValidationError) Unwrap() error {
+	return ErrValidation
 }
 
 // ExportCustomerAliasesJSON returns the version-1 JSON document of all customer aliases ordered by canonical and alias.
@@ -1411,7 +1463,7 @@ func (s *Storage) SetCustomerAlias(ctx context.Context, alias, canonical, area s
 func (s *Storage) ImportCustomerAliasesJSON(ctx context.Context, data []byte, mode string) (ImportCustomerAliasesResult, error) {
 	var res ImportCustomerAliasesResult
 	normMode := strings.ToLower(strings.TrimSpace(mode))
-	if normMode != "merge" && normMode != "replace" {
+	if AliasImportMode(normMode) != AliasMerge && AliasImportMode(normMode) != AliasReplace {
 		return res, &ValidationError{Message: fmt.Sprintf("invalid import mode %q: must be merge or replace", mode)}
 	}
 
@@ -1499,7 +1551,7 @@ func (s *Storage) ImportCustomerAliasesJSON(ctx context.Context, data []byte, mo
 	}
 	defer tx.Rollback()
 
-	if normMode == "replace" {
+	if AliasImportMode(normMode) == AliasReplace {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM customer_aliases"); err != nil {
 			return res, fmt.Errorf("failed to clear customer aliases for replace import: %w", err)
 		}
@@ -1581,7 +1633,7 @@ func (s *Storage) customerMatchPatterns(ctx context.Context, query string) ([]st
 }
 
 func normalizedSortDirection(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), "asc") {
+	if strings.EqualFold(strings.TrimSpace(value), string(SortAscending)) {
 		return "ASC"
 	}
 	return "DESC"
@@ -1635,19 +1687,19 @@ func orderSortSQL(sortField, direction string) string {
 	dir := normalizedSortDirection(direction)
 	cleanField := strings.ToLower(strings.TrimSpace(sortField))
 	switch cleanField {
-	case "", "date", "tanggal":
+	case "", string(SortDate), string(SortTanggal):
 		return fmt.Sprintf("tanggal %s, %s ASC, %s ASC, orders.id ASC", dir, orderStatusRankSubquery, orderStatusNameSubquery)
-	case "status":
+	case string(SortStatus):
 		return fmt.Sprintf("%s %s, %s %s, tanggal DESC, orders.id ASC", orderStatusRankSubquery, dir, orderStatusNameSubquery, dir)
-	case "id":
+	case string(SortID):
 		return fmt.Sprintf("orders.id %s, tanggal DESC", dir)
-	case "order_number", "ecatalog_number":
+	case string(SortOrderNumber), string(SortEcatalogNumber):
 		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') COLLATE NOCASE %s, tanggal DESC, orders.id ASC", dir)
-	case "customer":
+	case string(SortCustomer):
 		return fmt.Sprintf("customer COLLATE NOCASE %s, tanggal DESC, orders.id ASC", dir)
-	case "area":
+	case string(SortArea):
 		return fmt.Sprintf("area COLLATE NOCASE %s, tanggal DESC, orders.id ASC", dir)
-	case "items", "total_items":
+	case string(SortItems), string(SortTotalItems):
 		return fmt.Sprintf("CAST(COALESCE(total_items, (SELECT COUNT(*) FROM items WHERE items.order_id = orders.id)) AS INTEGER) %s, tanggal DESC, orders.id ASC", dir)
 	default:
 		return fmt.Sprintf("tanggal DESC, %s ASC, %s ASC, orders.id ASC", orderStatusRankSubquery, orderStatusNameSubquery)
@@ -1658,27 +1710,27 @@ func itemSortSQL(sortField, direction string) string {
 	dir := normalizedSortDirection(direction)
 	cleanField := strings.ToLower(strings.TrimSpace(sortField))
 	switch cleanField {
-	case "", "date", "tanggal":
+	case "", string(SortDate), string(SortTanggal):
 		return fmt.Sprintf("tanggal %s, %s ASC, LOWER(status_order) ASC, id ASC", dir, itemStatusRankExpr)
-	case "status", "status_order":
+	case string(SortStatus), string(SortStatusOrder):
 		return fmt.Sprintf("%s %s, LOWER(status_order) %s, tanggal DESC, id ASC", itemStatusRankExpr, dir, dir)
-	case "row_index":
+	case string(SortRowIndex):
 		return fmt.Sprintf("row_index %s, tanggal DESC, id ASC", dir)
-	case "order_number", "ecatalog_number":
+	case string(SortOrderNumber), string(SortEcatalogNumber):
 		return fmt.Sprintf("COALESCE(NULLIF(order_number, ''), ecatalog_number, '') COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
-	case "customer":
+	case string(SortCustomer):
 		return fmt.Sprintf("customer COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
-	case "area":
+	case string(SortArea):
 		return fmt.Sprintf("area COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
-	case "nama_barang":
+	case string(SortNamaBarang):
 		return fmt.Sprintf("nama_barang COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
-	case "jumlah":
+	case string(SortJumlah):
 		return fmt.Sprintf("CAST(jumlah AS REAL) %s, tanggal DESC, id ASC", dir)
-	case "status_barang":
+	case string(SortStatusBarang):
 		return fmt.Sprintf("status_barang COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
-	case "tanggal_pengiriman":
+	case string(SortTanggalPengiriman):
 		return fmt.Sprintf("tanggal_pengiriman COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
-	case "catatan", "notes":
+	case string(SortCatatan), string(SortNotes):
 		return fmt.Sprintf("catatan COLLATE NOCASE %s, tanggal DESC, id ASC", dir)
 	default:
 		return fmt.Sprintf("tanggal DESC, %s ASC, LOWER(status_order) ASC, id ASC", itemStatusRankExpr)
@@ -1702,9 +1754,9 @@ func deliverySortSQL(sortField, direction string) string {
 	validOrder := fmt.Sprintf("CASE WHEN (%s) = '' THEN 1 ELSE 0 END ASC", dateExpr)
 	cleanField := strings.ToLower(strings.TrimSpace(sortField))
 	switch cleanField {
-	case "customer":
+	case string(SortCustomer):
 		return fmt.Sprintf("i.customer COLLATE NOCASE %s, %s, %s DESC, d.id DESC", dir, validOrder, dateExpr)
-	case "status", "status_order":
+	case string(SortStatus), string(SortStatusOrder):
 		return fmt.Sprintf("i.status_order COLLATE NOCASE %s, %s, %s DESC, d.id DESC", dir, validOrder, dateExpr)
 	default:
 		return fmt.Sprintf("%s, %s %s, d.id %s", validOrder, dateExpr, dir, dir)
@@ -1901,7 +1953,7 @@ func (s *Storage) GetOrderByID(ctx context.Context, id string) (*model.Order, er
 	`, id).Scan(&ord.ID, &orderNumber, &ecatalogNumber, &tanggalVal, &ord.Customer, &ord.Area)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("order %q not found: %w", id, sql.ErrNoRows)
+			return nil, fmt.Errorf("order %q not found: %w: %w", id, ErrNotFound, err)
 		}
 		return nil, fmt.Errorf("failed to query order %q: %w", id, err)
 	}
@@ -2607,8 +2659,8 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	if limit <= 0 {
 		limit = 10
 	}
-	if searchType == "" {
-		searchType = "all"
+	if SearchType(searchType) == "" {
+		searchType = string(SearchTypeAll)
 	}
 
 	result := &SearchResult{
@@ -2639,7 +2691,7 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	custClause := "(" + strings.Join(custConds, " OR ") + ")"
 
 	// 1. Orders
-	if searchType == "all" || searchType == "orders" {
+	if SearchType(searchType) == SearchTypeAll || SearchType(searchType) == SearchTypeOrders {
 		countQuery := fmt.Sprintf(`
 			SELECT COUNT(*) FROM orders
 			WHERE %s OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
@@ -2686,7 +2738,7 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	}
 
 	// 2. Items
-	if searchType == "all" || searchType == "items" {
+	if SearchType(searchType) == SearchTypeAll || SearchType(searchType) == SearchTypeItems {
 		countQuery := fmt.Sprintf(`
 			SELECT COUNT(*) FROM items
 			WHERE nama_barang LIKE ? OR %s
@@ -2716,7 +2768,7 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	}
 
 	// 3. Customers
-	if searchType == "all" || searchType == "customers" {
+	if SearchType(searchType) == SearchTypeAll || SearchType(searchType) == SearchTypeCustomers {
 		countQuery := fmt.Sprintf(`
 			SELECT COUNT(DISTINCT customer) FROM orders
 			WHERE %s AND customer != ''
@@ -2855,8 +2907,8 @@ func (s *Storage) SetUserRole(ctx context.Context, email, role string) error {
 	if trimmedEmail == "" {
 		return fmt.Errorf("email cannot be empty")
 	}
-	switch role {
-	case "guest", "user", "admin":
+	switch model.UserRole(role) {
+	case model.RoleGuest, model.RoleUser, model.RoleAdmin:
 	default:
 		return fmt.Errorf("invalid role %q: must be guest, user, or admin", role)
 	}
@@ -2870,7 +2922,7 @@ func (s *Storage) SetUserRole(ctx context.Context, email, role string) error {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("user not found")
+		return ErrNotFound
 	}
 	return nil
 }
@@ -2882,7 +2934,7 @@ func (s *Storage) UpdateUserLocale(ctx context.Context, email, locale string) er
 		return fmt.Errorf("email cannot be empty")
 	}
 	trimmedLocale := strings.ToLower(strings.TrimSpace(locale))
-	if trimmedLocale != "en" && trimmedLocale != "id" {
+	if model.Locale(trimmedLocale) != model.LocaleEnglish && model.Locale(trimmedLocale) != model.LocaleIndonesian {
 		return fmt.Errorf("invalid locale %q: must be en or id", locale)
 	}
 	now := time.Now().UTC()
@@ -2895,7 +2947,7 @@ func (s *Storage) UpdateUserLocale(ctx context.Context, email, locale string) er
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("user not found")
+		return ErrNotFound
 	}
 	return nil
 }
@@ -3144,7 +3196,7 @@ func (s *Storage) LoadAccurateSession() (providerID, email, deviceID string, coo
 	var cookiesJSON, tenantJSON, officialJSON string
 	row := s.db.QueryRow(`SELECT provider, email, device_id, cookies, tenant, official_session FROM accurate_session WHERE id = 1`)
 	if err := row.Scan(&providerID, &email, &deviceID, &cookiesJSON, &tenantJSON, &officialJSON); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return "web", "", "", nil, nil, nil, nil
 		}
 		return "web", "", "", nil, nil, nil, err
@@ -3633,6 +3685,10 @@ func (s *Storage) CreateDeliveryDriver(ctx context.Context, d model.DeliveryDriv
 	`
 	res, err := s.db.ExecContext(ctx, query, strings.TrimSpace(d.Name), strings.TrimSpace(d.Phone), strings.TrimSpace(d.Vehicle), activeInt)
 	if err != nil {
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+			return 0, fmt.Errorf("failed to insert delivery driver: %w: %w", ErrDuplicateDriver, err)
+		}
 		return 0, fmt.Errorf("failed to insert delivery driver: %w", err)
 	}
 	id, err := res.LastInsertId()
@@ -3655,6 +3711,10 @@ func (s *Storage) UpdateDeliveryDriver(ctx context.Context, id int64, d model.De
 	`
 	res, err := s.db.ExecContext(ctx, query, strings.TrimSpace(d.Name), strings.TrimSpace(d.Phone), strings.TrimSpace(d.Vehicle), activeInt, id)
 	if err != nil {
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+			return fmt.Errorf("failed to update delivery driver %d: %w: %w", id, ErrDuplicateDriver, err)
+		}
 		return fmt.Errorf("failed to update delivery driver %d: %w", id, err)
 	}
 	rows, err := res.RowsAffected()
@@ -3906,7 +3966,7 @@ func (s *Storage) CreateDeliveryRun(ctx context.Context, run model.DeliveryRun) 
 
 	status := strings.ToUpper(strings.TrimSpace(run.Status))
 	if status == "" {
-		status = "PLANNED"
+		status = string(model.RunPlanned)
 	}
 	areas := deduplicateAreas(run.Areas, run.Items)
 	areasJSON, err := json.Marshal(areas)
@@ -4051,7 +4111,7 @@ func (s *Storage) UpdateDeliveryRun(ctx context.Context, id int64, run model.Del
 
 	status := strings.ToUpper(strings.TrimSpace(run.Status))
 	if status == "" {
-		status = "PLANNED"
+		status = string(model.RunPlanned)
 	}
 	res, err := tx.ExecContext(ctx, `
 		UPDATE delivery_runs
@@ -4158,18 +4218,18 @@ func (s *Storage) ToggleDeliveryRunItemPicked(ctx context.Context, runID, itemID
 		return nil, fmt.Errorf("failed to scan current status: %w", err)
 	}
 
-	currentUpper := strings.ToUpper(strings.TrimSpace(currentStatus))
-	if currentUpper == "PLANNED" || currentUpper == "PICKING" || currentUpper == "READY" {
+	currentUpper := model.DeliveryRunStatus(strings.ToUpper(strings.TrimSpace(currentStatus)))
+	if currentUpper == model.RunPlanned || currentUpper == model.RunPicking || currentUpper == model.RunReady {
 		newStatus := currentUpper
 		if totalCount > 0 && pickedCount == totalCount {
-			newStatus = "READY"
+			newStatus = model.RunReady
 		} else if pickedCount > 0 && pickedCount < totalCount {
-			newStatus = "PICKING"
+			newStatus = model.RunPicking
 		} else if pickedCount == 0 {
-			newStatus = "PLANNED"
+			newStatus = model.RunPlanned
 		}
 		if newStatus != currentUpper {
-			if _, err := tx.ExecContext(ctx, "UPDATE delivery_runs SET status = ?, updated_at = datetime('now') WHERE id = ?", newStatus, runID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE delivery_runs SET status = ?, updated_at = datetime('now') WHERE id = ?", string(newStatus), runID); err != nil {
 				return nil, fmt.Errorf("failed to auto-update run status: %w", err)
 			}
 		}

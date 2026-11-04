@@ -58,7 +58,7 @@ func NewManager(st SessionStore, prov ...accurate.Provider) *Manager {
 			log.Printf("session: failed to load session from store: %v", err)
 		} else {
 			if p == nil || p.ID() == providerID {
-				if providerID == "official" {
+				if accurate.ProviderKind(providerID) == accurate.ProviderOfficial {
 					if officialState != nil && officialState.Host != "" {
 						m.officialSession = officialState
 						if op, ok := p.(*official.Provider); ok {
@@ -175,7 +175,7 @@ func (m *Manager) Status() Status {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if m.prov != nil && m.prov.ID() == "official" {
+	if m.prov != nil && accurate.ProviderKind(m.prov.ID()) == accurate.ProviderOfficial {
 		if m.officialSession != nil && (m.officialSession.Host != "" || m.officialSession.Session != "") {
 			db := m.officialSession.Database
 			return Status{
@@ -265,7 +265,7 @@ func (m *Manager) persist() {
 	if m.store == nil {
 		return
 	}
-	provID := "web"
+	provID := string(accurate.ProviderWeb)
 	if m.prov != nil {
 		provID = m.prov.ID()
 	}

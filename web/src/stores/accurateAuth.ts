@@ -1,3 +1,5 @@
+import { ACCURATE_LOGIN_STATUS } from '~/domain';
+
 import { createSignal } from 'solid-js';
 import * as api from '~/api';
 import type { AccurateDatabase, AccurateStatus } from '~/types';
@@ -31,7 +33,7 @@ export async function handleLogin(otpParam?: string): Promise<boolean> {
       otp: otpParam || undefined,
     });
 
-    if (res.status === 'mfa_required' && res.challengeId) {
+	if (res.status === ACCURATE_LOGIN_STATUS.MFA_REQUIRED && res.challengeId) {
       setPendingChallengeId(res.challengeId);
       setIsAuthLoading(false);
       return false; // MFA pending

@@ -2,11 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/auth"
+	"github.com/awang-karisma/warehouse-parser/pkg/model"
+	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -71,7 +74,7 @@ func (s *Server) handleGoogleCallback(c fiber.Ctx) error {
 
 	role := user.Role
 	if s.appConfig.IsSuperadmin(user.Email) {
-		role = "superadmin"
+		role = string(model.RoleSuperadmin)
 	}
 
 	return c.JSON(fiber.Map{
@@ -128,12 +131,12 @@ func (s *Server) handleAuthMe(c fiber.Ctx) error {
 // handleLogout clears the session cookie.
 func (s *Server) handleLogout(c fiber.Ctx) error {
 	clearSessionCookie(c)
-	return c.JSON(fiber.Map{"status": "ok"})
+	return c.JSON(fiber.Map{"status": string(ResultOK)})
 }
 
 // handleListUsers returns all users in the system.
 func (s *Server) handleListUsers(c fiber.Ctx) error {
-	if err := s.requireRole(c, "admin"); err != nil {
+	if err := s.requireRole(c, string(model.RoleAdmin)); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -147,7 +150,7 @@ func (s *Server) handleListUsers(c fiber.Ctx) error {
 
 	for i := range users {
 		if s.appConfig != nil && s.appConfig.IsSuperadmin(users[i].Email) {
-			users[i].Role = "superadmin"
+			users[i].Role = string(model.RoleSuperadmin)
 		}
 	}
 
@@ -162,7 +165,7 @@ type setUserRoleReq struct {
 
 // handleSetUserRole changes a user's role to 'user' or 'admin'.
 func (s *Server) handleSetUserRole(c fiber.Ctx) error {
-	if err := s.requireRole(c, "admin"); err != nil {
+	if err := s.requireRole(c, string(model.RoleAdmin)); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -198,38 +201,37 @@ func (s *Server) handleSetUserRole(c fiber.Ctx) error {
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
-
-	if req.Role != "user" && req.Role != "admin" {
+	if model.UserRole(req.Role) != model.RoleUser && model.UserRole(req.Role) != model.RoleAdmin {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "role must be 'user' or 'admin'"})
 	}
 
 	isCallerSuperadmin := false
 	if claims, ok := c.Locals("user").(*auth.Claims); ok && claims != nil {
-		if claims.Role == "superadmin" || (s.appConfig != nil && s.appConfig.IsSuperadmin(claims.Email)) {
+		if model.UserRole(claims.Role) == model.RoleSuperadmin || (s.appConfig != nil && s.appConfig.IsSuperadmin(claims.Email)) {
 			isCallerSuperadmin = true
 		}
 	}
 
 	if !isCallerSuperadmin {
 		// Admin requests are allowed ONLY for the exact transition guest -> user
-		if targetUser.Role != "guest" || req.Role != "user" {
+		if model.UserRole(targetUser.Role) != model.RoleGuest || model.UserRole(req.Role) != model.RoleUser {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
 		}
 	}
 
 	if err := s.store.SetUserRole(c.Context(), targetUser.Email, req.Role); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, storage.ErrNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(fiber.Map{"status": "ok"})
+	return c.JSON(fiber.Map{"status": string(ResultOK)})
 }
 
 // handleDeleteUser deletes a user by email.
 func (s *Server) handleDeleteUser(c fiber.Ctx) error {
-	if err := s.requireRole(c, "admin"); err != nil {
+	if err := s.requireRole(c, string(model.RoleAdmin)); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -269,14 +271,14 @@ func (s *Server) handleDeleteUser(c fiber.Ctx) error {
 
 	isCallerSuperadmin := false
 	if claims, ok := c.Locals("user").(*auth.Claims); ok && claims != nil {
-		if claims.Role == "superadmin" || (s.appConfig != nil && s.appConfig.IsSuperadmin(claims.Email)) {
+		if model.UserRole(claims.Role) == model.RoleSuperadmin || (s.appConfig != nil && s.appConfig.IsSuperadmin(claims.Email)) {
 			isCallerSuperadmin = true
 		}
 	}
 
 	if !isCallerSuperadmin {
 		// Admin can only delete targets whose current DB role is "guest" or "user"
-		if targetUser.Role != "guest" && targetUser.Role != "user" {
+		if model.UserRole(targetUser.Role) != model.RoleGuest && model.UserRole(targetUser.Role) != model.RoleUser {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "insufficient permissions"})
 		}
 	}
@@ -285,12 +287,12 @@ func (s *Server) handleDeleteUser(c fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(fiber.Map{"status": "ok"})
+	return c.JSON(fiber.Map{"status": string(ResultOK)})
 }
 
 // handleClearDatabase wipes orders, items, deliveries, and sync history.
 func (s *Server) handleClearDatabase(c fiber.Ctx) error {
-	if err := s.requireRole(c, "admin"); err != nil {
+	if err := s.requireRole(c, string(model.RoleAdmin)); err != nil {
 		return err
 	}
 	if s.store == nil {
@@ -302,7 +304,7 @@ func (s *Server) handleClearDatabase(c fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"status":  "ok",
+		"status":  string(ResultOK),
 		"message": "database cleared",
 	})
 }

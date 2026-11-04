@@ -72,7 +72,8 @@ func ParseDeliveryEntries(raw string) []DeliveryEntry {
 
 // BaselineWorkDays defines the default Monday–Saturday active workdays.
 var BaselineWorkDays = []string{
-	"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+	string(model.WeekdayMonday), string(model.WeekdayTuesday), string(model.WeekdayWednesday),
+	string(model.WeekdayThursday), string(model.WeekdayFriday), string(model.WeekdaySaturday),
 }
 
 // BaselineWorkdayPolicies provides the fallback Monday–Saturday policy effective from 0001-01-01.
@@ -125,7 +126,7 @@ func formatLeadTime(val float64) string {
 // a valid order date, at least one parseable delivery date, and latest delivery date not before order date.
 // Otherwise, it returns an empty string.
 func CalculateLeadTime(orderDate time.Time, deliveryText, orderedText, sentText, status string, policies []model.WorkdayPolicy) string {
-	if !strings.EqualFold(strings.TrimSpace(status), "SELESAI") {
+	if model.OrderStatus(strings.ToUpper(strings.TrimSpace(status))) != model.OrderComplete {
 		return ""
 	}
 	if orderDate.IsZero() {
@@ -186,22 +187,24 @@ func CalculateLeadTime(orderDate time.Time, deliveryText, orderedText, sentText,
 	}
 
 	activeWeekdays := make(map[time.Weekday]bool)
+	weekdayNames := [...]struct {
+		Name model.WeekdayName
+		Day  time.Weekday
+	}{
+		{model.WeekdaySunday, time.Sunday},
+		{model.WeekdayMonday, time.Monday},
+		{model.WeekdayTuesday, time.Tuesday},
+		{model.WeekdayWednesday, time.Wednesday},
+		{model.WeekdayThursday, time.Thursday},
+		{model.WeekdayFriday, time.Friday},
+		{model.WeekdaySaturday, time.Saturday},
+	}
 	for _, day := range activeDaysList {
-		switch strings.ToLower(strings.TrimSpace(day)) {
-		case "sunday":
-			activeWeekdays[time.Sunday] = true
-		case "monday":
-			activeWeekdays[time.Monday] = true
-		case "tuesday":
-			activeWeekdays[time.Tuesday] = true
-		case "wednesday":
-			activeWeekdays[time.Wednesday] = true
-		case "thursday":
-			activeWeekdays[time.Thursday] = true
-		case "friday":
-			activeWeekdays[time.Friday] = true
-		case "saturday":
-			activeWeekdays[time.Saturday] = true
+		for _, candidate := range weekdayNames {
+			if strings.EqualFold(strings.TrimSpace(day), string(candidate.Name)) {
+				activeWeekdays[candidate.Day] = true
+				break
+			}
 		}
 	}
 

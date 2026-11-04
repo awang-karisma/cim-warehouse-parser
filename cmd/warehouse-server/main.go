@@ -60,13 +60,13 @@ func main() {
 	var accSession *session.Manager
 	var accRegistry *adapter.Registry
 
-	switch cfg.AccurateProvider {
-	case "web":
+	switch accurate.ProviderKind(cfg.AccurateProvider) {
+	case accurate.ProviderWeb:
 		accProv = web.New(cfg.AccurateEmail, cfg.AccuratePassword, nil)
 		accSession = session.NewManager(store, accProv)
 		accRegistry = adapter.NewRegistry(accProv)
 		log.Printf("Accurate integration initialized with provider: web (%s)", cfg.AccurateEmail)
-	case "official":
+	case accurate.ProviderOfficial:
 		var opts []official.Option
 		if cfg.AccurateAPISignatureSecret != "" {
 			opts = append(opts, official.WithSignatureSecret(cfg.AccurateAPISignatureSecret))

@@ -89,7 +89,7 @@ func TestClient_LoginSuccess(t *testing.T) {
 		t.Fatalf("Login failed: %v", err)
 	}
 
-	if res.Status != "success" {
+	if res.Status != accurate.LoginSuccess {
 		t.Fatalf("Expected status success, got: %s", res.Status)
 	}
 
@@ -149,7 +149,7 @@ func TestClient_LoginWithTOTP(t *testing.T) {
 		t.Fatalf("Initial login failed: %v", err)
 	}
 
-	if res.Status != "mfa_required" || res.ChallengeID == "" {
+	if res.Status != accurate.LoginMFARequired || res.ChallengeID == "" {
 		t.Fatalf("Expected mfa_required with challengeId, got: %+v", res)
 	}
 

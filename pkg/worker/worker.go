@@ -165,7 +165,7 @@ func New(cfg Config, store *storage.Storage, fetcher Fetcher) (*Worker, error) {
 		startMin:                   startMin,
 		endMin:                     endMin,
 		bypassWorkHoursOnFirstSync: bypassOnFirst,
-		status:                     "IDLE",
+		status:                     string(model.WorkerIdle),
 		subscribers:                make(map[chan SyncEvent]struct{}),
 	}
 	return w, nil
@@ -292,7 +292,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		hasSynced, err := w.store.HasSynced(ctx)
 		if err != nil {
 			lastRec, _ := w.store.GetLastSync(ctx)
-			hasSynced = (lastRec != nil && lastRec.Status == "SUCCESS")
+			hasSynced = lastRec != nil && model.SyncStatus(lastRec.Status) == model.SyncSuccess
 		}
 		isFirstSync = !hasSynced
 	}
@@ -301,7 +301,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		log.Println("Outside working hours, skipping scheduled sync")
 		w.mu.Lock()
 		w.lastRunTime = now
-		w.status = "OUTSIDE_HOURS"
+		w.status = string(model.WorkerOutsideHours)
 		w.mu.Unlock()
 		return nil
 	}
@@ -311,9 +311,9 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 	}
 
 	w.mu.Lock()
-	w.status = "SYNCING"
+	w.status = string(model.WorkerSyncing)
 	w.mu.Unlock()
-	w.broadcast(SyncEvent{Status: "SYNCING", Message: "fetching data from source"})
+	w.broadcast(SyncEvent{Status: string(model.Syncing), Message: "fetching data from source"})
 
 	startTime := time.Now()
 	aliases, err := w.store.GetCustomerAliases(ctx)
@@ -322,12 +322,12 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		w.mu.Lock()
 		w.lastRunTime = startTime
 		w.lastDuration = duration
-		w.status = "ERROR"
+		w.status = string(model.WorkerError)
 		w.lastError = err.Error()
 		w.mu.Unlock()
 
-		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, fmt.Sprintf("failed to load customer aliases: %v", err), duration.Milliseconds())
-		w.broadcast(SyncEvent{Status: "ERROR", Error: fmt.Sprintf("failed to load customer aliases: %v", err), DurationMs: duration.Milliseconds()})
+		_ = w.store.RecordSync(ctx, string(model.SyncError), 0, 0, fmt.Sprintf("failed to load customer aliases: %v", err), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: fmt.Sprintf("failed to load customer aliases: %v", err), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("failed to load customer aliases: %w", err)
 	}
 
@@ -337,12 +337,12 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		w.mu.Lock()
 		w.lastRunTime = startTime
 		w.lastDuration = duration
-		w.status = "ERROR"
+		w.status = string(model.WorkerError)
 		w.lastError = err.Error()
 		w.mu.Unlock()
 
-		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, fmt.Sprintf("failed to load workday policies: %v", err), duration.Milliseconds())
-		w.broadcast(SyncEvent{Status: "ERROR", Error: fmt.Sprintf("failed to load workday policies: %v", err), DurationMs: duration.Milliseconds()})
+		_ = w.store.RecordSync(ctx, string(model.SyncError), 0, 0, fmt.Sprintf("failed to load workday policies: %v", err), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: fmt.Sprintf("failed to load workday policies: %v", err), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("failed to load workday policies: %w", err)
 	}
 
@@ -352,12 +352,12 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		w.mu.Lock()
 		w.lastRunTime = startTime
 		w.lastDuration = duration
-		w.status = "ERROR"
+		w.status = string(model.WorkerError)
 		w.lastError = err.Error()
 		w.mu.Unlock()
 
-		_ = w.store.RecordSync(ctx, "ERROR", 0, 0, err.Error(), duration.Milliseconds())
-		w.broadcast(SyncEvent{Status: "ERROR", Error: err.Error(), DurationMs: duration.Milliseconds()})
+		_ = w.store.RecordSync(ctx, string(model.SyncError), 0, 0, err.Error(), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: err.Error(), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("fetch failed: %w", err)
 	}
 
@@ -385,7 +385,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		}
 	}
 
-	w.broadcast(SyncEvent{Status: "SYNCING", Message: "writing to database"})
+	w.broadcast(SyncEvent{Status: string(model.Syncing), Message: "writing to database"})
 	err = w.store.SyncMirror(ctx, items, orders)
 	duration := time.Since(startTime)
 
@@ -393,22 +393,22 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 	w.lastRunTime = startTime
 	w.lastDuration = duration
 	if err != nil {
-		w.status = "ERROR"
+		w.status = string(model.WorkerError)
 		w.lastError = err.Error()
 		w.mu.Unlock()
 
-		_ = w.store.RecordSync(ctx, "ERROR", len(items), len(orders), err.Error(), duration.Milliseconds())
-		w.broadcast(SyncEvent{Status: "ERROR", Error: err.Error(), DurationMs: duration.Milliseconds()})
+		_ = w.store.RecordSync(ctx, string(model.SyncError), len(items), len(orders), err.Error(), duration.Milliseconds())
+		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: err.Error(), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("sync mirror failed: %w", err)
 	}
 	_ = w.store.UpdateLastSyncDuration(ctx, duration.Milliseconds())
 
-	w.status = "IDLE"
+	w.status = string(model.WorkerIdle)
 	w.lastError = ""
 	w.mu.Unlock()
 
 	rec, _ := w.store.GetLastSync(ctx)
-	w.broadcast(SyncEvent{Status: "SUCCESS", Record: rec, DurationMs: duration.Milliseconds()})
+	w.broadcast(SyncEvent{Status: string(model.SyncSuccess), Record: rec, DurationMs: duration.Milliseconds()})
 	log.Printf("Sync completed successfully (%d items, %d orders in %s)", len(items), len(orders), duration.Round(time.Millisecond))
 
 	return nil

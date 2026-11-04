@@ -278,7 +278,7 @@ func (c *Client) Login(ctx context.Context, email, password string) (*LoginResul
 		})
 
 		return &LoginResult{
-			Status:      "mfa_required",
+			Status:      LoginMFARequired,
 			ChallengeID: challengeID,
 		}, nil
 	}
@@ -289,7 +289,7 @@ func (c *Client) Login(ctx context.Context, email, password string) (*LoginResul
 	}
 
 	return &LoginResult{
-		Status: "success",
+		Status: LoginSuccess,
 	}, nil
 }
 

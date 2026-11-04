@@ -1,3 +1,5 @@
+import { DELIVERY_RUN_STATUS, LOCALE, USER_ROLE, WEEKDAY_NAME } from '~/domain';
+
 import { type Component, createSignal, createResource, createEffect, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
 import {
@@ -54,7 +56,7 @@ export const Settings: Component = () => {
   const auth = useAuth();
   const isAdmin = () => {
     const role = auth.user()?.role;
-    return role === 'admin' || role === 'superadmin';
+	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
   };
   const [showClearDbDialog, setShowClearDbDialog] = createSignal(false);
   const [isClearingDb, setIsClearingDb] = createSignal(false);
@@ -63,25 +65,25 @@ export const Settings: Component = () => {
 
 
   const [policiesData, { refetch: refetchPolicies }] = createResource(getWorkdayPolicies);
-  const ALL_WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const [selectedDays, setSelectedDays] = createSignal<string[]>([
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
-  ]);
-  const [isSavingPolicy, setIsSavingPolicy] = createSignal(false);
-  const [policySaveError, setPolicySaveError] = createSignal<string | null>(null);
-  const [policySaveSuccess, setPolicySaveSuccess] = createSignal<string | null>(null);
-  const weekdayName = (day: string) => {
-    switch (day) {
-      case 'Monday': return t('settings.monday');
-      case 'Tuesday': return t('settings.tuesday');
-      case 'Wednesday': return t('settings.wednesday');
-      case 'Thursday': return t('settings.thursday');
-      case 'Friday': return t('settings.friday');
-      case 'Saturday': return t('settings.saturday');
-      case 'Sunday': return t('settings.sunday');
-      default: return day;
-    }
-  };
+	const ALL_WEEKDAYS: string[] = [WEEKDAY_NAME.MONDAY, WEEKDAY_NAME.TUESDAY, WEEKDAY_NAME.WEDNESDAY, WEEKDAY_NAME.THURSDAY, WEEKDAY_NAME.FRIDAY, WEEKDAY_NAME.SATURDAY, WEEKDAY_NAME.SUNDAY];
+	const [selectedDays, setSelectedDays] = createSignal<string[]>([
+		WEEKDAY_NAME.MONDAY, WEEKDAY_NAME.TUESDAY, WEEKDAY_NAME.WEDNESDAY, WEEKDAY_NAME.THURSDAY, WEEKDAY_NAME.FRIDAY, WEEKDAY_NAME.SATURDAY,
+	]);
+	const [isSavingPolicy, setIsSavingPolicy] = createSignal(false);
+	const [policySaveError, setPolicySaveError] = createSignal<string | null>(null);
+	const [policySaveSuccess, setPolicySaveSuccess] = createSignal<string | null>(null);
+	const weekdayName = (day: string) => {
+		switch (day) {
+		case WEEKDAY_NAME.MONDAY: return t('settings.monday');
+		case WEEKDAY_NAME.TUESDAY: return t('settings.tuesday');
+		case WEEKDAY_NAME.WEDNESDAY: return t('settings.wednesday');
+		case WEEKDAY_NAME.THURSDAY: return t('settings.thursday');
+		case WEEKDAY_NAME.FRIDAY: return t('settings.friday');
+		case WEEKDAY_NAME.SATURDAY: return t('settings.saturday');
+		case WEEKDAY_NAME.SUNDAY: return t('settings.sunday');
+		default: return day;
+		}
+	};
   createEffect(() => {
     const list = policiesData()?.policies;
     if (list && list.length > 0) {
@@ -92,7 +94,7 @@ export const Settings: Component = () => {
   const canEditLeadTime = () => {
     if (auth.authConfig()?.auth_enabled === false) return true;
     const role = auth.user()?.role;
-    return role === 'admin' || role === 'superadmin';
+	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
   };
 
   const toggleWeekday = (day: string) => {
@@ -200,18 +202,18 @@ export const Settings: Component = () => {
           </div>
           <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button
-              variant={locale() === 'en' ? 'default' : 'outline'}
-              size="sm"
-              class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
-              onClick={() => setLocale('en')}
+				variant={locale() === LOCALE.ENGLISH ? 'default' : 'outline'}
+				size="sm"
+				class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
+				onClick={() => setLocale(LOCALE.ENGLISH)}
             >
               <span>English</span>
             </Button>
             <Button
-              variant={locale() === 'id' ? 'default' : 'outline'}
-              size="sm"
-              class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
-              onClick={() => setLocale('id')}
+				variant={locale() === LOCALE.INDONESIAN ? 'default' : 'outline'}
+				size="sm"
+				class="gap-1.5 text-xs h-8 flex-1 sm:flex-initial"
+				onClick={() => setLocale(LOCALE.INDONESIAN)}
             >
               <span>Bahasa Indonesia</span>
             </Button>
@@ -485,7 +487,7 @@ export const Settings: Component = () => {
                         <TableCell class="text-right font-medium">{stat.row_count.toLocaleString()} {t('settings.rowsUnit')}</TableCell>
                         <TableCell class="text-xs text-muted-foreground">SQLite 3 (WAL mode)</TableCell>
                         <TableCell class="text-right">
-                          <Badge status="READY" />
+							<Badge status={DELIVERY_RUN_STATUS.READY} />
                         </TableCell>
                       </TableRow>
                     )}

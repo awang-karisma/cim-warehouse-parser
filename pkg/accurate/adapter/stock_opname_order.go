@@ -15,7 +15,7 @@ func NewStockOpnameOrderAdapter(prov accurate.Provider) *StockOpnameOrderAdapter
 }
 
 func (a *StockOpnameOrderAdapter) ID() string {
-	return "stock-opname-order"
+	return string(accurate.SourceStockOpnameOrder)
 }
 
 func (a *StockOpnameOrderAdapter) Name() string {
