@@ -13,11 +13,13 @@
     "@solid-primitives/i18n": "^2.2.1",
     "@solidjs/router": "^0.15.3",
     "@tabler/icons-solidjs": "^3.49.0",
+    "chart.js": "^4.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "datamatrix-svg-ts": "^1.1.0",
     "jsbarcode": "^3.12.3",
     "qrcode-generator": "^2.0.4",
+    "solid-chartjs": "^1.3.11",
     "solid-js": "^1.9.4",
     "tailwind-merge": "^3.7.0"
   },

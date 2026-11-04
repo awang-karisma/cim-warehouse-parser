@@ -32,7 +32,9 @@ Automated order ingestion, normalization, and visualization system.
 
 - **Date-Ranged Operations Dashboard**:
   - Uses inclusive WITA order-placement dates, initially the last 30 calendar days through today. The summary API (`GET /api/v1/dashboard/summary?from&to`) returns range-specific order/item/customer/area totals, line-item status counts, and daily order counts; recent orders use the same range.
+  - The dashboard date toolbar supports custom From/To dates and quick 7-day, 30-day, 3-month, 6-month, and 1-year presets ending today; it marks the matching preset active and shows invalid-range feedback without requesting data.
   - Historical order status uses the latest successful mirror snapshot per observed WITA date (`GET /api/v1/dashboard/status-trend?from&to`). Empty successful mirrors remain empty observations, days without syncs stay as gaps, and snapshots clear with the database reset. Existing `/api/v1/stats` stays global.
+  - Dashboard volume and status-history charts use Chart.js through `solid-chartjs`: daily order counts are grouped into seven-day buckets for ranges longer than 14 days, while status history keeps unsynced dates empty. Both charts resize to the card width, use theme-aware status colors, and provide tooltips; the status legend toggles individual series.
   - Categorized collapsible sidebar keeps the active section open and exposes all destination icons in collapsed rail mode.
 - **Google OAuth 2.0 & Role-Based Access Control (RBAC)**:
   - Google Identity Services (GIS) login with ID token server verification.
