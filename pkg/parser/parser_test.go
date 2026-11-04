@@ -164,6 +164,22 @@ func TestParseCSV_SyntheticData(t *testing.T) {
 	}
 }
 
+func TestParseCSV_PreservesBlankAndDashStockStatuses(t *testing.T) {
+	csvData := `Tanggal,Customer,Area,Nama Barang,Jumlah,Satuan,Tanggal Pengiriman,Lead Time Pengiriman,Jumlah Terkirim,Belum Terkirim,Status Order,Status Barang,Keterangan,Catatan
+01/02/2026,RS Stock Test,Lombok Barat,Blank Stock,10,Pcs,,,0,10,,,
+,,,Dash Stock,10,Pcs,,,0,10,-,-,,
+`
+	items, _, err := parser.ParseCSV(strings.NewReader(csvData))
+	if err != nil { t.Fatalf("ParseCSV failed: %v", err) }
+	if len(items) != 2 { t.Fatalf("expected two normalized lines, got %d", len(items)) }
+	if items[0].StatusOrder != "BELUM SELESAI" || items[0].StatusBarang != "" || items[0].BelumTerkirim != "10" {
+		t.Errorf("blank stock row was not preserved and normalized: %+v", items[0])
+	}
+	if items[1].StatusOrder != "BELUM SELESAI" || items[1].StatusBarang != "-" || items[1].BelumTerkirim != "10" {
+		t.Errorf("dash stock row was not preserved and normalized: %+v", items[1])
+	}
+}
+
 func TestParseSheet_MockServer(t *testing.T) {
 	mockData := sheets.ValueRange{
 		Range:          "PESANAN!A1:N",

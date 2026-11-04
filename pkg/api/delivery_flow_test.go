@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -74,6 +75,45 @@ func TestDeliveryFlowCandidatesAPI(t *testing.T) {
 	}
 	if len(body.Orders[0].Items) != 1 {
 		t.Errorf("expected 1 item, got %d", len(body.Orders[0].Items))
+	}
+}
+
+func TestDeliveryCandidatesIncludeBlankStockStatuses(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+	order := model.Order{
+		ID: "ORD-EMPTY-STOCK-API", OrderNumber: "ORD-EMPTY-STOCK-API", Customer: "RS Empty Stock",
+		Tanggal: model.ParseDate("01/02/2026"), Area: "Lombok Barat",
+		Items: []model.OrderItem{
+			{RowIndex: 210, NamaBarang: "Blank stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "", StatusBarang: ""},
+			{RowIndex: 211, NamaBarang: "Dash stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "-", StatusBarang: "-"},
+			{RowIndex: 212, NamaBarang: "Fully sent", Jumlah: "10", JumlahTerkirim: "10", BelumTerkirim: "0", StatusOrder: "", StatusBarang: ""},
+		},
+	}
+	items := []model.NormalizedItem{
+		{RowIndex: 210, Tanggal: order.Tanggal, Customer: order.Customer, Area: order.Area, NamaBarang: "Blank stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "", StatusBarang: ""},
+		{RowIndex: 211, Tanggal: order.Tanggal, Customer: order.Customer, Area: order.Area, NamaBarang: "Dash stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "-", StatusBarang: "-"},
+		{RowIndex: 212, Tanggal: order.Tanggal, Customer: order.Customer, Area: order.Area, NamaBarang: "Fully sent", Jumlah: "10", JumlahTerkirim: "10", BelumTerkirim: "0", StatusOrder: "", StatusBarang: ""},
+	}
+	if err := store.SyncMirror(ctx, items, []model.Order{order}); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+	resp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/delivery-flow/candidates", nil))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("candidate API failed: response=%v error=%v", resp, err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Orders []model.Order `json:"orders"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Orders) != 1 || len(body.Orders[0].Items) != 3 {
+		t.Fatalf("blank-stock order was excluded: %+v", body.Orders)
+	}
+	if body.Orders[0].Items[0].StatusBarang != "" || body.Orders[0].Items[0].StatusOrder != "BELUM SELESAI" || body.Orders[0].Items[1].StatusBarang != "-" || body.Orders[0].Items[1].StatusOrder != "BELUM SELESAI" {
+		t.Fatalf("raw stock text or unfinished normalization changed: %+v", body.Orders[0].Items)
 	}
 }
 

@@ -1,4 +1,4 @@
-import { type Component, For, createMemo, createSignal, onMount, onCleanup, createResource } from 'solid-js';
+import { type Component, For, Show, createMemo, createSignal, onMount, onCleanup, createResource } from 'solid-js';
 import { getStatus, getConfig } from '~/api';
 import { cn } from '~/lib/utils';
 import { A, useLocation } from '@solidjs/router';
@@ -18,8 +18,10 @@ import {
   IconSearch,
   IconSettings,
   IconUserCog,
+  IconChevronDown,
   type IconProps,
 } from '@tabler/icons-solidjs';
+import * as Accordion from '@kobalte/core/accordion';
 
 import {
   Sidebar,
@@ -27,7 +29,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -41,6 +42,12 @@ interface NavItem {
   label: string;
   icon: Component<IconProps>;
   exact?: boolean;
+}
+
+interface NavGroup {
+  id: 'overview' | 'operations' | 'customersAndAreas' | 'tools' | 'administration';
+  label: string;
+  items: NavItem[];
 }
 
 function parseDuration(s?: string): number {
@@ -180,7 +187,8 @@ export const AppSidebar: Component = () => {
   const location = useLocation();
   const auth = useAuth();
   const { t } = useI18n();
-  const { isMobile, setOpenMobile } = useSidebar();
+  const sidebar = useSidebar();
+  const { isMobile, setOpenMobile } = sidebar;
 
   const handleNavClick = () => {
     if (isMobile()) {
@@ -192,42 +200,74 @@ export const AppSidebar: Component = () => {
     return role === 'admin' || role === 'superadmin';
   });
 
-  const currentNavItems = createMemo<NavItem[]>(() => {
-    const items: NavItem[] = [
-      { href: '/', label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
-      { href: '/orders', label: t('nav.orders'), icon: IconClipboardList },
-      { href: '/items', label: t('nav.items'), icon: IconPackage },
-      { href: '/customers', label: t('nav.customerView'), icon: IconUsers },
-      { href: '/customer-aliases', label: t('nav.customerAliases'), icon: IconAddressBook },
-      { href: '/areas', label: t('nav.areaMap'), icon: IconMapPin },
-      { href: '/delivery-flow', label: t('nav.deliveryFlow'), icon: IconTruckDelivery },
-      { href: '/timeline', label: t('nav.deliveryTimeline'), icon: IconTimeline },
-      { href: '/barcode', label: t('nav.barcodePrinter'), icon: IconBarcode },
-      { href: '/sync', label: t('nav.syncManager'), icon: IconRefresh },
-      { href: '/search', label: t('nav.search'), icon: IconSearch },
-      { href: '/settings', label: t('nav.settings'), icon: IconSettings },
+  const currentNavGroups = createMemo<NavGroup[]>(() => {
+    const groups: NavGroup[] = [
+      { id: 'overview', label: t('navGroups.overview'), items: [
+        { href: '/', label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
+      ] },
+      { id: 'operations', label: t('navGroups.operations'), items: [
+        { href: '/orders', label: t('nav.orders'), icon: IconClipboardList },
+        { href: '/items', label: t('nav.items'), icon: IconPackage },
+        { href: '/delivery-flow', label: t('nav.deliveryFlow'), icon: IconTruckDelivery },
+        { href: '/timeline', label: t('nav.deliveryTimeline'), icon: IconTimeline },
+      ] },
+      { id: 'customersAndAreas', label: t('navGroups.customersAndAreas'), items: [
+        { href: '/customers', label: t('nav.customerView'), icon: IconUsers },
+        { href: '/customer-aliases', label: t('nav.customerAliases'), icon: IconAddressBook },
+        { href: '/areas', label: t('nav.areaMap'), icon: IconMapPin },
+      ] },
+      { id: 'tools', label: t('navGroups.tools'), items: [
+        { href: '/barcode', label: t('nav.barcodePrinter'), icon: IconBarcode },
+        { href: '/search', label: t('nav.search'), icon: IconSearch },
+      ] },
+      { id: 'administration', label: t('navGroups.administration'), items: [
+        { href: '/sync', label: t('nav.syncManager'), icon: IconRefresh },
+        { href: '/settings', label: t('nav.settings'), icon: IconSettings },
+        ...(isPrivileged() ? [{ href: '/admin/users', label: t('nav.userManagement'), icon: IconUserCog }] : []),
+      ] },
     ];
-    if (isPrivileged()) {
-      items.push({ href: '/admin/users', label: t('nav.userManagement'), icon: IconUserCog });
-    }
-    return items;
+    return groups;
   });
 
-  const isActive = (item: NavItem) => {
-    if (item.exact) {
-      return location.pathname === '/' || location.pathname === '/dashboard';
-    }
-    return location.pathname.startsWith(item.href);
+  const isActive = (item: NavItem) => item.exact
+    ? location.pathname === '/' || location.pathname === '/dashboard'
+    : location.pathname.startsWith(item.href);
+  const activeGroupId = createMemo<NavGroup['id']>(() => {
+    const path = location.pathname;
+    if (path === '/' || path === '/dashboard') return 'overview';
+    if (['/orders', '/items', '/delivery-flow', '/timeline'].some((prefix) => path.startsWith(prefix))) return 'operations';
+    if (['/customers', '/customer-aliases', '/areas'].some((prefix) => path.startsWith(prefix))) return 'customersAndAreas';
+    if (['/barcode', '/search'].some((prefix) => path.startsWith(prefix))) return 'tools';
+    return 'administration';
+  });
+  const [userOpenGroups, setUserOpenGroups] = createSignal<string[]>([]);
+  const expandedGroups = createMemo(() => [...new Set([...userOpenGroups(), activeGroupId()])]);
+  const handleAccordionChange = (value: string[]) => {
+    setUserOpenGroups(value.filter((id) => id !== activeGroupId()));
   };
+  const NavLinks: Component<{ items: NavItem[] }> = (props) => (
+    <SidebarMenu>
+      <For each={props.items}>{(item) => {
+        const Icon = item.icon;
+        return (
+          <SidebarMenuItem>
+            <SidebarMenuButton as={A} href={item.href} isActive={isActive(item)} tooltip={item.label} onClick={handleNavClick}>
+              <Icon class="size-4 shrink-0" />
+              <span>{item.label}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      }}</For>
+    </SidebarMenu>
+  );
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" class="cursor-default hover:bg-transparent">
-              <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <IconPackage class="size-4" />
-              </div>
+              <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><IconPackage class="size-4" /></div>
               <div class="grid flex-1 text-left text-sm leading-tight">
                 <span class="truncate font-semibold">Warehouse Parser</span>
                 <span class="truncate text-xs text-muted-foreground">{t('common.adminConsole')}</span>
@@ -237,34 +277,32 @@ export const AppSidebar: Component = () => {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>{t('common.navigation')}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <For each={currentNavItems()}>
-                {(item) => {
-                  const active = () => isActive(item);
-                  const Icon = item.icon;
-                  return (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        as={A}
-                        href={item.href}
-                        isActive={active()}
-                        tooltip={item.label}
-                        onClick={handleNavClick}
-                      >
-                        <Icon class="size-4 shrink-0" />
-                        <span>{item.label}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                }}
-              </For>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent class="group-data-[collapsible=icon]:overflow-y-auto group-data-[collapsible=icon]:overflow-x-hidden">
+        <Show when={sidebar.state() === 'collapsed'} fallback={
+          <Accordion.Root multiple collapsible value={expandedGroups()} onChange={handleAccordionChange} class="w-full">
+            <For each={currentNavGroups()}>{(group) => (
+              <Accordion.Item value={group.id}>
+                <SidebarGroup class="p-0">
+                  <Accordion.Header class="w-full">
+                    <Accordion.Trigger class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground/70 outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+                      <span class="truncate">{group.label}</span>
+                      <IconChevronDown class="ml-auto size-4 shrink-0" />
+                    </Accordion.Trigger>
+                  </Accordion.Header>
+                  <Accordion.Content>
+                    <SidebarGroupContent><NavLinks items={group.items} /></SidebarGroupContent>
+                  </Accordion.Content>
+                </SidebarGroup>
+              </Accordion.Item>
+            )}</For>
+          </Accordion.Root>
+        }>
+          <SidebarGroup class="p-0">
+            <SidebarGroupContent>
+              <For each={currentNavGroups()}>{(group) => <NavLinks items={group.items} />}</For>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </Show>
       </SidebarContent>
 
       <SyncStatusFooter />

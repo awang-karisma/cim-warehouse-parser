@@ -157,6 +157,41 @@ func TestDeliveryCandidateOrders(t *testing.T) {
 	}
 }
 
+func TestDeliveryCandidatesPreserveEmptyAndDashStockStatus(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+	order := model.Order{
+		ID: "ORD-EMPTY-STOCK", OrderNumber: "ORD-EMPTY-STOCK", Customer: "RS Candidate",
+		Tanggal: model.ParseDate("01/02/2026"),
+		Items: []model.OrderItem{
+			{RowIndex: 2, NamaBarang: "Blank stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "", StatusBarang: ""},
+			{RowIndex: 3, NamaBarang: "Dash stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "-", StatusBarang: "-"},
+			{RowIndex: 4, NamaBarang: "Fully sent", Jumlah: "10", JumlahTerkirim: "10", BelumTerkirim: "0", StatusOrder: "", StatusBarang: ""},
+		},
+	}
+	items := []model.NormalizedItem{
+		{RowIndex: 2, Tanggal: order.Tanggal, Customer: order.Customer, NamaBarang: "Blank stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "", StatusBarang: "", OrderNumber: order.OrderNumber},
+		{RowIndex: 3, Tanggal: order.Tanggal, Customer: order.Customer, NamaBarang: "Dash stock", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "-", StatusBarang: "-", OrderNumber: order.OrderNumber},
+		{RowIndex: 4, Tanggal: order.Tanggal, Customer: order.Customer, NamaBarang: "Fully sent", Jumlah: "10", JumlahTerkirim: "10", BelumTerkirim: "0", StatusOrder: "", StatusBarang: "", OrderNumber: order.OrderNumber},
+	}
+	if err := store.SyncMirror(ctx, items, []model.Order{order}); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+	candidates, err := store.GetDeliveryCandidateOrders(ctx)
+	if err != nil {
+		t.Fatalf("GetDeliveryCandidateOrders failed: %v", err)
+	}
+	if len(candidates) != 1 || len(candidates[0].Items) != 3 {
+		t.Fatalf("expected one candidate order with three raw lines, got %#v", candidates)
+	}
+	if candidates[0].Items[0].StatusOrder != "BELUM SELESAI" || candidates[0].Items[0].StatusBarang != "" {
+		t.Errorf("blank statuses not preserved/normalized as expected: %#v", candidates[0].Items[0])
+	}
+	if candidates[0].Items[1].StatusOrder != "BELUM SELESAI" || candidates[0].Items[1].StatusBarang != "-" {
+		t.Errorf("dash stock status was not preserved: %#v", candidates[0].Items[1])
+	}
+}
+
 func TestDeliveryDriversCRUD(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStorage(t)

@@ -40,6 +40,7 @@ import { TableSkeleton } from '~/components/TableSkeleton';
 import { Spinner } from '~/components/Spinner';
 import { getDominantOrderStatus } from '~/utils/orderStatus';
 import { cn } from '~/lib/utils';
+import { createDebouncedSignal } from '~/utils/debounce';
 import { Button } from '~/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '~/components/ui/card';
 import {
@@ -100,7 +101,7 @@ function getItemRemainingQty(item: { jumlah?: string; jumlah_terkirim?: string; 
   const jt = parseQty(item.jumlah_terkirim);
   const diff = j - jt;
   if (diff > 0) return diff;
-  return j > 0 ? j : 0;
+  return 0;
 }
 
 function makeItemKey(order: Order, item: OrderItem): string {
@@ -171,9 +172,9 @@ export const DeliveryFlow: Component = () => {
 
   // Filters & toolbar state
   const [searchTerm, setSearchTerm] = createSignal('');
-  const [configureSearchTerm, setConfigureSearchTerm] = createSignal('');
-  const [readyInWarehouseOnly, setReadyInWarehouseOnly] = createSignal(true);
-  const [includeClientHold, setIncludeClientHold] = createSignal(true);
+  const [configureSearchTerm, debouncedConfigureSearchTerm, setConfigureSearchTerm, flushConfigureSearchTerm] = createDebouncedSignal('', 300);
+  const [readyInWarehouseOnly, setReadyInWarehouseOnly] = createSignal(false);
+  const [includeClientHold, setIncludeClientHold] = createSignal(false);
   const [selectedAreaFilter, setSelectedAreaFilter] = createSignal<string | null>(null);
 
   const enabledFilterCount = createMemo(() => {
@@ -505,37 +506,48 @@ export const DeliveryFlow: Component = () => {
   };
 
   // Group selected draft items by Order for Stage 2 (Quantities & Dispatch)
-  const selectedOrderGroups = createMemo(() => {
-    const groups = new Map<string, { order: Order; entries: { key: string; item: OrderItem; planned_qty: string; note: string }[] }>();
-    const term = configureSearchTerm().trim().toLowerCase();
+  type ConfigureEntry = { key: string; item: OrderItem; readonly planned_qty: string; readonly note: string };
+  type ConfigureGroup = { order: Order; entries: ConfigureEntry[] };
+  const selectedOrderGroups = createMemo<ConfigureGroup[]>((previous = []) => {
+    const previousGroups = new Map(previous.map((group) => [group.order.id || group.order.order_number || 'UNKNOWN', group]));
+    const previousEntries = new Map(previous.flatMap((group) => group.entries.map((entry) => [entry.key, entry] as const)));
+    const groups = new Map<string, ConfigureGroup>();
+    const term = debouncedConfigureSearchTerm().trim().toLowerCase();
 
-    for (const [key, entry] of draftItems().entries()) {
+    for (const [key, draft] of draftItems().entries()) {
       if (term) {
-        const matchCust = (entry.order.customer || '').toLowerCase().includes(term);
-        const matchArea = (entry.order.area || '').toLowerCase().includes(term);
-        const matchOrder = (entry.order.order_number || entry.order.id || '').toLowerCase().includes(term);
-        const matchItem = (entry.item.nama_barang || '').toLowerCase().includes(term);
-        const matchNote = (entry.note || '').toLowerCase().includes(term);
-        if (!matchCust && !matchArea && !matchOrder && !matchItem && !matchNote) {
-          continue;
-        }
+        const matchCust = (draft.order.customer || '').toLowerCase().includes(term);
+        const matchArea = (draft.order.area || '').toLowerCase().includes(term);
+        const matchOrder = (draft.order.order_number || draft.order.id || '').toLowerCase().includes(term);
+        const matchItem = (draft.item.nama_barang || '').toLowerCase().includes(term);
+        const matchNote = (draftItems().get(key)?.note || '').toLowerCase().includes(term);
+        if (!matchCust && !matchArea && !matchOrder && !matchItem && !matchNote) continue;
       }
-      const ordId = entry.order.id || entry.order.order_number || 'UNKNOWN';
-      if (!groups.has(ordId)) {
-        groups.set(ordId, {
-          order: entry.order,
-          entries: [],
-        });
+      const orderKey = draft.order.id || draft.order.order_number || 'UNKNOWN';
+      let group = groups.get(orderKey);
+      if (!group) {
+        group = { order: draft.order, entries: [] };
+        groups.set(orderKey, group);
       }
-      groups.get(ordId)!.entries.push({
-        key,
-        item: entry.item,
-        planned_qty: entry.planned_qty,
-        note: entry.note,
-      });
+      const oldEntry = previousEntries.get(key);
+      const entry = oldEntry && oldEntry.item === draft.item
+        ? oldEntry
+        : {
+            key,
+            item: draft.item,
+            get planned_qty() { return draftItems().get(key)?.planned_qty || ''; },
+            get note() { return draftItems().get(key)?.note || ''; },
+          };
+      group.entries.push(entry);
     }
 
-    return Array.from(groups.values());
+    return Array.from(groups, ([key, group]) => {
+      const oldGroup = previousGroups.get(key);
+      const sameEntries = oldGroup && oldGroup.entries.length === group.entries.length &&
+        oldGroup.entries.every((entry, index) => entry === group.entries[index]);
+      if (oldGroup && oldGroup.order === group.order && sameEntries) return oldGroup;
+      return { ...group, entries: sameEntries ? oldGroup!.entries : group.entries };
+    });
   });
 
   // Driver Workload & Route Overview for the target Dispatch Date
@@ -688,6 +700,9 @@ export const DeliveryFlow: Component = () => {
         setRunNotes('');
         setSelectedRunId(savedRun.id || null);
         setSearchParams({ tab: 'runs' });
+        setReadyInWarehouseOnly(false);
+        setIncludeClientHold(false);
+        flushConfigureSearchTerm('');
       });
 
       refetchRuns();
@@ -745,6 +760,7 @@ export const DeliveryFlow: Component = () => {
         });
       }
       setDraftItems(nextDraft);
+      flushConfigureSearchTerm('');
       setSearchParams({ tab: 'configure' });
     });
   };

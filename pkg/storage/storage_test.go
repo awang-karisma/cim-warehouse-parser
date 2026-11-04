@@ -1737,6 +1737,13 @@ func TestDateMigration_LegacyDDMMYYYY(t *testing.T) {
 	if badTanggal != "unparseable/date" {
 		t.Errorf("expected preserved verbatim date 'unparseable/date', got %q", badTanggal)
 	}
+	var legacyStockStatus string
+	if err := store.DB().QueryRow("SELECT status_barang FROM items WHERE id = 1").Scan(&legacyStockStatus); err != nil {
+		t.Fatalf("failed to scan repaired stock status: %v", err)
+	}
+	if legacyStockStatus != "" {
+		t.Fatalf("expected legacy NULL stock status to be repaired to empty string, got %q", legacyStockStatus)
+	}
 
 	// Verify GetOrders scans as typed Go date
 	orders, total, err := store.GetOrders(context.Background(), storage.OrderFilter{OrderNumber: "EP-1"})
@@ -3337,5 +3344,240 @@ func TestStorage_LabelLayoutPresets(t *testing.T) {
 	presets, err = store.GetLabelLayoutPresets(ctx)
 	if err != nil || len(presets) != 0 {
 		t.Fatalf("expected no presets after delete, got %+v, %v", presets, err)
+	}
+}
+
+func TestDashboardSummaryInclusiveOrderDates(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+	date := func(value string) time.Time {
+		return time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, map[string]int{"2026-09-30": -1, "2026-10-01": 0, "2026-10-03": 2}[value])
+	}
+	orders := []model.Order{
+		{ID: "outside", OrderNumber: "OUT", Tanggal: date("2026-09-30"), Customer: "Outside", Area: "North", Items: []model.OrderItem{{RowIndex: 1, NamaBarang: "Outside", Jumlah: "1", StatusOrder: "SELESAI"}}},
+		{ID: "start", OrderNumber: "START", Tanggal: date("2026-10-01"), Customer: "Start", Area: "West", Items: []model.OrderItem{{RowIndex: 2, NamaBarang: "Start item", Jumlah: "2", StatusOrder: "BELUM SELESAI"}}},
+		{ID: "end", OrderNumber: "END", Tanggal: date("2026-10-03"), Customer: "End", Area: "East", Items: []model.OrderItem{{RowIndex: 3, NamaBarang: "End item A", Jumlah: "1", StatusOrder: "PROSES"}, {RowIndex: 4, NamaBarang: "End item B", Jumlah: "1", StatusOrder: "PROSES"}}},
+	}
+	if err := store.SyncMirror(ctx, nil, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+	summary, err := store.GetDashboardSummary(ctx, "2026-10-01", "2026-10-03")
+	if err != nil {
+		t.Fatalf("GetDashboardSummary failed: %v", err)
+	}
+	if summary.TotalOrders != 2 || summary.TotalItems != 3 || summary.UniqueCustomers != 2 || summary.UniqueAreas != 2 {
+		t.Fatalf("unexpected ranged totals: %+v", summary)
+	}
+	if summary.StatusCounts["BELUM SELESAI"] != 1 || summary.StatusCounts["PROSES"] != 2 || len(summary.StatusCounts) != 2 {
+		t.Fatalf("unexpected item status counts: %#v", summary.StatusCounts)
+	}
+	if len(summary.DailyOrders) != 2 || summary.DailyOrders[0] != (storage.DashboardDailyOrder{Date: "2026-10-01", Count: 1}) || summary.DailyOrders[1] != (storage.DashboardDailyOrder{Date: "2026-10-03", Count: 1}) {
+		t.Fatalf("unexpected daily orders: %#v", summary.DailyOrders)
+	}
+	empty, err := store.GetDashboardSummary(ctx, "2026-11-01", "2026-11-02")
+	if err != nil || empty.TotalOrders != 0 || empty.TotalItems != 0 || len(empty.StatusCounts) != 0 || len(empty.DailyOrders) != 0 {
+		t.Fatalf("expected initialized empty summary, got %+v, %v", empty, err)
+	}
+}
+
+func TestOrderStatusSnapshotsDominanceLatestAndClear(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+	first := []model.Order{
+		{ID: "mixed", Items: []model.OrderItem{{RowIndex: 1, NamaBarang: "cancel", Jumlah: "1", StatusOrder: "BATAL"}, {RowIndex: 2, NamaBarang: "open", Jumlah: "1", StatusOrder: "BELUM SELESAI"}}},
+		{ID: "cancelled", Items: []model.OrderItem{{RowIndex: 3, NamaBarang: "cancel A", Jumlah: "1", StatusOrder: "BATAL"}, {RowIndex: 4, NamaBarang: "cancel B", Jumlah: "1", StatusOrder: "CANCEL"}}},
+	}
+	if err := store.SyncMirror(ctx, nil, first); err != nil {
+		t.Fatalf("first SyncMirror failed: %v", err)
+	}
+	var firstID int64
+	if err := store.DB().QueryRow("SELECT MAX(sync_history_id) FROM sync_status_snapshots").Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().Exec("UPDATE sync_status_snapshots SET snapshot_date = ? WHERE sync_history_id = ?", "2026-06-01", firstID); err != nil {
+		t.Fatal(err)
+	}
+	firstPoint, err := store.GetOrderStatusTrend(ctx, "2026-06-01", "2026-06-01")
+	if err != nil || len(firstPoint) != 1 || firstPoint[0].StatusCounts["BELUM SELESAI"] != 1 || firstPoint[0].StatusCounts["BATAL"] != 1 {
+		t.Fatalf("unexpected dominant status snapshot: %#v, %v", firstPoint, err)
+	}
+	second := []model.Order{{ID: "latest", Items: []model.OrderItem{{RowIndex: 5, NamaBarang: "done", Jumlah: "1", StatusOrder: "SELESAI"}}}}
+	if err := store.SyncMirror(ctx, nil, second); err != nil {
+		t.Fatalf("second SyncMirror failed: %v", err)
+	}
+	var secondID int64
+	if err := store.DB().QueryRow("SELECT MAX(sync_history_id) FROM sync_status_snapshots").Scan(&secondID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().Exec("UPDATE sync_status_snapshots SET snapshot_date = ? WHERE sync_history_id = ?", "2026-06-01", secondID); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.GetOrderStatusTrend(ctx, "2026-06-01", "2026-06-03")
+	if err != nil || len(latest) != 1 || latest[0].StatusCounts["SELESAI"] != 1 || len(latest[0].StatusCounts) != 1 {
+		t.Fatalf("expected only latest observation for day: %#v, %v", latest, err)
+	}
+	emptySyncErr := store.SyncMirror(ctx, nil, nil)
+	if emptySyncErr != nil {
+		t.Fatalf("empty SyncMirror failed: %v", emptySyncErr)
+	}
+	var emptyID int64
+	if err := store.DB().QueryRow("SELECT MAX(sync_history_id) FROM sync_status_snapshots").Scan(&emptyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().Exec("UPDATE sync_status_snapshots SET snapshot_date = ? WHERE sync_history_id = ?", "2026-06-02", emptyID); err != nil {
+		t.Fatal(err)
+	}
+	points, err := store.GetOrderStatusTrend(ctx, "2026-06-01", "2026-06-03")
+	if err != nil || len(points) != 2 || points[1].Date != "2026-06-02" || len(points[1].StatusCounts) != 0 {
+		t.Fatalf("expected sparse days and empty observed snapshot: %#v, %v", points, err)
+	}
+	if err := store.ClearData(ctx); err != nil {
+		t.Fatalf("ClearData failed: %v", err)
+	}
+	points, err = store.GetOrderStatusTrend(ctx, "2026-06-01", "2026-06-03")
+	if err != nil || len(points) != 0 {
+		t.Fatalf("ClearData retained snapshots: %#v, %v", points, err)
+	}
+}
+
+func TestSyncMirrorSnapshotFailureRollsBack(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+	seed := []model.Order{{ID: "baseline", Items: []model.OrderItem{{RowIndex: 1, NamaBarang: "baseline", Jumlah: "1", StatusOrder: "PROSES"}}}}
+	if err := store.SyncMirror(ctx, nil, seed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().Exec(`CREATE TRIGGER reject_snapshot BEFORE INSERT ON sync_status_snapshots BEGIN SELECT RAISE(ABORT, 'snapshot reject'); END`); err != nil {
+		t.Fatal(err)
+	}
+	failed := []model.Order{{ID: "replacement", Items: []model.OrderItem{{RowIndex: 2, NamaBarang: "replacement", Jumlah: "1", StatusOrder: "SELESAI"}}}}
+	if err := store.SyncMirror(ctx, nil, failed); err == nil {
+		t.Fatal("expected snapshot insert failure")
+	}
+	var orderCount, historyCount, snapshotCount int
+	if err := store.DB().QueryRow("SELECT COUNT(*) FROM orders").Scan(&orderCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DB().QueryRow("SELECT COUNT(*) FROM sync_history").Scan(&historyCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DB().QueryRow("SELECT COUNT(*) FROM sync_status_snapshots").Scan(&snapshotCount); err != nil {
+		t.Fatal(err)
+	}
+	if orderCount != 1 || historyCount != 1 || snapshotCount != 1 {
+		t.Fatalf("failed sync was not rolled back atomically: orders=%d history=%d snapshots=%d", orderCount, historyCount, snapshotCount)
+	}
+}
+
+func TestStatusTrendRejectsMalformedSnapshotAndIgnoresErrorSync(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+	if err := store.SyncMirror(ctx, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordSync(ctx, "ERROR", 0, 0, "failed", 1); err != nil {
+		t.Fatal(err)
+	}
+	var snapshots int
+	if err := store.DB().QueryRow("SELECT COUNT(*) FROM sync_status_snapshots").Scan(&snapshots); err != nil || snapshots != 1 {
+		t.Fatalf("error sync added a status snapshot: count=%d err=%v", snapshots, err)
+	}
+	var syncID int64
+	if err := store.DB().QueryRow("SELECT sync_history_id FROM sync_status_snapshots LIMIT 1").Scan(&syncID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().Exec("UPDATE sync_status_snapshots SET snapshot_date = '2026-05-01', status_counts_json = '{bad json' WHERE sync_history_id = ?", syncID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetOrderStatusTrend(ctx, "2026-05-01", "2026-05-01"); err == nil {
+		t.Fatal("expected malformed status snapshot to fail")
+	}
+}
+
+func TestPageDesignPresetSettingsPersistenceAndDefaults(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+	skip, guides, zoom := 3, false, 1.25
+	design := model.PageDesign{
+		Name: "Full settings", Paper: "A5", PaperWidthMM: 148, PaperHeightMM: 210,
+		LabelWidthMM: 70, LabelHeightMM: 30, Cols: 2, Rows: 5, GapXMM: 3, GapYMM: 4,
+		MarginTopMM: 6, MarginLeftMM: 7, IsAuditSheet: true,
+		Settings: &model.BarcodePresetSettings{Symbology: "CODE39", BarcodeHeight: "large", FontSize: "small", QtyMode: "single", SkipCount: &skip, ShowScreenBorder: &guides, Zoom: &zoom},
+	}
+	id, err := store.CreatePageDesign(ctx, design)
+	if err != nil {
+		t.Fatalf("CreatePageDesign failed: %v", err)
+	}
+	got, err := store.GetPageDesignByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetPageDesignByID failed: %v", err)
+	}
+	if got.Settings == nil || got.Settings.Symbology != "CODE39" || got.Settings.BarcodeHeight != "large" || got.Settings.FontSize != "small" || got.Settings.QtyMode != "single" || *got.Settings.SkipCount != 3 || *got.Settings.ShowScreenBorder || *got.Settings.Zoom != 1.25 {
+		t.Fatalf("preset settings did not round-trip: %+v", got.Settings)
+	}
+	if err := store.SyncMirror(ctx, nil, nil); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+	if err := store.ClearData(ctx); err != nil {
+		t.Fatalf("ClearData failed: %v", err)
+	}
+	got, err = store.GetPageDesignByID(ctx, id)
+	if err != nil || got.Settings == nil || got.Settings.Symbology != "CODE39" {
+		t.Fatalf("preset did not survive sync/reset: %+v err=%v", got, err)
+	}
+
+	defaultID, err := store.CreatePageDesign(ctx, model.PageDesign{Name: "Legacy defaults", LabelWidthMM: 30, LabelHeightMM: 20, Cols: 1, Rows: 1})
+	if err != nil {
+		t.Fatalf("CreatePageDesign with omitted settings failed: %v", err)
+	}
+	defaults, err := store.GetPageDesignByID(ctx, defaultID)
+	if err != nil || defaults.Settings == nil || defaults.Settings.Symbology != "CODE128" || *defaults.Settings.SkipCount != 0 || !*defaults.Settings.ShowScreenBorder || *defaults.Settings.Zoom != 1 {
+		t.Fatalf("omitted legacy settings did not normalize to defaults: %+v err=%v", defaults, err)
+	}
+	if _, err := store.DB().Exec("UPDATE page_designs SET settings_json = '{bad json' WHERE id = ?", defaultID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetPageDesignByID(ctx, defaultID); err == nil {
+		t.Fatal("malformed stored settings must fail")
+	}
+}
+
+func TestLegacyPageDesignSchemaAddsSettingsDefaults(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy_page_design.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE page_designs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, paper TEXT NOT NULL DEFAULT 'A4',
+			paper_width_mm REAL NOT NULL DEFAULT 210, paper_height_mm REAL NOT NULL DEFAULT 297,
+			label_width_mm REAL NOT NULL, label_height_mm REAL NOT NULL, cols INTEGER NOT NULL DEFAULT 1,
+			rows INTEGER NOT NULL DEFAULT 1, gap_x_mm REAL NOT NULL DEFAULT 0, gap_y_mm REAL NOT NULL DEFAULT 0,
+			margin_top_mm REAL NOT NULL DEFAULT 0, margin_left_mm REAL NOT NULL DEFAULT 0,
+			is_audit_sheet INTEGER NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+		);
+		INSERT INTO page_designs (name, label_width_mm, label_height_mm, cols, rows)
+		VALUES ('Legacy', 30, 20, 1, 1);
+	`)
+	if err != nil {
+		t.Fatalf("failed to create legacy page design table: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("opening legacy database failed: %v", err)
+	}
+	defer store.Close()
+	designs, err := store.GetPageDesigns(context.Background())
+	if err != nil || len(designs) != 1 || designs[0].Settings == nil || designs[0].Settings.Symbology != "CODE128" || *designs[0].Settings.Zoom != 1 {
+		t.Fatalf("legacy page design did not receive defaults: %+v err=%v", designs, err)
 	}
 }

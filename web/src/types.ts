@@ -42,6 +42,29 @@ export interface Stats {
   status_counts: Record<string, number>;
 }
 
+export interface DashboardDailyOrder {
+  date: string;
+  count: number;
+}
+
+export interface DashboardSummary {
+  total_orders: number;
+  total_items: number;
+  unique_customers: number;
+  unique_areas: number;
+  status_counts: Record<string, number>;
+  daily_orders: DashboardDailyOrder[];
+}
+
+export interface OrderStatusPoint {
+  date: string;
+  status_counts: Record<string, number>;
+}
+
+export interface OrderStatusTrendResponse {
+  points: OrderStatusPoint[];
+}
+
 export interface SyncRecord {
   id: number;
   synced_at: string;
@@ -376,6 +399,16 @@ export type BarcodeHeight = 'compact' | 'medium' | 'large';
 export type FontSize = 'small' | 'medium' | 'large';
 export type QtyMode = 'single' | 'multiply';
 
+export interface BarcodePresetSettings {
+  symbology: Symbology;
+  barcode_height: BarcodeHeight;
+  font_size: FontSize;
+  qty_mode: QtyMode;
+  skip_count: number;
+  show_screen_border: boolean;
+  zoom: number;
+}
+
 export interface PageDesign {
   id: number;
   name: string;
@@ -391,7 +424,8 @@ export interface PageDesign {
   margin_top_mm: number;
   margin_left_mm: number;
   is_audit_sheet: boolean;
-  label_layout?: string;
+	label_layout?: string;
+	settings: BarcodePresetSettings;
   created_at?: string;
   updated_at?: string;
 }

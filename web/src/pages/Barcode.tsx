@@ -4,6 +4,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  Index,
   For,
   onCleanup,
   onMount,
@@ -31,6 +32,8 @@ import {
 import {
   barcodeHeight,
   customConfig,
+  applyPageDesign,
+  captureBarcodePresetSettings,
   fontSize,
   fromPresetConfig,
   getEffectiveConfig,
@@ -42,6 +45,7 @@ import {
   serverDesigns,
   setBarcodeHeight,
   setCustomConfig,
+  setPresetDraftActive,
   setFontSize,
   setPresetKey,
   setQtyMode,
@@ -114,15 +118,17 @@ export const Barcode: Component = () => {
 
   const startCreating = () => {
     previousPresetKey = presetKey();
+    setPresetDraftActive(true);
     setIsEditing(false);
     setIsCreating(true);
     setPresetKey('custom');
-    setCustomConfig({ ...PRESETS.custom, name: '' });
+    setCustomConfig({ ...getEffectiveConfig(), name: '' });
     setStatusMessage(null);
   };
 
   const cancelCreating = () => {
     setIsCreating(false);
+    setPresetDraftActive(false);
     const fallback = previousPresetKey.startsWith('server-') || PRESETS[previousPresetKey] ? previousPresetKey : 'tj-108';
     selectPreset(fallback);
     setStatusMessage(null);
@@ -131,34 +137,64 @@ export const Barcode: Component = () => {
   const startEditing = () => {
     setIsCreating(false);
     setIsEditing(true);
+    setPresetDraftActive(true);
     const pk = presetKey();
     if (pk.startsWith('server-')) {
       const id = parseInt(pk.slice(7), 10);
       const design = (serverDesigns() ?? []).find((d) => d.id === id);
-      if (design) {
-        setCustomConfig(toPresetConfig(design));
-      }
+      if (design) applyPageDesign(design);
     }
     setStatusMessage(null);
   };
 
   const cancelEditing = () => {
     setIsEditing(false);
-    const pk = presetKey();
-    if (pk.startsWith('server-')) {
-      const id = parseInt(pk.slice(7), 10);
-      const design = (serverDesigns() ?? []).find((d) => d.id === id);
-      if (design) {
-        setCustomConfig(toPresetConfig(design));
-      }
-    }
+    setPresetDraftActive(false);
+    selectPreset(presetKey());
     setStatusMessage(null);
   };
 
   const [isSaving, setIsSaving] = createSignal(false);
-  const [statusMessage, setStatusMessage] = createSignal<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [statusMessage, setStatusMessage] = createSignal<{ type: 'success' | 'error'; text: string; retry?: boolean } | null>(null);
   const [designToDelete, setDesignToDelete] = createSignal<PageDesign | null>(null);
   const [isDeletingDesign, setIsDeletingDesign] = createSignal(false);
+
+  const retrySavedPresetRefresh = async () => {
+    const id = Number.parseInt(presetKey().slice(7), 10);
+    try {
+      const designs = await refetchDesigns();
+      const design = (designs ?? []).find((entry) => entry.id === id);
+      if (!design) throw new Error('Saved preset was not returned by the refreshed list');
+      applyPageDesign(design);
+      setPresetKey('custom');
+      setPresetKey(`server-${id}`);
+      setIsCreating(false);
+      setIsEditing(false);
+      setPresetDraftActive(false);
+      setStatusMessage({ type: 'success', text: t('barcode.changesSaved') });
+    } catch {
+      setStatusMessage({ type: 'error', text: t('barcode.presetRefreshFailed'), retry: true });
+    }
+  };
+
+  const refreshAfterPresetSave = async (id: number, successText: string) => {
+    setPresetKey(`server-${id}`);
+    setPresetDraftActive(true);
+    try {
+      const designs = await refetchDesigns();
+      const design = (designs ?? []).find((entry) => entry.id === id);
+      if (!design) throw new Error('Saved preset was not returned by the refreshed list');
+      applyPageDesign(design);
+      setPresetKey('custom');
+      setPresetKey(`server-${id}`);
+      setIsCreating(false);
+      setIsEditing(false);
+      setPresetDraftActive(false);
+      setStatusMessage({ type: 'success', text: successText });
+    } catch {
+      setStatusMessage({ type: 'error', text: t('barcode.presetRefreshFailed'), retry: true });
+    }
+  };
 
   const handleSaveNewDesign = async () => {
     const cfg = customConfig();
@@ -170,11 +206,8 @@ export const Barcode: Component = () => {
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      const res = await createPageDesign(fromPresetConfig(cfg, serializeLayout(labelLayout())));
-      await refetchDesigns();
-      setIsCreating(false);
-      selectPreset(`server-${res.id}`);
-      setStatusMessage({ type: 'success', text: t('barcode.presetSaved', { name }) });
+      const saved = await createPageDesign(fromPresetConfig(cfg, serializeLayout(labelLayout()), captureBarcodePresetSettings()));
+      await refreshAfterPresetSave(saved.id, t('barcode.presetSaved', { name }));
     } catch (err: unknown) {
       setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.savePresetFailed') });
     } finally {
@@ -185,7 +218,7 @@ export const Barcode: Component = () => {
   const handleUpdateDesign = async () => {
     const pk = presetKey();
     if (!pk.startsWith('server-')) return;
-    const id = parseInt(pk.slice(7), 10);
+    const id = Number.parseInt(pk.slice(7), 10);
     const cfg = customConfig();
     const name = cfg.name.trim();
     if (!name) {
@@ -195,10 +228,8 @@ export const Barcode: Component = () => {
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      await updatePageDesign(id, fromPresetConfig(cfg, serializeLayout(labelLayout())));
-      await refetchDesigns();
-      setIsEditing(false);
-      setStatusMessage({ type: 'success', text: t('barcode.changesSaved') });
+      await updatePageDesign(id, fromPresetConfig(cfg, serializeLayout(labelLayout()), captureBarcodePresetSettings()));
+      await refreshAfterPresetSave(id, t('barcode.changesSaved'));
     } catch (err: unknown) {
       setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.updatePresetFailed') });
     } finally {
@@ -214,11 +245,8 @@ export const Barcode: Component = () => {
     setStatusMessage(null);
     try {
       const copyCfg = { ...cfg, name };
-      const res = await createPageDesign(fromPresetConfig(copyCfg, serializeLayout(labelLayout())));
-      await refetchDesigns();
-      setIsEditing(false);
-      selectPreset(`server-${res.id}`);
-      setStatusMessage({ type: 'success', text: t('barcode.copyCreated', { name }) });
+      const saved = await createPageDesign(fromPresetConfig(copyCfg, serializeLayout(labelLayout()), captureBarcodePresetSettings()));
+      await refreshAfterPresetSave(saved.id, t('barcode.copyCreated', { name }));
     } catch (err: unknown) {
       setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.createCopyFailed') });
     } finally {
@@ -677,15 +705,15 @@ export const Barcode: Component = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <For each={items()}>
+              <Index each={items()}>
                 {(item) => (
-                  <TableRow class={item.selected ? '' : 'opacity-40'}>
+                  <TableRow class={item().selected ? '' : 'opacity-40'}>
                     <TableCell class="text-center">
                       <input
                         type="checkbox"
-                        checked={item.selected}
+                        checked={item().selected}
                         onChange={(e) =>
-                          updateItemField(item.id, 'selected', e.currentTarget.checked)
+                          updateItemField(item().id, 'selected', e.currentTarget.checked)
                         }
                         class="rounded border-border text-primary cursor-pointer"
                       />
@@ -693,9 +721,9 @@ export const Barcode: Component = () => {
                     <TableCell class="p-2">
                       <input
                         type="text"
-                        value={item.itemNo}
+                        value={item().itemNo}
                         onInput={(e) =>
-                          updateItemField(item.id, 'itemNo', e.currentTarget.value)
+                          updateItemField(item().id, 'itemNo', e.currentTarget.value)
                         }
                         class="w-full px-2 py-1 text-xs font-mono font-medium border rounded bg-background"
                       />
@@ -703,9 +731,9 @@ export const Barcode: Component = () => {
                     <TableCell class="p-2">
                       <input
                         type="text"
-                        value={item.itemName}
+                        value={item().itemName}
                         onInput={(e) =>
-                          updateItemField(item.id, 'itemName', e.currentTarget.value)
+                          updateItemField(item().id, 'itemName', e.currentTarget.value)
                         }
                         class="w-full px-2 py-1 text-xs border rounded bg-background"
                       />
@@ -713,9 +741,9 @@ export const Barcode: Component = () => {
                     <TableCell class="p-2">
                       <input
                         type="text"
-                        value={item.barcode}
+                        value={item().barcode}
                         onInput={(e) =>
-                          updateItemField(item.id, 'barcode', e.currentTarget.value)
+                          updateItemField(item().id, 'barcode', e.currentTarget.value)
                         }
                         class="w-full px-2 py-1 text-xs font-mono border rounded bg-background"
                       />
@@ -725,7 +753,7 @@ export const Barcode: Component = () => {
                         <button
                           type="button"
                           onClick={() =>
-                            updateItemField(item.id, 'quantity', Math.max(1, item.quantity - 1))
+                            updateItemField(item().id, 'quantity', Math.max(1, item().quantity - 1))
                           }
                           class="px-2 py-1 text-muted-foreground hover:text-foreground text-xs font-bold"
                         >
@@ -734,10 +762,10 @@ export const Barcode: Component = () => {
                         <input
                           type="number"
                           min={1}
-                          value={item.quantity}
+                          value={item().quantity}
                           onInput={(e) =>
                             updateItemField(
-                              item.id,
+                              item().id,
                               'quantity',
                               parseInt(e.currentTarget.value, 10) || 1
                             )
@@ -747,7 +775,7 @@ export const Barcode: Component = () => {
                         <button
                           type="button"
                           onClick={() =>
-                            updateItemField(item.id, 'quantity', item.quantity + 1)
+                            updateItemField(item().id, 'quantity', item().quantity + 1)
                           }
                           class="px-2 py-1 text-muted-foreground hover:text-foreground text-xs font-bold"
                         >
@@ -758,9 +786,9 @@ export const Barcode: Component = () => {
                     <TableCell class="p-2 text-center">
                       <input
                         type="text"
-                        value={item.unit}
+                        value={item().unit}
                         onInput={(e) =>
-                          updateItemField(item.id, 'unit', e.currentTarget.value)
+                          updateItemField(item().id, 'unit', e.currentTarget.value)
                         }
                         class="w-16 px-1.5 py-1 text-xs text-center border rounded bg-background"
                       />
@@ -769,9 +797,9 @@ export const Barcode: Component = () => {
                       <input
                         type="number"
                         step={500}
-                        value={item.price}
+                        value={item().price}
                         onInput={(e) =>
-                          updateItemField(item.id, 'price', parseFloat(e.currentTarget.value) || 0)
+                          updateItemField(item().id, 'price', parseFloat(e.currentTarget.value) || 0)
                         }
                         class="w-24 px-1.5 py-1 text-xs text-right border rounded bg-background"
                       />
@@ -779,7 +807,7 @@ export const Barcode: Component = () => {
                     <TableCell class="text-center p-2">
                       <button
                         type="button"
-                        onClick={() => deleteItem(item.id)}
+                        onClick={() => deleteItem(item().id)}
                         class="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
                         title={t('barcode.deleteRow')}
                       >
@@ -788,7 +816,7 @@ export const Barcode: Component = () => {
                     </TableCell>
                   </TableRow>
                 )}
-              </For>
+              </Index>
 
               <Show when={items().length === 0}>
                 <TableRow>
@@ -839,6 +867,7 @@ export const Barcode: Component = () => {
                 <label class="block font-semibold text-muted-foreground text-[11px] uppercase">
                   {t('barcode.stickerPaperPreset')}
                 </label>
+                <p class="text-[10px] leading-snug text-muted-foreground">{t('barcode.presetContentsHelp')}</p>
                 <select
                   value={presetKey()}
                   onChange={(e) => {
@@ -846,6 +875,7 @@ export const Barcode: Component = () => {
                     if (!nextVal || nextVal === 'custom') return;
                     setIsEditing(false);
                     setIsCreating(false);
+                    setPresetDraftActive(false);
                     setStatusMessage(null);
                     selectPreset(nextVal);
                   }}
@@ -867,6 +897,12 @@ export const Barcode: Component = () => {
                     </optgroup>
                   </Show>
                 </select>
+                <Show when={serverDesigns.error}>
+                  <div class="flex items-center justify-between gap-2 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
+                    <span>{t('barcode.presetRefreshFailed')}</span>
+                    <Button type="button" variant="outline" size="sm" class="h-6 px-2 text-[10px]" onClick={() => refetchDesigns()}>{t('common.retry')}</Button>
+                  </div>
+                </Show>
 
                 {/* Action buttons under dropdown */}
                 <Show when={isAdmin()}>
@@ -942,25 +978,6 @@ export const Barcode: Component = () => {
                       </span>
                     </div>
 
-                    {/* Status Message */}
-                    <Show when={statusMessage()}>
-                      <div
-                        class={`px-2 py-1 rounded text-[10px] flex items-center justify-between ${
-                          statusMessage()!.type === 'error'
-                            ? 'bg-destructive/10 text-destructive border border-destructive/20'
-                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                        }`}
-                      >
-                        <span>{statusMessage()!.text}</span>
-                        <button
-                          type="button"
-                          onClick={() => setStatusMessage(null)}
-                          class="opacity-60 hover:opacity-100 font-bold ml-1"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </Show>
 
                     {/* Design Name */}
                     <Show when={isAdmin() || presetKey() === 'custom'}>
@@ -1379,6 +1396,17 @@ export const Barcode: Component = () => {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+        </Show>
+        <Show when={statusMessage()}>
+          <div class={`no-print mx-4 my-3 flex flex-wrap items-center justify-between gap-2 rounded px-3 py-2 text-xs md:mx-6 ${statusMessage()!.type === 'error' ? 'border border-destructive/20 bg-destructive/10 text-destructive' : 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`} role={statusMessage()!.type === 'error' ? 'alert' : 'status'}>
+            <span>{statusMessage()!.text}</span>
+            <div class="flex items-center gap-2">
+              <Show when={statusMessage()!.retry}>
+                <Button type="button" variant="outline" size="sm" class="h-7 text-xs" onClick={retrySavedPresetRefresh}>{t('common.retry')}</Button>
+              </Show>
+              <button type="button" aria-label={t('common.close')} onClick={() => setStatusMessage(null)} class="font-bold opacity-70 hover:opacity-100">×</button>
             </div>
           </div>
         </Show>

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -90,6 +91,28 @@ type ItemsOutput struct {
 
 type StatsOutput struct {
 	Body storage.Stats
+}
+
+type DashboardSummaryInput struct {
+	From string `query:"from" doc:"Inclusive order placement start date (YYYY-MM-DD)"`
+	To   string `query:"to" doc:"Inclusive order placement end date (YYYY-MM-DD)"`
+}
+
+type DashboardTrendInput struct {
+	From string `query:"from" doc:"Inclusive snapshot start date (YYYY-MM-DD)"`
+	To   string `query:"to" doc:"Inclusive snapshot end date (YYYY-MM-DD)"`
+}
+
+type DashboardSummaryOutput struct {
+	Body storage.DashboardSummary
+}
+
+type DashboardTrendResponse struct {
+	Points []storage.OrderStatusPoint `json:"points"`
+}
+
+type DashboardTrendOutput struct {
+	Body DashboardTrendResponse
 }
 
 // Sync history
@@ -182,6 +205,8 @@ type ListOrdersInput struct {
 	Customer       string `query:"customer" doc:"Filter by customer name"`
 	Date           string `query:"date" doc:"Filter by order date (DD/MM/YYYY)"`
 	Tanggal        string `query:"tanggal" doc:"Alias for date filter"`
+	From           string `query:"from" doc:"Inclusive order date lower bound (YYYY-MM-DD)"`
+	To             string `query:"to" doc:"Inclusive order date upper bound (YYYY-MM-DD)"`
 	Area           string `query:"area" doc:"Filter by area / region"`
 	Status         string `query:"status" doc:"Filter by dominant item status_order"`
 	OrderNumber    string `query:"order_number" doc:"Filter by E-Katalog order ID (EP-...)"`
@@ -193,6 +218,34 @@ type ListOrdersInput struct {
 	Direction      string `query:"direction" doc:"Alias for sort direction"`
 	Limit          int    `query:"limit" default:"50" doc:"Max orders to return (max 1000)"`
 	Offset         int    `query:"offset" default:"0" doc:"Pagination offset"`
+}
+
+func validateISODateBounds(from, to string, requireBoth bool) error {
+	if requireBoth && (from == "" || to == "") {
+		return errors.New("both from and to are required")
+	}
+	parseBound := func(name, value string) (time.Time, error) {
+		if value == "" {
+			return time.Time{}, nil
+		}
+		parsed, err := time.Parse("2006-01-02", value)
+		if err != nil || parsed.Format("2006-01-02") != value {
+			return time.Time{}, fmt.Errorf("%s must be a valid YYYY-MM-DD date", name)
+		}
+		return parsed, nil
+	}
+	fromDate, err := parseBound("from", from)
+	if err != nil {
+		return err
+	}
+	toDate, err := parseBound("to", to)
+	if err != nil {
+		return err
+	}
+	if from != "" && to != "" && fromDate.After(toDate) {
+		return errors.New("from must not be after to")
+	}
+	return nil
 }
 
 func resolveSortAndOrder(sort, orderBy, order, dir, direction string) (string, string) {
@@ -310,6 +363,9 @@ func (s *Server) handleListOrders(ctx context.Context, input *ListOrdersInput) (
 	if s.store == nil {
 		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
+	if err := validateISODateBounds(input.From, input.To, false); err != nil {
+		return nil, huma.Error400BadRequest("invalid date range", err)
+	}
 
 	customer := input.Customer
 	date := input.Date
@@ -341,6 +397,8 @@ func (s *Server) handleListOrders(ctx context.Context, input *ListOrdersInput) (
 		Tanggal:        date,
 		Area:           area,
 		Status:         input.Status,
+		DateFrom:       input.From,
+		DateTo:         input.To,
 		OrderNumber:    orderNumber,
 		EcatalogNumber: orderNumber,
 		Sort:           sortField,
@@ -566,6 +624,34 @@ func (s *Server) handleGetStats(ctx context.Context, input *struct{}) (*StatsOut
 	return &StatsOutput{
 		Body: *stats,
 	}, nil
+}
+
+func (s *Server) handleGetDashboardSummary(ctx context.Context, input *DashboardSummaryInput) (*DashboardSummaryOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if err := validateISODateBounds(input.From, input.To, true); err != nil {
+		return nil, huma.Error400BadRequest("invalid date range", err)
+	}
+	summary, err := s.store.GetDashboardSummary(ctx, input.From, input.To)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get dashboard summary", err)
+	}
+	return &DashboardSummaryOutput{Body: *summary}, nil
+}
+
+func (s *Server) handleGetDashboardStatusTrend(ctx context.Context, input *DashboardTrendInput) (*DashboardTrendOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if err := validateISODateBounds(input.From, input.To, true); err != nil {
+		return nil, huma.Error400BadRequest("invalid date range", err)
+	}
+	points, err := s.store.GetOrderStatusTrend(ctx, input.From, input.To)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get dashboard status trend", err)
+	}
+	return &DashboardTrendOutput{Body: DashboardTrendResponse{Points: points}}, nil
 }
 
 func (s *Server) handleListSyncHistory(ctx context.Context, input *ListSyncHistoryInput) (*SyncHistoryOutput, error) {
@@ -1165,6 +1251,41 @@ func validatePageDesign(d *model.PageDesign) error {
 	d.Paper = strings.TrimSpace(d.Paper)
 	if d.Paper == "" {
 		d.Paper = "A4"
+	}
+	if d.Settings == nil {
+		defaults := model.DefaultBarcodePresetSettings()
+		d.Settings = &defaults
+	} else {
+		settings := d.Settings
+		switch settings.Symbology {
+		case "CODE128", "CODE39", "EAN13", "QRCODE", "DATAMATRIX":
+		default:
+			return huma.Error400BadRequest("settings.symbology is invalid")
+		}
+		switch settings.BarcodeHeight {
+		case "compact", "medium", "large":
+		default:
+			return huma.Error400BadRequest("settings.barcode_height is invalid")
+		}
+		switch settings.FontSize {
+		case "small", "medium", "large":
+		default:
+			return huma.Error400BadRequest("settings.font_size is invalid")
+		}
+		switch settings.QtyMode {
+		case "single", "multiply":
+		default:
+			return huma.Error400BadRequest("settings.qty_mode is invalid")
+		}
+		if settings.SkipCount == nil || settings.ShowScreenBorder == nil || settings.Zoom == nil {
+			return huma.Error400BadRequest("all settings fields are required")
+		}
+		if *settings.SkipCount < 0 || *settings.SkipCount > 50 {
+			return huma.Error400BadRequest("settings.skip_count must be between 0 and 50")
+		}
+		if math.IsNaN(*settings.Zoom) || math.IsInf(*settings.Zoom, 0) || *settings.Zoom < 0.5 || *settings.Zoom > 1.5 {
+			return huma.Error400BadRequest("settings.zoom must be between 0.5 and 1.5")
+		}
 	}
 	return nil
 }

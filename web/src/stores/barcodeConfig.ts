@@ -1,8 +1,8 @@
-import { createSignal, createResource, createEffect, untrack } from 'solid-js';
+import { createSignal, createResource, createEffect } from 'solid-js';
 import { getPageDesigns } from '~/api';
-import { loadLayoutFromDesign } from '~/stores/labelLayout';
+import { loadLayoutFromDesign, resetLayout } from '~/stores/labelLayout';
 export { companyName, setCompanyName } from '~/stores/labelLayout';
-import type { BarcodeHeight, FontSize, PageDesign, PresetConfig, QtyMode, Symbology } from '~/types';
+import type { BarcodeHeight, BarcodePresetSettings, FontSize, PageDesign, PresetConfig, QtyMode, Symbology } from '~/types';
 
 export const PRESETS: Record<string, PresetConfig> = {
   'tj-108': {
@@ -107,11 +107,40 @@ export const [qtyMode, setQtyMode] = createSignal<QtyMode>('multiply');
 export const [skipCount, setSkipCount] = createSignal<number>(0);
 
 export const [showScreenBorder, setShowScreenBorder] = createSignal<boolean>(true);
-export const [zoom, setZoom] = createSignal<number>(1.0);
+export const [zoom, setZoom] = createSignal<number>(1);
+
+
+
+
+export const DEFAULT_BARCODE_PRESET_SETTINGS: BarcodePresetSettings = {
+  symbology: 'CODE128', barcode_height: 'medium', font_size: 'medium', qty_mode: 'multiply',
+  skip_count: 0, show_screen_border: true, zoom: 1,
+};
+
+export function captureBarcodePresetSettings(): BarcodePresetSettings {
+  return {
+    symbology: symbology(), barcode_height: barcodeHeight(), font_size: fontSize(), qty_mode: qtyMode(),
+    skip_count: skipCount(), show_screen_border: showScreenBorder(), zoom: zoom(),
+  };
+}
+
+export function applyBarcodePresetSettings(settings: BarcodePresetSettings): void {
+  setSymbology(settings.symbology);
+  setBarcodeHeight(settings.barcode_height);
+  setFontSize(settings.font_size);
+  setQtyMode(settings.qty_mode);
+  setSkipCount(settings.skip_count);
+  setShowScreenBorder(settings.show_screen_border);
+  setZoom(settings.zoom);
+}
+
+let presetDraftActive = false;
+let lastAppliedDesignSignature = '';
+export function setPresetDraftActive(active: boolean): void { presetDraftActive = active; }
 
 
 export const [serverDesigns, { refetch: refetchDesigns }] = createResource(
-  () => getPageDesigns().then(r => r.designs).catch(() => [] as PageDesign[])
+  () => getPageDesigns().then((r) => r.designs)
 );
 
 export function toPresetConfig(d: PageDesign): PresetConfig {
@@ -132,7 +161,11 @@ export function toPresetConfig(d: PageDesign): PresetConfig {
   };
 }
 
-export function fromPresetConfig(cfg: PresetConfig, labelLayout?: string): Omit<PageDesign, 'id' | 'created_at' | 'updated_at'> {
+export function fromPresetConfig(
+  cfg: PresetConfig,
+  labelLayout: string | undefined,
+  settings: BarcodePresetSettings
+): Omit<PageDesign, 'id' | 'created_at' | 'updated_at'> {
   return {
     name: cfg.name,
     paper: cfg.paper,
@@ -148,42 +181,52 @@ export function fromPresetConfig(cfg: PresetConfig, labelLayout?: string): Omit<
     margin_left_mm: cfg.marginLeftMM,
     is_audit_sheet: cfg.isAuditSheet,
     label_layout: labelLayout,
+    settings,
   };
 }
 
+export function applyPageDesign(design: PageDesign): void {
+  const cfg = toPresetConfig(design);
+  setCustomConfig(cfg);
+  loadLayoutFromDesign(design, cfg.labelWidthMM, cfg.labelHeightMM);
+  applyBarcodePresetSettings(design.settings);
+  lastAppliedDesignSignature = JSON.stringify(design);
+}
+
+const applyBuiltinPreset = (key: string): void => {
+  const cfg = PRESETS[key] || PRESETS['tj-108'];
+  setCustomConfig({ ...cfg });
+  applyBarcodePresetSettings(DEFAULT_BARCODE_PRESET_SETTINGS);
+  resetLayout(cfg.labelWidthMM, cfg.labelHeightMM);
+};
+
 createEffect(() => {
-  const pk = presetKey();
+  const key = presetKey();
   const designs = serverDesigns();
-  if (pk.startsWith('server-') && designs && designs.length > 0) {
-    const id = parseInt(pk.slice(7), 10);
-    const match = designs.find((d) => d.id === id);
-    if (match) {
-      const current = untrack(customConfig);
-      if (current.name !== match.name) {
-        const cfg = toPresetConfig(match);
-        setCustomConfig(cfg);
-        loadLayoutFromDesign(match, cfg.labelWidthMM, cfg.labelHeightMM);
-      }
-    }
+  if (!key.startsWith('server-') || !designs) return;
+  const id = Number.parseInt(key.slice(7), 10);
+  const match = designs.find((design) => design.id === id);
+  if (match) {
+    const signature = JSON.stringify(match);
+    if (!presetDraftActive && signature !== lastAppliedDesignSignature) applyPageDesign(match);
+    return;
+  }
+  if (!presetDraftActive) {
+    setPresetKey('tj-108');
+    applyBuiltinPreset('tj-108');
   }
 });
 
 export function selectPreset(key: string): void {
+  lastAppliedDesignSignature = '';
   setPresetKey(key);
   if (key.startsWith('server-')) {
-    const id = parseInt(key.slice(7), 10);
-    const designs = serverDesigns() ?? [];
-    const match = designs.find((d) => d.id === id);
-    if (match) {
-      const cfg = toPresetConfig(match);
-      setCustomConfig(cfg);
-      loadLayoutFromDesign(match, cfg.labelWidthMM, cfg.labelHeightMM);
-    }
+    const id = Number.parseInt(key.slice(7), 10);
+    const match = (serverDesigns() ?? []).find((design) => design.id === id);
+    if (match) applyPageDesign(match);
     return;
   }
-  if (key === 'custom') {
-    setCustomConfig({ ...PRESETS.custom });
-  }
+  applyBuiltinPreset(key);
 }
 
 export function getEffectiveConfig(): PresetConfig {
@@ -195,13 +238,7 @@ export function getEffectiveConfig(): PresetConfig {
     const id = parseInt(pk.slice(7), 10);
     const designs = serverDesigns() ?? [];
     const match = designs.find((d) => d.id === id);
-    if (match) {
-      const cfg = customConfig();
-      if (cfg.name === match.name || cfg.name === '') {
-        return cfg;
-      }
-      return toPresetConfig(match);
-    }
+    if (match) return customConfig();
     return PRESETS['tj-108'];
   }
   return PRESETS[pk] || PRESETS['tj-108'];

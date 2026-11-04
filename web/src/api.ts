@@ -1,4 +1,6 @@
 import type {
+	DashboardSummary,
+	OrderStatusTrendResponse,
   Stats,
   PaginatedOrders,
   Order,
@@ -73,6 +75,16 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const getStats = () => apiFetch<Stats>('/api/v1/stats');
 
+export const getDashboardSummary = (params: { from: string; to: string }) => {
+  const query = qs(params);
+  return apiFetch<DashboardSummary>(`/api/v1/dashboard/summary${query ? '?' + query : ''}`);
+};
+
+export const getOrderStatusTrend = (params: { from: string; to: string }) => {
+  const query = qs(params);
+  return apiFetch<OrderStatusTrendResponse>(`/api/v1/dashboard/status-trend${query ? '?' + query : ''}`);
+};
+
 export const getOrders = (params?: {
   customer?: string;
   date?: string;
@@ -80,6 +92,8 @@ export const getOrders = (params?: {
   area?: string;
   status?: string;
   order_number?: string;
+	from?: string;
+	to?: string;
   ecatalog_number?: string;
   sort?: string;
   order?: 'asc' | 'desc';

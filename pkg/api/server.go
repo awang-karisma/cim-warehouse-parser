@@ -344,6 +344,24 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"stats"},
 	}, s.handleGetStats)
 	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-dashboard-summary",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/dashboard/summary",
+		Summary:     "Get date-ranged dashboard summary",
+		Description: "Aggregates dashboard orders, line items, and daily order volume by order placement date",
+		Tags:        []string{"dashboard"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDashboardSummary)
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-dashboard-status-trend",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/dashboard/status-trend",
+		Summary:     "Get historical order status trend",
+		Description: "Returns the latest successful sync snapshot for each observed WITA calendar day",
+		Tags:        []string{"dashboard"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDashboardStatusTrend)
+	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "list-sync-history",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/sync/history",

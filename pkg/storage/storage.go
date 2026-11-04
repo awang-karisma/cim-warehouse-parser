@@ -32,6 +32,8 @@ type OrderFilter struct {
 	Customer       string `json:"customer"`
 	Date           string `json:"date"`
 	Tanggal        string `json:"tanggal"`
+	DateFrom       string `json:"date_from"`
+	DateTo         string `json:"date_to"`
 	Area           string `json:"area"`
 	Status         string `json:"status"`
 	OrderNumber    string `json:"order_number"`
@@ -40,6 +42,25 @@ type OrderFilter struct {
 	Order          string `json:"order"`
 	Limit          int    `json:"limit"`
 	Offset         int    `json:"offset"`
+}
+
+type DashboardDailyOrder struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+type DashboardSummary struct {
+	TotalOrders     int                   `json:"total_orders"`
+	TotalItems      int                   `json:"total_items"`
+	UniqueCustomers int                   `json:"unique_customers"`
+	UniqueAreas     int                   `json:"unique_areas"`
+	StatusCounts    map[string]int        `json:"status_counts"`
+	DailyOrders     []DashboardDailyOrder `json:"daily_orders"`
+}
+
+type OrderStatusPoint struct {
+	Date         string         `json:"date"`
+	StatusCounts map[string]int `json:"status_counts"`
 }
 
 // ItemFilter defines filtering criteria for item queries.
@@ -290,6 +311,13 @@ func (s *Storage) migrate() error {
 		duration_ms INTEGER DEFAULT 0
 	);
 
+	CREATE TABLE IF NOT EXISTS sync_status_snapshots (
+		sync_history_id INTEGER PRIMARY KEY REFERENCES sync_history(id) ON DELETE CASCADE,
+		snapshot_date TEXT NOT NULL,
+		status_counts_json TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_sync_status_snapshots_date_id ON sync_status_snapshots(snapshot_date, sync_history_id);
+
 	CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer);
 	CREATE INDEX IF NOT EXISTS idx_orders_tanggal ON orders(tanggal);
 	CREATE INDEX IF NOT EXISTS idx_orders_area ON orders(area);
@@ -365,6 +393,7 @@ func (s *Storage) migrate() error {
         margin_left_mm REAL NOT NULL DEFAULT 0,
         is_audit_sheet INTEGER NOT NULL DEFAULT 0,
         label_layout TEXT DEFAULT NULL,
+        settings_json TEXT NOT NULL DEFAULT '{}',
         created_at DATETIME NOT NULL DEFAULT (datetime('now')),
         updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
     );
@@ -446,6 +475,36 @@ func (s *Storage) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN provider TEXT NOT NULL DEFAULT 'web';`)
 	_, _ = s.db.Exec(`ALTER TABLE accurate_session ADD COLUMN official_session TEXT NOT NULL DEFAULT '';`)
 	_, _ = s.db.Exec(`ALTER TABLE page_designs ADD COLUMN label_layout TEXT DEFAULT NULL;`)
+	pageDesignColumns, err := s.db.Query(`PRAGMA table_info(page_designs)`)
+	if err != nil {
+		return fmt.Errorf("failed to inspect page design schema: %w", err)
+	}
+	hasSettingsJSON := false
+	for pageDesignColumns.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := pageDesignColumns.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			pageDesignColumns.Close()
+			return fmt.Errorf("failed to scan page design schema: %w", err)
+		}
+		if name == "settings_json" {
+			hasSettingsJSON = true
+		}
+	}
+	if err := pageDesignColumns.Err(); err != nil {
+		pageDesignColumns.Close()
+		return fmt.Errorf("failed to read page design schema: %w", err)
+	}
+	if err := pageDesignColumns.Close(); err != nil {
+		return fmt.Errorf("failed to close page design schema rows: %w", err)
+	}
+	if !hasSettingsJSON {
+		if _, err := s.db.Exec(`ALTER TABLE page_designs ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'`); err != nil {
+			return fmt.Errorf("failed to add page design settings column: %w", err)
+		}
+	}
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'id';`)
 	seedPolicyJSON, _ := json.Marshal(normalizer.BaselineWorkDays)
 	_, _ = s.db.Exec(`
@@ -459,6 +518,9 @@ func (s *Storage) migrate() error {
 	}
 	// Normalize any legacy empty or '-' status_order in items table
 	_, _ = s.db.Exec(`UPDATE items SET status_order = 'BELUM SELESAI' WHERE TRIM(status_order) IN ('-', '') OR status_order IS NULL;`)
+	if _, err := s.db.Exec(`UPDATE items SET status_barang = '' WHERE status_barang IS NULL`); err != nil {
+		return fmt.Errorf("failed to repair legacy stock status: %w", err)
+	}
 
 	// Backfill deliveries from existing items that have no deliveries recorded yet
 	bRows, err := s.db.Query(`
@@ -993,11 +1055,35 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	}
 
 	// Record sync history in the same transaction
-	if _, err := tx.ExecContext(ctx, `
+	// Record sync history and its derived status snapshot atomically.
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO sync_history (synced_at, status, items_count, orders_count, error_message)
 		VALUES (?, ?, ?, ?, ?)
-	`, now, "SUCCESS", totalItemsCount, len(orders), ""); err != nil {
+	`, now, "SUCCESS", totalItemsCount, len(orders), "")
+	if err != nil {
 		return fmt.Errorf("failed to record sync history: %w", err)
+	}
+	syncID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to read sync history ID: %w", err)
+	}
+	statusCounts, err := orderStatusCounts(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("failed to derive order status snapshot: %w", err)
+	}
+	countsJSON, err := json.Marshal(statusCounts)
+	if err != nil {
+		return fmt.Errorf("failed to encode order status snapshot: %w", err)
+	}
+	location, err := time.LoadLocation("Asia/Makassar")
+	if err != nil {
+		return fmt.Errorf("failed to load snapshot timezone: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sync_status_snapshots (sync_history_id, snapshot_date, status_counts_json)
+		VALUES (?, ?, ?)
+	`, syncID, now.In(location).Format("2006-01-02"), string(countsJSON)); err != nil {
+		return fmt.Errorf("failed to record order status snapshot: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1005,6 +1091,78 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	}
 
 	return nil
+}
+
+func orderStatusCounts(ctx context.Context, tx *sql.Tx) (map[string]int, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT o.id, i.status_order FROM orders o LEFT JOIN items i ON i.order_id = o.id
+		ORDER BY o.id, i.id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	statusesByOrder := make(map[string][]string)
+	orderIDs := make([]string, 0)
+	for rows.Next() {
+		var orderID string
+		var status sql.NullString
+		if err := rows.Scan(&orderID, &status); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if _, exists := statusesByOrder[orderID]; !exists {
+			orderIDs = append(orderIDs, orderID)
+		}
+		statusesByOrder[orderID] = append(statusesByOrder[orderID], strings.ToUpper(strings.TrimSpace(status.String)))
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int)
+	priority := []string{"BELUM SELESAI", "PROSES", "PENDING"}
+	for _, orderID := range orderIDs {
+		statuses := statusesByOrder[orderID]
+		allCancelled := len(statuses) > 0
+		for _, status := range statuses {
+			if status != "BATAL" && status != "CANCEL" {
+				allCancelled = false
+				break
+			}
+		}
+		if allCancelled {
+			counts["BATAL"]++
+			continue
+		}
+		chosen := ""
+		for _, preferred := range priority {
+			for _, status := range statuses {
+				if status == preferred {
+					chosen = preferred
+					break
+				}
+			}
+			if chosen != "" {
+				break
+			}
+		}
+		if chosen == "" {
+			for _, status := range statuses {
+				if status != "" && status != "BATAL" && status != "CANCEL" {
+					chosen = status
+					break
+				}
+			}
+		}
+		if chosen == "" {
+			chosen = "PENDING"
+		}
+		counts[chosen]++
+	}
+	return counts, nil
 }
 
 // RecordSync records a standalone sync history entry (e.g. for sync failures).
@@ -1586,6 +1744,14 @@ func (s *Storage) GetOrders(ctx context.Context, filter OrderFilter) ([]model.Or
 			conditions = append(conditions, "1 = 0")
 		}
 	}
+	if filter.DateFrom != "" {
+		conditions = append(conditions, "tanggal >= ?")
+		args = append(args, filter.DateFrom)
+	}
+	if filter.DateTo != "" {
+		conditions = append(conditions, "tanggal <= ?")
+		args = append(args, filter.DateTo)
+	}
 
 	if filter.Area != "" {
 		trimmedArea := strings.TrimSpace(filter.Area)
@@ -2055,6 +2221,93 @@ func (s *Storage) GetDeliveryStats(ctx context.Context) (*DeliveryStats, error) 
 		return nil, fmt.Errorf("failed to get delivery stats: %w", err)
 	}
 	return stats, nil
+}
+
+func (s *Storage) GetDashboardSummary(ctx context.Context, from, to string) (*DashboardSummary, error) {
+	summary := &DashboardSummary{StatusCounts: make(map[string]int), DailyOrders: []DashboardDailyOrder{}}
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT o.id), COUNT(i.id),
+		       COUNT(DISTINCT NULLIF(o.customer, '')), COUNT(DISTINCT NULLIF(o.area, ''))
+		FROM orders o LEFT JOIN items i ON i.order_id = o.id
+		WHERE o.tanggal >= ? AND o.tanggal <= ?
+	`, from, to).Scan(&summary.TotalOrders, &summary.TotalItems, &summary.UniqueCustomers, &summary.UniqueAreas); err != nil {
+		return nil, fmt.Errorf("failed to query dashboard summary totals: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT i.status_order, COUNT(*) FROM orders o JOIN items i ON i.order_id = o.id
+		WHERE o.tanggal >= ? AND o.tanggal <= ? AND i.status_order != '' GROUP BY i.status_order
+	`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query dashboard item statuses: %w", err)
+	}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan dashboard item status: %w", err)
+		}
+		summary.StatusCounts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read dashboard item statuses: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close dashboard item statuses: %w", err)
+	}
+	dailyRows, err := s.db.QueryContext(ctx, `
+		SELECT date(tanggal), COUNT(*) FROM orders WHERE tanggal >= ? AND tanggal <= ?
+		GROUP BY date(tanggal) ORDER BY date(tanggal) ASC
+	`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query dashboard daily orders: %w", err)
+	}
+	defer dailyRows.Close()
+	for dailyRows.Next() {
+		var point DashboardDailyOrder
+		if err := dailyRows.Scan(&point.Date, &point.Count); err != nil {
+			return nil, fmt.Errorf("failed to scan dashboard daily order: %w", err)
+		}
+		summary.DailyOrders = append(summary.DailyOrders, point)
+	}
+	if err := dailyRows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read dashboard daily orders: %w", err)
+	}
+	return summary, nil
+}
+
+func (s *Storage) GetOrderStatusTrend(ctx context.Context, from, to string) ([]OrderStatusPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT snapshot_date, status_counts_json FROM sync_status_snapshots snapshot
+		WHERE snapshot_date >= ? AND snapshot_date <= ?
+		  AND sync_history_id = (SELECT MAX(latest.sync_history_id) FROM sync_status_snapshots latest
+		                       WHERE latest.snapshot_date = snapshot.snapshot_date)
+		ORDER BY snapshot_date ASC
+	`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query order status trend: %w", err)
+	}
+	defer rows.Close()
+	points := make([]OrderStatusPoint, 0)
+	for rows.Next() {
+		var point OrderStatusPoint
+		var countsJSON string
+		if err := rows.Scan(&point.Date, &countsJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan order status trend: %w", err)
+		}
+		if err := json.Unmarshal([]byte(countsJSON), &point.StatusCounts); err != nil {
+			return nil, fmt.Errorf("failed to decode order status snapshot for %s: %w", point.Date, err)
+		}
+		if point.StatusCounts == nil {
+			point.StatusCounts = map[string]int{}
+		}
+		points = append(points, point)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read order status trend: %w", err)
+	}
+	return points, nil
 }
 
 // GetStats returns aggregated statistics including order count, item count,
@@ -2671,7 +2924,7 @@ func (s *Storage) ClearData(ctx context.Context) error {
 		_ = tx.Rollback()
 	}()
 
-	tables := []string{"deliveries", "items", "orders", "sync_history"}
+	tables := []string{"deliveries", "items", "orders", "sync_status_snapshots", "sync_history"}
 	for _, table := range tables {
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", table)); err != nil {
 			return fmt.Errorf("failed to clear table %s: %w", table, err)
@@ -3004,13 +3257,65 @@ func (s *Storage) DeleteLabelLayoutPreset(ctx context.Context, id int64) error {
 	return nil
 }
 
+func normalizedBarcodePresetSettings(settings *model.BarcodePresetSettings) model.BarcodePresetSettings {
+	defaults := model.DefaultBarcodePresetSettings()
+	if settings == nil {
+		return defaults
+	}
+	normalized := *settings
+	if normalized.Symbology == "" {
+		normalized.Symbology = defaults.Symbology
+	}
+	if normalized.BarcodeHeight == "" {
+		normalized.BarcodeHeight = defaults.BarcodeHeight
+	}
+	if normalized.FontSize == "" {
+		normalized.FontSize = defaults.FontSize
+	}
+	if normalized.QtyMode == "" {
+		normalized.QtyMode = defaults.QtyMode
+	}
+	if normalized.SkipCount == nil {
+		normalized.SkipCount = defaults.SkipCount
+	}
+	if normalized.ShowScreenBorder == nil {
+		normalized.ShowScreenBorder = defaults.ShowScreenBorder
+	}
+	if normalized.Zoom == nil {
+		normalized.Zoom = defaults.Zoom
+	}
+	return normalized
+}
+
+func decodeBarcodePresetSettings(raw sql.NullString) (*model.BarcodePresetSettings, error) {
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" || strings.TrimSpace(raw.String) == "{}" {
+		settings := normalizedBarcodePresetSettings(nil)
+		return &settings, nil
+	}
+	var settings model.BarcodePresetSettings
+	if err := json.Unmarshal([]byte(raw.String), &settings); err != nil {
+		return nil, fmt.Errorf("failed to decode page design settings: %w", err)
+	}
+	normalized := normalizedBarcodePresetSettings(&settings)
+	return &normalized, nil
+}
+
+func encodeBarcodePresetSettings(settings *model.BarcodePresetSettings) (string, error) {
+	normalized := normalizedBarcodePresetSettings(settings)
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode page design settings: %w", err)
+	}
+	return string(encoded), nil
+}
+
 // GetPageDesigns returns all custom page designs ordered alphabetically by name.
 func (s *Storage) GetPageDesigns(ctx context.Context) ([]model.PageDesign, error) {
 	query := `
         SELECT id, name, paper, paper_width_mm, paper_height_mm,
                label_width_mm, label_height_mm, cols, rows,
                gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
-               is_audit_sheet, label_layout, created_at, updated_at
+               is_audit_sheet, label_layout, settings_json, created_at, updated_at
         FROM page_designs
         ORDER BY name COLLATE NOCASE
     `
@@ -3025,15 +3330,20 @@ func (s *Storage) GetPageDesigns(ctx context.Context) ([]model.PageDesign, error
 		var d model.PageDesign
 		var isAuditSheetInt int
 		var labelLayout sql.NullString
+		var settingsJSON sql.NullString
 		if err := rows.Scan(
 			&d.ID, &d.Name, &d.Paper, &d.PaperWidthMM, &d.PaperHeightMM,
 			&d.LabelWidthMM, &d.LabelHeightMM, &d.Cols, &d.Rows,
 			&d.GapXMM, &d.GapYMM, &d.MarginTopMM, &d.MarginLeftMM,
-			&isAuditSheetInt, &labelLayout, &d.CreatedAt, &d.UpdatedAt,
+			&isAuditSheetInt, &labelLayout, &settingsJSON, &d.CreatedAt, &d.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan page design: %w", err)
 		}
 		d.IsAuditSheet = isAuditSheetInt == 1
+		d.Settings, err = decodeBarcodePresetSettings(settingsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode page design %d settings: %w", d.ID, err)
+		}
 		if labelLayout.Valid {
 			d.LabelLayout = &labelLayout.String
 		}
@@ -3054,7 +3364,7 @@ func (s *Storage) GetPageDesignByID(ctx context.Context, id int64) (*model.PageD
         SELECT id, name, paper, paper_width_mm, paper_height_mm,
                label_width_mm, label_height_mm, cols, rows,
                gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
-               is_audit_sheet, label_layout, created_at, updated_at
+               is_audit_sheet, label_layout, settings_json, created_at, updated_at
         FROM page_designs
         WHERE id = ?
     `
@@ -3062,11 +3372,12 @@ func (s *Storage) GetPageDesignByID(ctx context.Context, id int64) (*model.PageD
 	var d model.PageDesign
 	var isAuditSheetInt int
 	var labelLayout sql.NullString
+	var settingsJSON sql.NullString
 	if err := row.Scan(
 		&d.ID, &d.Name, &d.Paper, &d.PaperWidthMM, &d.PaperHeightMM,
 		&d.LabelWidthMM, &d.LabelHeightMM, &d.Cols, &d.Rows,
 		&d.GapXMM, &d.GapYMM, &d.MarginTopMM, &d.MarginLeftMM,
-		&isAuditSheetInt, &labelLayout, &d.CreatedAt, &d.UpdatedAt,
+		&isAuditSheetInt, &labelLayout, &settingsJSON, &d.CreatedAt, &d.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("page design %d: %w", id, ErrNotFound)
@@ -3074,6 +3385,11 @@ func (s *Storage) GetPageDesignByID(ctx context.Context, id int64) (*model.PageD
 		return nil, fmt.Errorf("failed to scan page design %d: %w", id, err)
 	}
 	d.IsAuditSheet = isAuditSheetInt == 1
+	settings, err := decodeBarcodePresetSettings(settingsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode page design %d settings: %w", d.ID, err)
+	}
+	d.Settings = settings
 	if labelLayout.Valid {
 		d.LabelLayout = &labelLayout.String
 	}
@@ -3087,18 +3403,22 @@ func (s *Storage) CreatePageDesign(ctx context.Context, d model.PageDesign) (int
             name, paper, paper_width_mm, paper_height_mm,
             label_width_mm, label_height_mm, cols, rows,
             gap_x_mm, gap_y_mm, margin_top_mm, margin_left_mm,
-            is_audit_sheet, label_layout
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            is_audit_sheet, label_layout, settings_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
 	isAuditSheetInt := 0
 	if d.IsAuditSheet {
 		isAuditSheetInt = 1
 	}
+	settingsJSON, err := encodeBarcodePresetSettings(d.Settings)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, query,
 		d.Name, d.Paper, d.PaperWidthMM, d.PaperHeightMM,
 		d.LabelWidthMM, d.LabelHeightMM, d.Cols, d.Rows,
 		d.GapXMM, d.GapYMM, d.MarginTopMM, d.MarginLeftMM,
-		isAuditSheetInt, d.LabelLayout,
+		isAuditSheetInt, d.LabelLayout, settingsJSON,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert page design: %w", err)
@@ -3117,18 +3437,22 @@ func (s *Storage) UpdatePageDesign(ctx context.Context, id int64, d model.PageDe
             name = ?, paper = ?, paper_width_mm = ?, paper_height_mm = ?,
             label_width_mm = ?, label_height_mm = ?, cols = ?, rows = ?,
             gap_x_mm = ?, gap_y_mm = ?, margin_top_mm = ?, margin_left_mm = ?,
-            is_audit_sheet = ?, label_layout = ?, updated_at = datetime('now')
+            is_audit_sheet = ?, label_layout = ?, settings_json = ?, updated_at = datetime('now')
         WHERE id = ?
     `
 	isAuditSheetInt := 0
 	if d.IsAuditSheet {
 		isAuditSheetInt = 1
 	}
+	settingsJSON, err := encodeBarcodePresetSettings(d.Settings)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, query,
 		d.Name, d.Paper, d.PaperWidthMM, d.PaperHeightMM,
 		d.LabelWidthMM, d.LabelHeightMM, d.Cols, d.Rows,
 		d.GapXMM, d.GapYMM, d.MarginTopMM, d.MarginLeftMM,
-		isAuditSheetInt, d.LabelLayout, id,
+		isAuditSheetInt, d.LabelLayout, settingsJSON, id,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update page design %d: %w", id, err)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -3116,4 +3117,202 @@ func TestLabelLayoutPresetEndpoints(t *testing.T) {
 	if err != nil || deleteResp.StatusCode != http.StatusOK {
 		t.Fatalf("delete preset failed: response=%v error=%v", deleteResp, err)
 	}
+}
+
+func TestDashboardDateRangeEndpoints(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	if _, err := store.DB().Exec("UPDATE sync_status_snapshots SET snapshot_date = '2026-01-02'"); err != nil {
+		t.Fatalf("failed to set deterministic snapshot date: %v", err)
+	}
+	for _, path := range []string{
+		"/api/v1/dashboard/summary?from=2026-01-02&to=2026-01-02",
+		"/api/v1/dashboard/status-trend?from=2026-01-02&to=2026-01-02",
+	} {
+		resp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, path, nil))
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s failed: response=%v error=%v", path, resp, err)
+		}
+		resp.Body.Close()
+	}
+	resp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/summary?from=2026-01-02&to=2026-01-02", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary storage.DashboardSummary
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		resp.Body.Close()
+		t.Fatalf("failed to decode summary: %v", err)
+	}
+	resp.Body.Close()
+	if summary.TotalOrders != 2 || summary.TotalItems != 2 || len(summary.DailyOrders) != 1 || summary.DailyOrders[0].Count != 2 {
+		t.Fatalf("unexpected dashboard summary: %+v", summary)
+	}
+	trendResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/status-trend?from=2026-01-02&to=2026-01-02", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var trend api.DashboardTrendResponse
+	if err := json.NewDecoder(trendResp.Body).Decode(&trend); err != nil {
+		trendResp.Body.Close()
+		t.Fatalf("failed to decode status trend: %v", err)
+	}
+	trendResp.Body.Close()
+	if len(trend.Points) != 1 || trend.Points[0].StatusCounts["SELESAI"] != 2 {
+		t.Fatalf("unexpected status trend: %+v", trend)
+	}
+	for _, path := range []string{
+		"/api/v1/dashboard/summary?from=2026-01-02",
+		"/api/v1/dashboard/status-trend?from=2026-01-02",
+		"/api/v1/dashboard/summary?from=2026-02-02&to=2026-01-02",
+		"/api/v1/dashboard/status-trend?from=2026-02-02&to=2026-01-02",
+		"/api/v1/dashboard/summary?from=2026-02-30&to=2026-03-01",
+	} {
+		badResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, path, nil))
+		if err != nil || badResp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400 for %s, got response=%v error=%v", path, badResp, err)
+		}
+		badResp.Body.Close()
+	}
+	ordersResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/orders?from=2026-01-02", nil))
+	if err != nil || ordersResp.StatusCode != http.StatusOK {
+		t.Fatalf("one-sided order bounds should remain valid: response=%v error=%v", ordersResp, err)
+	}
+	ordersResp.Body.Close()
+	boundedOrders, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/orders?from=2026-01-02&to=2026-01-02", nil))
+	if err != nil || boundedOrders.StatusCode != http.StatusOK {
+		t.Fatalf("bounded order query failed: response=%v error=%v", boundedOrders, err)
+	}
+	var orderList api.OrdersResponse
+	if err := json.NewDecoder(boundedOrders.Body).Decode(&orderList); err != nil {
+		boundedOrders.Body.Close()
+		t.Fatal(err)
+	}
+	boundedOrders.Body.Close()
+	if orderList.Total != 2 {
+		t.Fatalf("inclusive order date bounds should return both matching orders, got %d", orderList.Total)
+	}
+	outsideOrders, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/orders?from=2026-02-01&to=2026-02-02", nil))
+	if err != nil || outsideOrders.StatusCode != http.StatusOK {
+		t.Fatalf("non-matching order query failed: response=%v error=%v", outsideOrders, err)
+	}
+	var outsideList api.OrdersResponse
+	if err := json.NewDecoder(outsideOrders.Body).Decode(&outsideList); err != nil {
+		outsideOrders.Body.Close()
+		t.Fatal(err)
+	}
+	outsideOrders.Body.Close()
+	if outsideList.Total != 0 {
+		t.Fatalf("expected no orders outside the order date range, got %d", outsideList.Total)
+	}
+	for _, query := range []string{"from=2026-02-30", "from=2026-02-02&to=2026-01-02"} {
+		badResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/orders?"+query, nil))
+		if err != nil || badResp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400 for order range %q, got response=%v error=%v", query, badResp, err)
+		}
+		badResp.Body.Close()
+	}
+}
+
+func TestBarcodePresetSettingsAPI(t *testing.T) {
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("storage.New failed: %v", err)
+	}
+	defer store.Close()
+	srv := api.New(api.Config{Store: store})
+	post := func(payload string) *http.Response {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/page-designs", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		resp, requestErr := srv.App().Test(req)
+		if requestErr != nil {
+			t.Fatalf("POST request failed: %v", requestErr)
+		}
+		return resp
+	}
+	base := `"name":"Preset","paper":"A5","paper_width_mm":148,"paper_height_mm":210,"label_width_mm":70,"label_height_mm":30,"cols":2,"rows":5,"gap_x_mm":3,"gap_y_mm":4,"margin_top_mm":6,"margin_left_mm":7,"is_audit_sheet":true`
+	createdResp := post("{" + base + `,"settings":{"symbology":"CODE39","barcode_height":"large","font_size":"small","qty_mode":"single","skip_count":3,"show_screen_border":false,"zoom":1.25}}`)
+	if createdResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(createdResp.Body)
+		t.Fatalf("POST with settings failed: %d %s", createdResp.StatusCode, body)
+	}
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(createdResp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	createdResp.Body.Close()
+	get := func() []model.PageDesign {
+		resp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/page-designs", nil))
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET failed: response=%v error=%v", resp, err)
+		}
+		defer resp.Body.Close()
+		var result struct {
+			Designs []model.PageDesign `json:"designs"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		return result.Designs
+	}
+	designs := get()
+	if len(designs) != 1 || designs[0].Settings == nil || designs[0].Settings.Symbology != "CODE39" || designs[0].Settings.BarcodeHeight != "large" || designs[0].Settings.FontSize != "small" || designs[0].Settings.QtyMode != "single" || *designs[0].Settings.SkipCount != 3 || *designs[0].Settings.ShowScreenBorder || *designs[0].Settings.Zoom != 1.25 {
+		t.Fatalf("GET lost complete saved settings: %+v", designs)
+	}
+	update := "{" + base + `,"name":"Updated","settings":{"symbology":"EAN13","barcode_height":"compact","font_size":"large","qty_mode":"multiply","skip_count":0,"show_screen_border":true,"zoom":0.75}}`
+	put := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/page-designs/%d", created.ID), strings.NewReader(update))
+	put.Header.Set("Content-Type", "application/json")
+	putResp, err := srv.App().Test(put)
+	if err != nil || putResp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT failed: response=%v error=%v", putResp, err)
+	}
+	putResp.Body.Close()
+	updated := get()[0].Settings
+	if updated == nil || updated.Symbology != "EAN13" || updated.BarcodeHeight != "compact" || updated.FontSize != "large" || updated.QtyMode != "multiply" || *updated.SkipCount != 0 || !*updated.ShowScreenBorder || *updated.Zoom != 0.75 {
+		t.Fatalf("PUT settings did not round-trip: %+v", updated)
+	}
+	legacyResp := post("{" + base + `,"name":"Legacy"}`)
+	if legacyResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(legacyResp.Body)
+		t.Fatalf("legacy settings omission failed: %d %s", legacyResp.StatusCode, body)
+	}
+	var legacyCreated struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(legacyResp.Body).Decode(&legacyCreated); err != nil {
+		t.Fatal(err)
+	}
+	legacyResp.Body.Close()
+	legacyDesigns := get()
+	var legacySettings *model.BarcodePresetSettings
+	for _, design := range legacyDesigns {
+		if design.ID == legacyCreated.ID {
+			legacySettings = design.Settings
+		}
+	}
+	if legacySettings == nil || legacySettings.Symbology != "CODE128" || legacySettings.BarcodeHeight != "medium" || legacySettings.FontSize != "medium" || legacySettings.QtyMode != "multiply" || *legacySettings.SkipCount != 0 || !*legacySettings.ShowScreenBorder || *legacySettings.Zoom != 1 {
+		t.Fatalf("omitted settings did not use documented defaults: %+v", legacySettings)
+	}
+	for _, settings := range []string{
+		`{"symbology":"BAD","barcode_height":"medium","font_size":"medium","qty_mode":"multiply","skip_count":0,"show_screen_border":true,"zoom":1}`,
+		`{"symbology":"CODE128","barcode_height":"medium","font_size":"medium","qty_mode":"multiply","skip_count":51,"show_screen_border":true,"zoom":1}`,
+		`{"symbology":"CODE128","barcode_height":"medium","font_size":"medium","qty_mode":"multiply","skip_count":0,"show_screen_border":true,"zoom":2}`,
+		`{"symbology":"CODE128","barcode_height":"medium","font_size":"medium","qty_mode":"multiply","skip_count":0,"show_screen_border":true}`,
+	} {
+		bad := post("{" + base + `,"settings":` + settings + `}`)
+		if bad.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(bad.Body)
+			t.Errorf("expected invalid settings 400, got %d: %s", bad.StatusCode, body)
+		}
+		bad.Body.Close()
+	}
+	if _, err := store.DB().Exec("UPDATE page_designs SET settings_json = '{bad json' WHERE id = ?", legacyCreated.ID); err != nil {
+		t.Fatal(err)
+	}
+	malformedResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/page-designs", nil))
+	if err != nil || malformedResp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected malformed stored settings to return 500, got response=%v error=%v", malformedResp, err)
+	}
+	malformedResp.Body.Close()
 }
