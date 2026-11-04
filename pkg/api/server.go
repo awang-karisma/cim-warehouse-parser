@@ -363,6 +363,15 @@ func (s *Server) registerOperations() {
 		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDashboardStatusTrend)
 	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-dashboard-operations",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/dashboard/operations",
+		Summary:     "Get operational warehouse metrics",
+		Description: "Returns active backlog orders, shelf-ready items, and active delivery runs",
+		Tags:        []string{"dashboard"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDashboardOperations)
+	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "list-sync-history",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/sync/history",

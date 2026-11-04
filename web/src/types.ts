@@ -58,6 +58,12 @@ export interface DashboardSummary {
   status_counts: Record<string, number>;
   daily_orders: DashboardDailyOrder[];
 }
+export interface DashboardOperations {
+  active_backlog_orders: number;
+  shelf_ready_items: number;
+  active_runs: number;
+}
+
 
 export interface OrderStatusPoint {
   date: string;

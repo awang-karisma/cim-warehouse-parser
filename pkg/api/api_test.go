@@ -3316,3 +3316,208 @@ func TestBarcodePresetSettingsAPI(t *testing.T) {
 	}
 	malformedResp.Body.Close()
 }
+
+func TestDashboardOperationsAPI(t *testing.T) {
+	// 1. Unauthenticated server with empty DB
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+
+	emptyResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/operations", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer emptyResp.Body.Close()
+	if emptyResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on empty DB, got %d", emptyResp.StatusCode)
+	}
+	var emptyOps storage.DashboardOperations
+	if err := json.NewDecoder(emptyResp.Body).Decode(&emptyOps); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if emptyOps.ActiveBacklogOrders != 0 || emptyOps.ShelfReadyItems != 0 || emptyOps.ActiveRuns != 0 {
+		t.Fatalf("expected all zeros on empty DB, got %+v", emptyOps)
+	}
+
+	// 2. Seed data
+	orders := []model.Order{
+		{
+			ID:          "ORD-OP-1",
+			OrderNumber: "ORD-OP-1",
+			Customer:    "RS Alpha",
+			Items: []model.OrderItem{
+				{RowIndex: 1, NamaBarang: "Syringe", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "BELUM SELESAI", StatusBarang: "STOK GUDANG"},
+				{RowIndex: 2, NamaBarang: "Needle", Jumlah: "10", BelumTerkirim: "0", StatusOrder: "BELUM SELESAI", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-OP-2",
+			OrderNumber: "ORD-OP-2",
+			Customer:    "RS Beta",
+			Items: []model.OrderItem{
+				{RowIndex: 3, NamaBarang: "Catheter", Jumlah: "5", BelumTerkirim: "5", StatusOrder: "PROSES", StatusBarang: "STOK GUDANG"},
+				{RowIndex: 4, NamaBarang: "Gauze", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "SELESAI", StatusBarang: "STOK GUDANG"},
+				{RowIndex: 6, NamaBarang: "Blood Bag", Jumlah: "4", BelumTerkirim: "4", StatusOrder: "PENDING", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-OP-3",
+			OrderNumber: "ORD-OP-3",
+			Customer:    "RS Gamma",
+			Items: []model.OrderItem{
+				{RowIndex: 5, NamaBarang: "Mask", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "BATAL", StatusBarang: "STOK GUDANG"},
+			},
+		},
+	}
+	var items []model.NormalizedItem
+	for _, o := range orders {
+		for _, it := range o.Items {
+			items = append(items, model.NormalizedItem{
+				RowIndex:      it.RowIndex,
+				OrderID:       o.ID,
+				OrderNumber:   o.OrderNumber,
+				Customer:      o.Customer,
+				NamaBarang:    it.NamaBarang,
+				Jumlah:        it.Jumlah,
+				BelumTerkirim: it.BelumTerkirim,
+				StatusOrder:   it.StatusOrder,
+				StatusBarang:  it.StatusBarang,
+			})
+		}
+	}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	runs := []model.DeliveryRun{
+		{Title: "Run 1", DriverName: "Driver A", DeliveryDate: "2026-01-01", Status: "PLANNED"},
+		{Title: "Run 2", DriverName: "Driver B", DeliveryDate: "2026-01-02", Status: "PICKING"},
+		{Title: "Run 3", DriverName: "Driver C", DeliveryDate: "2026-01-03", Status: "READY"},
+		{Title: "Run 4", DriverName: "Driver D", DeliveryDate: "2026-01-04", Status: "DISPATCHED"},
+		{Title: "Run 5", DriverName: "Driver E", DeliveryDate: "2026-01-05", Status: "COMPLETED"},
+	}
+	for _, r := range runs {
+		if _, err := store.CreateDeliveryRun(ctx, r); err != nil {
+			t.Fatalf("CreateDeliveryRun failed: %v", err)
+		}
+	}
+
+	// 3. Query seeded dashboard operations
+	resp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/operations", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var ops storage.DashboardOperations
+	if err := json.NewDecoder(resp.Body).Decode(&ops); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if ops.ActiveBacklogOrders != 1 {
+		t.Errorf("expected 1 active backlog order, got %d", ops.ActiveBacklogOrders)
+	}
+	if ops.ShelfReadyItems != 2 {
+		t.Errorf("expected 2 shelf ready items, got %d", ops.ShelfReadyItems)
+	}
+	if ops.ActiveRuns != 4 {
+		t.Errorf("expected 4 active runs, got %d", ops.ActiveRuns)
+	}
+
+	// 4. Query /api/v1/items?ready_to_dispatch=true
+	itemsResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/items?ready_to_dispatch=true", nil))
+	if err != nil {
+		t.Fatalf("GET /api/v1/items?ready_to_dispatch=true failed: %v", err)
+	}
+	defer itemsResp.Body.Close()
+	if itemsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", itemsResp.StatusCode)
+	}
+	var itemsResult struct {
+		Total int                    `json:"total"`
+		Items []model.NormalizedItem `json:"items"`
+	}
+	if err := json.NewDecoder(itemsResp.Body).Decode(&itemsResult); err != nil {
+		t.Fatalf("decode items failed: %v", err)
+	}
+	if itemsResult.Total != ops.ShelfReadyItems || len(itemsResult.Items) != ops.ShelfReadyItems {
+		t.Errorf("expected %d items from ready_to_dispatch=true, got total=%d, len=%d", ops.ShelfReadyItems, itemsResult.Total, len(itemsResult.Items))
+	}
+
+	// 5. Query /api/v1/items/export?ready_to_dispatch=true
+	exportResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/items/export?ready_to_dispatch=true", nil))
+	if err != nil {
+		t.Fatalf("GET /api/v1/items/export?ready_to_dispatch=true failed: %v", err)
+	}
+	defer exportResp.Body.Close()
+	if exportResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for export, got %d", exportResp.StatusCode)
+	}
+	csvBody, _ := io.ReadAll(exportResp.Body)
+	csvStr := string(csvBody)
+	if !strings.Contains(csvStr, "Syringe") || !strings.Contains(csvStr, "Catheter") {
+		t.Errorf("export missing expected ready items: %s", csvStr)
+	}
+	if strings.Contains(csvStr, "Gauze") || strings.Contains(csvStr, "Mask") || strings.Contains(csvStr, "Blood Bag") {
+		t.Errorf("export unexpectedly contains excluded items: %s", csvStr)
+	}
+
+	// 6. Role enforcement with auth configured (minRole: user)
+	jwtSecret := "test-secret"
+	authCfg := &config.Config{
+		GoogleClientID: "test-client-id",
+		JWTSecret:      jwtSecret,
+	}
+	authSrv, authStore, _ := setupTestServer(t, authCfg)
+
+	guestUser, _ := authStore.UpsertUser(ctx, "guest@example.com", "Guest", "")
+	normalUser, _ := authStore.UpsertUser(ctx, "user@example.com", "User", "")
+	adminUser, _ := authStore.UpsertUser(ctx, "admin@example.com", "Admin", "")
+	if err := authStore.SetUserRole(ctx, normalUser.Email, string(model.RoleUser)); err != nil {
+		t.Fatal(err)
+	}
+	if err := authStore.SetUserRole(ctx, adminUser.Email, string(model.RoleAdmin)); err != nil {
+		t.Fatal(err)
+	}
+	normalUser.Role = string(model.RoleUser)
+	adminUser.Role = string(model.RoleAdmin)
+	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)
+	userToken, _ := auth.GenerateToken(jwtSecret, normalUser, nil)
+	adminToken, _ := auth.GenerateToken(jwtSecret, adminUser, nil)
+
+	// Guest gets 403
+	reqGuest := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/operations", nil)
+	reqGuest.AddCookie(&http.Cookie{Name: "warehouse_session", Value: guestToken})
+	respGuest, err := authSrv.App().Test(reqGuest)
+	if err != nil {
+		t.Fatalf("guest request failed: %v", err)
+	}
+	defer respGuest.Body.Close()
+	if respGuest.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for guest on dashboard operations, got %d", respGuest.StatusCode)
+	}
+
+	// User gets 200
+	reqUser := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/operations", nil)
+	reqUser.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+	respUser, err := authSrv.App().Test(reqUser)
+	if err != nil {
+		t.Fatalf("user request failed: %v", err)
+	}
+	defer respUser.Body.Close()
+	if respUser.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for user on dashboard operations, got %d", respUser.StatusCode)
+	}
+
+	// Admin gets 200
+	reqAdmin := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/operations", nil)
+	reqAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+	respAdmin, err := authSrv.App().Test(reqAdmin)
+	if err != nil {
+		t.Fatalf("admin request failed: %v", err)
+	}
+	defer respAdmin.Body.Close()
+	if respAdmin.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for admin on dashboard operations, got %d", respAdmin.StatusCode)
+	}
+}

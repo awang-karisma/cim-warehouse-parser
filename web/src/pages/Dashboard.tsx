@@ -1,19 +1,23 @@
 import { ROUTES, orderDetailPath } from '~/routes';
 
-import { ORDER_STATUS } from '~/domain';
+import { ORDER_STATUS, USER_ROLE, SYNC_STATUS } from '~/domain';
 
-import { type Component, createMemo, createResource, createSignal, For, Show } from 'solid-js';
+import { type Component, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import {
   IconArrowRight,
+  IconAlertCircle,
   IconListDetails,
   IconMapPin,
   IconPackage,
   IconRefresh,
+  IconTruckDelivery,
   IconUsers,
+  IconBuildingWarehouse,
 } from '@tabler/icons-solidjs';
-import { getDashboardSummary, getOrderStatusTrend, getOrders } from '~/api';
+import { getDashboardSummary, getDashboardOperations, getOrderStatusTrend, getOrders, getStatus, subscribeSyncEvents, triggerSync } from '~/api';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import { Badge } from '~/components/Badge';
 import { DataTable } from '~/components/DataTable';
 import { Button } from '~/components/ui/button';
@@ -52,9 +56,10 @@ const dayNumber = (iso: string): number => {
 };
 
 export const Dashboard: Component = () => {
-  const { t, intlLocale } = useI18n();
+  const { t, intlLocale, formatRelativeTime } = useI18n();
+  const auth = useAuth();
   const today = isoDay(new Date());
-  const [fromDate, setFromDate] = createSignal(addCalendarDays(today, -29));
+  const [fromDate, setFromDate] = createSignal(today);
   const [toDate, setToDate] = createSignal(today);
   const range = createMemo(() => {
     const from = fromDate();
@@ -69,6 +74,7 @@ export const Dashboard: Component = () => {
     return `${clamped.getUTCFullYear()}-${String(clamped.getUTCMonth() + 1).padStart(2, '0')}-${String(clamped.getUTCDate()).padStart(2, '0')}`;
   };
   const rangePresets = createMemo(() => [
+    { key: 'presetToday', label: t('dashboard.presetToday'), from: today },
     { key: 'preset7d', label: t('dashboard.preset7d'), from: addCalendarDays(today, -6) },
     { key: 'preset30d', label: t('dashboard.preset30d'), from: addCalendarDays(today, -29) },
     { key: 'preset3m', label: t('dashboard.preset3m'), from: subtractCalendarMonths(today, 3) },
@@ -79,6 +85,67 @@ export const Dashboard: Component = () => {
   const [summary, { refetch: refetchSummary }] = createResource(range, ({ from, to }) => getDashboardSummary({ from, to }));
   const [recentOrders, { refetch: refetchRecentOrders }] = createResource(range, ({ from, to }) => getOrders({ from, to, limit: 5 }));
   const [statusTrend, { refetch: refetchStatusTrend }] = createResource(range, ({ from, to }) => getOrderStatusTrend({ from, to }));
+  const [operations, { refetch: refetchOperations }] = createResource(getDashboardOperations);
+  const [syncStatus, { refetch: refetchSyncStatus }] = createResource(getStatus);
+  const [now, setNow] = createSignal(Date.now());
+  const [syncing, setSyncing] = createSignal(false);
+  const [syncActionError, setSyncActionError] = createSignal('');
+  const [syncActionSuccess, setSyncActionSuccess] = createSignal(false);
+  let successTimer: number | undefined;
+  onCleanup(() => window.clearTimeout(successTimer));
+  onMount(() => {
+    const refreshAll = () => {
+      void refetchSyncStatus();
+      void refetchOperations();
+      void refetchSummary();
+      void refetchRecentOrders();
+      void refetchStatusTrend();
+    };
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      void refetchSyncStatus();
+    }, 30_000);
+    const events = subscribeSyncEvents((event) => {
+      if (event.status.toUpperCase() === SYNC_STATUS.SUCCESS) refreshAll();
+      else if (event.status.toUpperCase() === SYNC_STATUS.ERROR) void refetchSyncStatus();
+    });
+    onCleanup(() => { clearInterval(timer); events.close(); });
+  });
+  const lastSuccessfulSync = createMemo(() => {
+    const record = syncStatus()?.last_record;
+    if (record?.status.toUpperCase() !== SYNC_STATUS.SUCCESS) return null;
+    const date = new Date(record.synced_at);
+    return Number.isNaN(date.getTime()) ? null : date;
+  });
+  const syncWarning = createMemo(() => {
+    if (syncStatus.error) return t('dashboard.syncStatusUnavailable');
+    const status = syncStatus();
+    if (!status) return '';
+    if (status.error || status.last_record?.status.toUpperCase() === SYNC_STATUS.ERROR) return t('dashboard.syncFailedWarning');
+    if (status.status.toUpperCase() === SYNC_STATUS.SYNCING) return '';
+    const last = lastSuccessfulSync();
+    if (!last) return status.is_inside_work_hours ? t('dashboard.syncMissingWarning') : '';
+    return status.is_inside_work_hours && now() - last.getTime() > 30 * 60_000 ? t('dashboard.syncStaleWarning') : '';
+  });
+  const canSync = () => auth.user()?.role === USER_ROLE.ADMIN || auth.user()?.role === USER_ROLE.SUPERADMIN;
+  const syncNow = async () => {
+    if (syncing()) return;
+    window.clearTimeout(successTimer);
+    setSyncing(true);
+    setSyncActionError('');
+    setSyncActionSuccess(false);
+    try {
+      await triggerSync();
+      await Promise.all([refetchSyncStatus(), refetchOperations(), refetchSummary(), refetchRecentOrders(), refetchStatusTrend()]);
+      setSyncActionSuccess(true);
+      successTimer = window.setTimeout(() => setSyncActionSuccess(false), 6000);
+    } catch (error) {
+      setSyncActionError(t('dashboard.syncActionFailed', { message: error instanceof Error ? error.message : t('sync.syncFailed') }));
+      void refetchSyncStatus();
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const statusSegments = createMemo(() => {
     const counts = summary()?.status_counts ?? {};
@@ -309,33 +376,79 @@ export const Dashboard: Component = () => {
 
   return (
     <div class="flex flex-1 flex-col gap-6 min-w-0">
+      <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground" aria-live="polite">
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="size-2 shrink-0 rounded-full" classList={{ 'bg-status-batal': !!syncWarning(), 'bg-status-proses': !syncWarning() && (syncing() || syncStatus()?.status.toUpperCase() === SYNC_STATUS.SYNCING), 'bg-status-selesai': !syncWarning() && !syncing() && syncStatus()?.status.toUpperCase() !== SYNC_STATUS.SYNCING && !!lastSuccessfulSync(), 'bg-muted-foreground': !syncWarning() && !syncing() && !lastSuccessfulSync() }} aria-hidden="true" />
+          <Show when={!syncStatus.loading} fallback={<Skeleton class="h-4 w-36" />}>
+            <span>{lastSuccessfulSync() ? t('dashboard.syncFreshness', {
+              time: formatRelativeTime(lastSuccessfulSync()!, now()),
+              clock: new Intl.DateTimeFormat(intlLocale(), { timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false }).format(lastSuccessfulSync()!),
+            }) : syncStatus.error ? t('dashboard.syncStatusUnavailable') : t('dashboard.noSuccessfulSync')}</span>
+          </Show>
+        </div>
+        <A href={ROUTES.sync} class="inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('syncManager.liveState')} <IconArrowRight class="size-3.5" aria-hidden="true" /></A>
+      </div>
+      <Show when={syncWarning() || syncActionError() || syncActionSuccess()}>
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm" role={syncWarning() || syncActionError() ? 'alert' : 'status'} classList={{ 'border-destructive/30 bg-destructive/10': !!syncWarning() || !!syncActionError() }}>
+          <span class="flex min-w-0 items-center gap-2"><IconAlertCircle class="size-4 shrink-0" aria-hidden="true" />{syncActionError() || syncWarning() || t('dashboard.syncActionSuccess')}</span>
+          <Show when={canSync() && (syncWarning() || syncActionError())} fallback={<A href={ROUTES.sync} class="text-sm font-medium underline underline-offset-4">{t('syncManager.liveState')}</A>}>
+            <Button size="sm" variant="outline" disabled={syncing()} onClick={syncNow} class="gap-2"><IconRefresh class="size-4" classList={{ 'animate-spin': syncing() }} />{syncing() ? t('sync.syncing') : t('sync.syncNow')}</Button>
+          </Show>
+        </div>
+      </Show>
+
+      <section class="rounded-lg border bg-card" aria-label={t('dashboard.operationsTitle')}>
+        <div class="px-4 pb-3 pt-4 md:px-6"><h2 class="text-base font-semibold">{t('dashboard.operationsTitle')}</h2><p class="text-sm text-muted-foreground">{t('dashboard.operationsDesc')}</p></div>
+        <Show when={!operations.error} fallback={<div class="flex items-center justify-between gap-3 border-t px-4 py-4 text-sm md:px-6" role="alert"><span>{t('dashboard.operationsLoadError')}</span><Button variant="outline" size="sm" onClick={() => refetchOperations()}><IconRefresh class="size-4" />{t('common.retry')}</Button></div>}>
+          <div class="grid border-t md:grid-cols-3 md:divide-x">
+            <A href={`${ROUTES.orders}?status=${encodeURIComponent(ORDER_STATUS.UNFINISHED)}`} class="group flex min-w-0 items-center gap-3 border-b px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:border-b-0 md:px-6">
+              <IconPackage class="size-5 shrink-0 text-status-belum-selesai" aria-hidden="true" />
+              <span class="min-w-0 flex-1"><span class="block text-sm font-medium">{t('dashboard.backlogOrders')}</span><span class="block text-xs text-muted-foreground">{t('dashboard.backlogDesc')}</span></span>
+              <Show when={!operations.loading} fallback={<Skeleton class="h-7 w-10" />}><strong class="text-xl font-semibold tabular-nums">{operations()?.active_backlog_orders.toLocaleString(intlLocale()) ?? '0'}</strong></Show>
+              <IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
+            </A>
+            <A href={`${ROUTES.items}?ready_to_dispatch=true`} class="group flex min-w-0 items-center gap-3 border-b px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:border-b-0 md:px-6">
+              <IconBuildingWarehouse class="size-5 shrink-0 text-status-proses" aria-hidden="true" />
+              <span class="min-w-0 flex-1"><span class="block text-sm font-medium">{t('dashboard.shelfReady')}</span><span class="block text-xs text-muted-foreground">{t('dashboard.shelfReadyDesc')}</span></span>
+              <Show when={!operations.loading} fallback={<Skeleton class="h-7 w-10" />}><strong class="text-xl font-semibold tabular-nums">{operations()?.shelf_ready_items.toLocaleString(intlLocale()) ?? '0'}</strong></Show>
+              <IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
+            </A>
+            <A href={`${ROUTES.deliveryFlow}?tab=runs`} class="group flex min-w-0 items-center gap-3 px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:px-6">
+              <IconTruckDelivery class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span class="min-w-0 flex-1"><span class="block text-sm font-medium">{t('dashboard.activeRuns')}</span><span class="block text-xs text-muted-foreground">{t('dashboard.activeRunsDesc')}</span></span>
+              <Show when={!operations.loading} fallback={<Skeleton class="h-7 w-10" />}><strong class="text-xl font-semibold tabular-nums">{operations()?.active_runs.toLocaleString(intlLocale()) ?? '0'}</strong></Show>
+              <IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
+            </A>
+          </div>
+        </Show>
+      </section>
       <section class="flex flex-col gap-2 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
         <div
-          class="flex w-full items-center rounded-md border bg-background text-sm transition-colors focus-within:ring-2 focus-within:ring-ring sm:w-auto"
+          class="flex w-full flex-col items-stretch rounded-md border bg-background text-sm transition-colors focus-within:ring-2 focus-within:ring-ring sm:w-auto sm:flex-row sm:items-center"
           classList={{ 'border-destructive/60': !range(), 'border-input': !!range() }}
         >
-          <label class="flex h-10 min-w-0 flex-1 items-center gap-2 pl-3 sm:flex-none">
+          <label class="flex h-10 min-w-0 items-center gap-2 border-b px-3 sm:flex-none sm:border-b-0 sm:pl-3 sm:pr-0">
             <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t('dashboard.dateFrom')}</span>
             <input type="date" value={fromDate()} aria-label={t('dashboard.dateFrom')} aria-invalid={!isValidISODate(fromDate()) || (!!toDate() && isValidISODate(toDate()) && fromDate() > toDate())}
               onInput={(event) => setFromDate(event.currentTarget.value)}
-              class="h-full min-w-0 flex-1 bg-transparent pr-1 text-sm focus:outline-none" />
+              class="h-full min-w-0 flex-1 bg-transparent pr-1 text-sm focus:outline-none sm:flex-none" />
           </label>
-          <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-          <svg class="size-3.5 shrink-0 text-muted-foreground" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4" /></svg>
-          <span class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-          <label class="flex h-10 min-w-0 flex-1 items-center gap-2 pl-2 pr-3 sm:flex-none">
+          <span class="mx-1 hidden h-4 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
+          <svg class="hidden size-3.5 shrink-0 text-muted-foreground sm:block" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4" /></svg>
+          <span class="mx-1 hidden h-4 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
+          <label class="flex h-10 min-w-0 items-center gap-2 px-3 sm:flex-none sm:pl-2 sm:pr-3">
             <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t('dashboard.dateTo')}</span>
             <input type="date" value={toDate()} aria-label={t('dashboard.dateTo')} aria-invalid={!isValidISODate(toDate()) || (!!fromDate() && isValidISODate(fromDate()) && fromDate() > toDate())}
               onInput={(event) => setToDate(event.currentTarget.value)}
-              class="h-full min-w-0 flex-1 bg-transparent pr-1 text-sm focus:outline-none" />
+              class="h-full min-w-0 flex-1 bg-transparent pr-1 text-sm focus:outline-none sm:flex-none" />
           </label>
         </div>
-        <div class="flex items-center gap-1 sm:justify-end" role="group" aria-label={t('dashboard.presetRangeLabel')}>
+        <div class="flex flex-wrap items-center gap-1 sm:justify-end" role="group" aria-label={t('dashboard.presetRangeLabel')}>
           <For each={rangePresets()}>{(preset) => {
             const isActive = () => range() !== undefined && fromDate() === preset.from && toDate() === today;
             return (
               <button type="button" onClick={() => applyPreset(preset.from)}
-                class="h-8 rounded-md px-2.5 text-xs font-semibold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                class="min-h-10 rounded-md px-2.5 text-xs font-semibold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
                 classList={{
                   'bg-primary text-primary-foreground': isActive(),
                   'text-muted-foreground hover:bg-secondary hover:text-foreground': !isActive(),
@@ -362,23 +475,32 @@ export const Dashboard: Component = () => {
           </div>
         }>
           <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.totalOrders')}</CardTitle><IconPackage class="size-4 text-muted-foreground" /></CardHeader>
-              <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.total_orders.toLocaleString() ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.totalOrdersDesc')}</p></Show></CardContent>
-            </Card>
-            <Card>
-              <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.totalLineItems')}</CardTitle><IconListDetails class="size-4 text-muted-foreground" /></CardHeader>
-              <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.total_items.toLocaleString() ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.totalLineItemsDesc')}</p></Show></CardContent>
-            </Card>
-            <Card>
-              <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.uniqueCustomers')}</CardTitle><IconUsers class="size-4 text-muted-foreground" /></CardHeader>
-              <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.unique_customers.toLocaleString() ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.uniqueCustomersDesc')}</p></Show></CardContent>
-            </Card>
-            <Card>
-              <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.coverageAreas')}</CardTitle><IconMapPin class="size-4 text-muted-foreground" /></CardHeader>
-              <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.unique_areas.toLocaleString() ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.coverageAreasDesc')}</p></Show></CardContent>
-            </Card>
+            <A href={`${ROUTES.orders}?from=${fromDate()}&to=${toDate()}`} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.totalOrders')}>
+              <Card class="h-full transition-colors group-hover:bg-secondary/50">
+                <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.totalOrders')}</CardTitle><IconPackage class="size-4 text-muted-foreground" /></CardHeader>
+                <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.total_orders.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.totalOrdersDesc')}</p></Show></CardContent>
+              </Card>
+            </A>
+            <A href={ROUTES.items} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
+              <Card class="h-full transition-colors group-hover:bg-secondary/50">
+                <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.totalLineItems')}</CardTitle><IconListDetails class="size-4 text-muted-foreground" /></CardHeader>
+                <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.total_items.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.totalLineItemsDesc')}</p></Show></CardContent>
+              </Card>
+            </A>
+            <A href={ROUTES.customers} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
+              <Card class="h-full transition-colors group-hover:bg-secondary/50">
+                <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.uniqueCustomers')}</CardTitle><IconUsers class="size-4 text-muted-foreground" /></CardHeader>
+                <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.unique_customers.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.uniqueCustomersDesc')}</p></Show></CardContent>
+              </Card>
+            </A>
+            <A href={ROUTES.areas} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
+              <Card class="h-full transition-colors group-hover:bg-secondary/50">
+                <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.coverageAreas')}</CardTitle><IconMapPin class="size-4 text-muted-foreground" /></CardHeader>
+                <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.unique_areas.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.coverageAreasDesc')}</p></Show></CardContent>
+              </Card>
+            </A>
           </div>
+          <p class="-mt-3 text-xs text-muted-foreground">{t('dashboard.kpiDrilldownNote')}</p>
 
           <div class="grid min-w-0 gap-6 lg:grid-cols-2">
             <Card class="min-w-0">

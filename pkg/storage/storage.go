@@ -111,6 +111,12 @@ type DashboardSummary struct {
 	DailyOrders     []DashboardDailyOrder `json:"daily_orders"`
 }
 
+type DashboardOperations struct {
+	ActiveBacklogOrders int `json:"active_backlog_orders"`
+	ShelfReadyItems     int `json:"shelf_ready_items"`
+	ActiveRuns          int `json:"active_runs"`
+}
+
 type OrderStatusPoint struct {
 	Date         string         `json:"date"`
 	StatusCounts map[string]int `json:"status_counts"`
@@ -123,6 +129,7 @@ type ItemFilter struct {
 	StatusOrder       string `json:"status_order"`
 	StatusBarang      string `json:"status_barang"`
 	StatusBarangOther bool   `json:"status_barang_other"`
+	ReadyToDispatch   bool   `json:"ready_to_dispatch"`
 	Date              string `json:"date"`
 	Tanggal           string `json:"tanggal"`
 	OrderNumber       string `json:"order_number"`
@@ -2033,6 +2040,11 @@ func (s *Storage) GetItems(ctx context.Context, filter ItemFilter) ([]model.Norm
 		conditions = append(conditions, "UPPER(TRIM(status_barang)) = UPPER(TRIM(?))")
 		args = append(args, strings.TrimSpace(filter.StatusBarang))
 	}
+	if filter.ReadyToDispatch {
+		conditions = append(conditions, "UPPER(TRIM(COALESCE(status_barang, ''))) = 'STOK GUDANG'")
+		conditions = append(conditions, "UPPER(TRIM(COALESCE(status_order, ''))) NOT IN ('SELESAI', 'COMPLETED', 'BATAL', 'CANCEL', 'PENDING')")
+		conditions = append(conditions, "(CASE WHEN TRIM(COALESCE(belum_terkirim, '')) != '' THEN CAST(belum_terkirim AS REAL) > 0 ELSE (CAST(COALESCE(jumlah, '0') AS REAL) - CAST(COALESCE(jumlah_terkirim, '0') AS REAL)) > 0 END)")
+	}
 
 	date := filter.Date
 	if date == "" {
@@ -2327,6 +2339,34 @@ func (s *Storage) GetDashboardSummary(ctx context.Context, from, to string) (*Da
 		return nil, fmt.Errorf("failed to read dashboard daily orders: %w", err)
 	}
 	return summary, nil
+}
+
+// GetDashboardOperations returns high-level operational counts for active backlog orders,
+// shelf-ready items, and active delivery runs.
+func (s *Storage) GetDashboardOperations(ctx context.Context) (*DashboardOperations, error) {
+	ops := &DashboardOperations{}
+	query := `
+		SELECT
+			(SELECT COUNT(DISTINCT id) FROM orders WHERE id IN (
+				SELECT DISTINCT order_id FROM items WHERE UPPER(TRIM(COALESCE(status_order, ''))) = 'BELUM SELESAI'
+			)),
+			(SELECT COUNT(*) FROM items
+			 WHERE UPPER(TRIM(COALESCE(status_barang, ''))) = 'STOK GUDANG'
+			   AND UPPER(TRIM(COALESCE(status_order, ''))) NOT IN ('SELESAI', 'COMPLETED', 'BATAL', 'CANCEL', 'PENDING')
+			   AND (CASE WHEN TRIM(COALESCE(belum_terkirim, '')) != '' THEN CAST(belum_terkirim AS REAL) > 0 ELSE (CAST(COALESCE(jumlah, '0') AS REAL) - CAST(COALESCE(jumlah_terkirim, '0') AS REAL)) > 0 END)
+			),
+			(SELECT COUNT(*) FROM delivery_runs
+			 WHERE UPPER(TRIM(COALESCE(status, ''))) IN ('PLANNED', 'PICKING', 'READY', 'DISPATCHED')
+			)
+	`
+	if err := s.db.QueryRowContext(ctx, query).Scan(
+		&ops.ActiveBacklogOrders,
+		&ops.ShelfReadyItems,
+		&ops.ActiveRuns,
+	); err != nil {
+		return nil, fmt.Errorf("failed to query dashboard operations: %w", err)
+	}
+	return ops, nil
 }
 
 func (s *Storage) GetOrderStatusTrend(ctx context.Context, from, to string) ([]OrderStatusPoint, error) {

@@ -118,6 +118,10 @@ type DashboardTrendOutput struct {
 	Body DashboardTrendResponse
 }
 
+type DashboardOperationsOutput struct {
+	Body storage.DashboardOperations
+}
+
 // Sync history
 type ListSyncHistoryInput struct {
 	Limit  int `query:"limit" default:"10" doc:"Max records"`
@@ -286,6 +290,7 @@ type ListItemsInput struct {
 	StatusOrder       string `query:"status_order" doc:"Filter by order status"`
 	StatusBarang      string `query:"status_barang" doc:"Filter by item status"`
 	StatusBarangOther bool   `query:"status_barang_other" doc:"Filter by status barang not in predefined list"`
+	ReadyToDispatch   bool   `query:"ready_to_dispatch" doc:"Filter items ready for dispatch (STOK GUDANG, unfinished, not PENDING, positive remaining)"`
 	Date              string `query:"date" doc:"Filter by date"`
 	Tanggal           string `query:"tanggal" doc:"Alias for date"`
 	OrderNumber       string `query:"order_number" doc:"Filter by E-Katalog order ID"`
@@ -481,6 +486,7 @@ func (s *Server) handleListItems(ctx context.Context, input *ListItemsInput) (*I
 		StatusOrder:       statusOrder,
 		StatusBarang:      input.StatusBarang,
 		StatusBarangOther: input.StatusBarangOther,
+		ReadyToDispatch:   input.ReadyToDispatch,
 		Date:              date,
 		Tanggal:           date,
 		OrderNumber:       orderNumber,
@@ -657,6 +663,17 @@ func (s *Server) handleGetDashboardStatusTrend(ctx context.Context, input *Dashb
 	return &DashboardTrendOutput{Body: DashboardTrendResponse{Points: points}}, nil
 }
 
+func (s *Server) handleGetDashboardOperations(ctx context.Context, input *struct{}) (*DashboardOperationsOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	ops, err := s.store.GetDashboardOperations(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get dashboard operations", err)
+	}
+	return &DashboardOperationsOutput{Body: *ops}, nil
+}
+
 func (s *Server) handleListSyncHistory(ctx context.Context, input *ListSyncHistoryInput) (*SyncHistoryOutput, error) {
 	if s.store == nil {
 		return nil, huma.Error503ServiceUnavailable("storage service not available")
@@ -818,6 +835,7 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 	if date == "" {
 		date = c.Query("tanggal")
 	}
+	readyToDispatch := c.Query("ready_to_dispatch") == "true"
 
 	items, _, err := s.store.GetItems(c.Context(), storage.ItemFilter{
 		Customer:          customer,
@@ -825,6 +843,7 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 		StatusOrder:       statusOrder,
 		StatusBarang:      statusBarang,
 		StatusBarangOther: statusBarangOther,
+		ReadyToDispatch:   readyToDispatch,
 		Date:              date,
 		Tanggal:           date,
 		Sort:              sortField,

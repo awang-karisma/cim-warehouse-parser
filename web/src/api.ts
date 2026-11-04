@@ -1,5 +1,6 @@
 import type {
 	DashboardSummary,
+	DashboardOperations,
 	OrderStatusTrendResponse,
   Stats,
   PaginatedOrders,
@@ -80,6 +81,8 @@ export const getDashboardSummary = (params: { from: string; to: string }) => {
   return apiFetch<DashboardSummary>(`/api/v1/dashboard/summary${query ? '?' + query : ''}`);
 };
 
+export const getDashboardOperations = () => apiFetch<DashboardOperations>('/api/v1/dashboard/operations');
+
 export const getOrderStatusTrend = (params: { from: string; to: string }) => {
   const query = qs(params);
   return apiFetch<OrderStatusTrendResponse>(`/api/v1/dashboard/status-trend${query ? '?' + query : ''}`);
@@ -112,6 +115,7 @@ export const getItems = (params?: {
   status_order?: string;
   status_barang?: string;
   status_barang_other?: boolean;
+  ready_to_dispatch?: boolean;
   date?: string;
   tanggal?: string;
   order_number?: string;

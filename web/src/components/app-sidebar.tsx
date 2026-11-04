@@ -1,4 +1,4 @@
-import { USER_ROLE } from '~/domain';
+import { USER_ROLE, SYNC_STATUS } from '~/domain';
 import { ROUTES } from '~/routes';
 
 import { type Component, For, Show, createMemo, createSignal, onMount, onCleanup, createResource } from 'solid-js';
@@ -107,8 +107,10 @@ const SyncStatusFooter: Component = () => {
   const parsedInterval = createMemo(() => parseDuration(config()?.sync_interval));
 
   const lastSyncDate = createMemo(() => {
-    const ls = status()?.last_sync;
-    return ls ? new Date(ls) : null;
+    const record = status()?.last_record;
+    if (record?.status.toUpperCase() !== SYNC_STATUS.SUCCESS) return null;
+    const date = new Date(record.synced_at);
+    return Number.isNaN(date.getTime()) ? null : date;
   });
 
   const dotColorClass = createMemo(() => {

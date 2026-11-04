@@ -4,7 +4,7 @@ import { ORDER_STATUS } from '~/domain';
 
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
-import { A, useNavigate } from '@solidjs/router';
+import { A, useNavigate, useSearchParams } from '@solidjs/router';
 import { ItemProgress } from '~/components/ItemProgress';
 import {
   IconChevronRight,
@@ -40,10 +40,18 @@ import { createUrlFilter } from '../utils/tableFilters';
 import { getDominantOrderStatus } from '~/utils/orderStatus';
 
 const VALID_STATUSES = [ORDER_STATUS.UNFINISHED, ORDER_STATUS.COMPLETE, ORDER_STATUS.PROCESSING, ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED] as const;
+const validRangeDate = (value: string | null): string => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? value : '';
+};
+
 
 export const Orders: Component = () => {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const [expandedOrders, setExpandedOrders] = createSignal<Record<string, boolean>>({});
 
   const toggleExpand = (orderId: string) => {
@@ -71,6 +79,18 @@ export const Orders: Component = () => {
       key: 'tanggal',
       defaultValue: '',
       parse: (v) => v ?? '',
+      serialize: (v) => v || null,
+    },
+    from: {
+      key: 'from',
+      defaultValue: '',
+      parse: validRangeDate,
+      serialize: (v) => v || null,
+    },
+    to: {
+      key: 'to',
+      defaultValue: '',
+      parse: validRangeDate,
       serialize: (v) => v || null,
     },
     status: {
@@ -120,6 +140,8 @@ export const Orders: Component = () => {
     area: filters.values.area() || undefined,
     tanggal: filters.values.tanggal() || undefined,
     status: filters.values.status() || undefined,
+    from: filters.values.from() && filters.values.to() && filters.values.from() <= filters.values.to() ? filters.values.from() : undefined,
+    to: filters.values.from() && filters.values.to() && filters.values.from() <= filters.values.to() ? filters.values.to() : undefined,
     sort: filters.values.sort(),
     order: filters.values.order(),
   }));
@@ -234,6 +256,12 @@ export const Orders: Component = () => {
               </Button>
             </div>
           </form>
+          <Show when={filters.values.from() && filters.values.to()}>
+            <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground" role="status">
+              <span>{t('orders.dateRangeActive', { from: filters.values.from(), to: filters.values.to() })}</span>
+              <button type="button" class="font-medium text-foreground underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSearchParams({ from: undefined, to: undefined }, { replace: true })}>{t('orders.clearDateRange')}</button>
+            </div>
+          </Show>
         </CardContent>
       </Card>
 

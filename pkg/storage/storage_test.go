@@ -3591,3 +3591,182 @@ func TestLegacyPageDesignSchemaAddsSettingsDefaults(t *testing.T) {
 		t.Fatalf("legacy page design did not receive defaults: %+v err=%v", designs, err)
 	}
 }
+
+func TestDashboardOperations_MetricsAndReadiness(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+
+	// 1. Empty database verification
+	emptyOps, err := store.GetDashboardOperations(ctx)
+	if err != nil {
+		t.Fatalf("GetDashboardOperations on empty database failed: %v", err)
+	}
+	if emptyOps.ActiveBacklogOrders != 0 || emptyOps.ShelfReadyItems != 0 || emptyOps.ActiveRuns != 0 {
+		t.Fatalf("expected all zeros on empty database, got %+v", emptyOps)
+	}
+
+	// 2. Seed orders with various statuses and stock conditions
+	orders := []model.Order{
+		{
+			ID:          "ORD-BACKLOG-1",
+			OrderNumber: "ORD-BL-1",
+			Customer:    "RS Alpha",
+			Items: []model.OrderItem{
+				// Shelf-ready: STOK GUDANG + BELUM SELESAI + positive belum_terkirim
+				{RowIndex: 1, NamaBarang: "Syringe 5ml", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "BELUM SELESAI", StatusBarang: "STOK GUDANG"},
+				// Non-positive remaining: belum_terkirim == 0
+				{RowIndex: 2, NamaBarang: "Needle 23G", Jumlah: "10", BelumTerkirim: "0", StatusOrder: "BELUM SELESAI", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-BACKLOG-2",
+			OrderNumber: "ORD-BL-2",
+			Customer:    "RS Beta",
+			Items: []model.OrderItem{
+				// Shelf-ready: STOK GUDANG + BELUM SELESAI + positive remaining fallback (jumlah 5, jumlah_terkirim 0, belum_terkirim "")
+				{RowIndex: 3, NamaBarang: "Alcohol Swabs", Jumlah: "5", JumlahTerkirim: "0", BelumTerkirim: "", StatusOrder: "BELUM SELESAI", StatusBarang: "STOK GUDANG"},
+				// Completed exclusion: SELESAI status_order
+				{RowIndex: 4, NamaBarang: "Gauze", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "SELESAI", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-DONE",
+			OrderNumber: "ORD-DN",
+			Customer:    "RS Gamma",
+			Items: []model.OrderItem{
+				// Completed exclusion: COMPLETED status_order
+				{RowIndex: 5, NamaBarang: "Infusion Set", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "COMPLETED", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-PROSES",
+			OrderNumber: "ORD-PR",
+			Customer:    "RS Delta",
+			Items: []model.OrderItem{
+				// Shelf-ready: STOK GUDANG + PROSES + positive belum_terkirim
+				{RowIndex: 6, NamaBarang: "Catheter", Jumlah: "8", BelumTerkirim: "8", StatusOrder: "PROSES", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-CANCELLED-1",
+			OrderNumber: "ORD-CN-1",
+			Customer:    "RS Epsilon",
+			Items: []model.OrderItem{
+				// Cancelled exclusion: BATAL
+				{RowIndex: 7, NamaBarang: "Mask", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "BATAL", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-CANCELLED-2",
+			OrderNumber: "ORD-CN-2",
+			Customer:    "RS Zeta",
+			Items: []model.OrderItem{
+				// Cancelled exclusion: CANCEL
+				{RowIndex: 8, NamaBarang: "Gloves", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "CANCEL", StatusBarang: "STOK GUDANG"},
+			},
+		},
+		{
+			ID:          "ORD-OTHER-STOCK",
+			OrderNumber: "ORD-OS",
+			Customer:    "RS Eta",
+			Items: []model.OrderItem{
+				// Non-warehouse stock status
+				{RowIndex: 9, NamaBarang: "Surgical Tape", Jumlah: "10", BelumTerkirim: "10", StatusOrder: "BELUM SELESAI", StatusBarang: "PROSES ORDER"},
+			},
+		},
+		{
+			ID:          "ORD-PENDING",
+			OrderNumber: "ORD-PD",
+			Customer:    "RS Theta",
+			Items: []model.OrderItem{
+				// Customer hold: PENDING must not be included even if stock is in the warehouse.
+				{RowIndex: 10, NamaBarang: "Blood Bag", Jumlah: "4", BelumTerkirim: "4", StatusOrder: "PENDING", StatusBarang: "STOK GUDANG"},
+			},
+		},
+	}
+
+	var items []model.NormalizedItem
+	for _, o := range orders {
+		for _, it := range o.Items {
+			items = append(items, model.NormalizedItem{
+				RowIndex:       it.RowIndex,
+				OrderID:        o.ID,
+				OrderNumber:    o.OrderNumber,
+				Customer:       o.Customer,
+				NamaBarang:     it.NamaBarang,
+				Jumlah:         it.Jumlah,
+				JumlahTerkirim: it.JumlahTerkirim,
+				BelumTerkirim:  it.BelumTerkirim,
+				StatusOrder:    it.StatusOrder,
+				StatusBarang:   it.StatusBarang,
+			})
+		}
+	}
+
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// 3. Seed delivery runs with various statuses and dates
+	runs := []model.DeliveryRun{
+		{Title: "Run 1", DriverName: "Driver A", DeliveryDate: "2026-01-01", Status: string(model.RunPlanned)},
+		{Title: "Run 2", DriverName: "Driver B", DeliveryDate: "2026-01-02", Status: string(model.RunPicking)},
+		{Title: "Run 3", DriverName: "Driver C", DeliveryDate: "2026-01-03", Status: string(model.RunReady)},
+		{Title: "Run 4", DriverName: "Driver D", DeliveryDate: "2026-01-04", Status: string(model.RunDispatched)},
+		{Title: "Run 5", DriverName: "Driver E", DeliveryDate: "2026-01-05", Status: string(model.RunCompleted)},
+		{Title: "Run 6", DriverName: "Driver F", DeliveryDate: "2026-01-06", Status: "CANCELLED"},
+	}
+	for _, r := range runs {
+		if _, err := store.CreateDeliveryRun(ctx, r); err != nil {
+			t.Fatalf("CreateDeliveryRun failed: %v", err)
+		}
+	}
+
+	// 4. Query operations metrics
+	ops, err := store.GetDashboardOperations(ctx)
+	if err != nil {
+		t.Fatalf("GetDashboardOperations failed: %v", err)
+	}
+
+	// Distinct backlog: ORD-BACKLOG-1 (has 2 BELUM SELESAI items) counts as 1.
+	// ORD-BACKLOG-2 (has 1 BELUM SELESAI item) counts as 1.
+	// ORD-OTHER-STOCK (has 1 BELUM SELESAI item) counts as 1.
+	// Total distinct backlog orders = 3.
+	if ops.ActiveBacklogOrders != 3 {
+		t.Errorf("expected 3 distinct active backlog orders, got %d", ops.ActiveBacklogOrders)
+	}
+
+	// Verify matching /orders?status=BELUM SELESAI count
+	matchedOrders, totalMatched, err := store.GetOrders(ctx, storage.OrderFilter{Status: "BELUM SELESAI"})
+	if err != nil {
+		t.Fatalf("GetOrders with BELUM SELESAI failed: %v", err)
+	}
+	if totalMatched != ops.ActiveBacklogOrders || len(matchedOrders) != ops.ActiveBacklogOrders {
+		t.Errorf("backlog orders count %d does not match GetOrders total %d", ops.ActiveBacklogOrders, totalMatched)
+	}
+
+	// Shelf-ready items:
+	// Syringe 5ml (ORD-BACKLOG-1, row 1)
+	// Alcohol Swabs (ORD-BACKLOG-2, row 3)
+	// Catheter (ORD-PROSES, row 6)
+	// Customer-held Blood Bag must not appear in a ready-to-dispatch count.
+	// Total shelf ready items = 3.
+	if ops.ShelfReadyItems != 3 {
+		t.Errorf("expected 3 shelf-ready items, got %d", ops.ShelfReadyItems)
+	}
+
+	// Verify ItemFilter{ReadyToDispatch: true} matches shelf_ready_items exactly
+	readyItems, totalReady, err := store.GetItems(ctx, storage.ItemFilter{ReadyToDispatch: true})
+	if err != nil {
+		t.Fatalf("GetItems ReadyToDispatch failed: %v", err)
+	}
+	if totalReady != ops.ShelfReadyItems || len(readyItems) != ops.ShelfReadyItems {
+		t.Errorf("GetItems ReadyToDispatch count %d does not match ShelfReadyItems %d", totalReady, ops.ShelfReadyItems)
+	}
+
+	// Active runs: PLANNED, PICKING, READY, DISPATCHED (no date filter). COMPLETED and CANCELLED excluded.
+	// Total active runs = 4.
+	if ops.ActiveRuns != 4 {
+		t.Errorf("expected 4 active runs, got %d", ops.ActiveRuns)
+	}
+}

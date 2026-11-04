@@ -68,6 +68,12 @@ export const Items: Component = () => {
       },
       serialize: (v) => (v && v !== 'All' ? v : null),
     },
+    ready_to_dispatch: {
+      key: 'ready_to_dispatch',
+      defaultValue: false,
+      parse: (v) => v === 'true',
+      serialize: (v) => v ? 'true' : null,
+    },
     tanggal: {
       key: 'tanggal',
       defaultValue: '',
@@ -116,6 +122,7 @@ export const Items: Component = () => {
       status_order: filters.values.status_order() || undefined,
       status_barang: sb && sb !== 'All' ? sb : undefined,
       status_barang_other: sb === 'OTHER' ? true : undefined,
+      ready_to_dispatch: filters.values.ready_to_dispatch() || undefined,
       tanggal: filters.values.tanggal() || undefined,
       sort: filters.values.sort(),
       order: filters.values.order(),
@@ -173,6 +180,7 @@ export const Items: Component = () => {
         p.set('status_barang_other', 'true');
       }
     }
+    if (filters.values.ready_to_dispatch()) p.set('ready_to_dispatch', 'true');
     if (tanggal) p.set('tanggal', tanggal);
     if (sort && sort !== 'date') p.set('sort', sort);
     if (order && order !== 'desc') p.set('order', order);
@@ -255,6 +263,12 @@ export const Items: Component = () => {
           </form>
         </CardContent>
       </Card>
+      <Show when={filters.values.ready_to_dispatch()}>
+        <div class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" role="status">
+          <span>{t('items.readyToDispatchFilter')}</span>
+          <button type="button" class="font-medium text-foreground underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => filters.setters.ready_to_dispatch(false)}>{t('items.clearReadyFilter')}</button>
+        </div>
+      </Show>
 
       {/* Items Table Card */}
       <Card>
