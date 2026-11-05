@@ -15,7 +15,7 @@ import {
   IconUsers,
   IconBuildingWarehouse,
 } from '@tabler/icons-solidjs';
-import { getDashboardSummary, getDashboardOperations, getOrderStatusTrend, getOrders, getStatus, subscribeSyncEvents, triggerSync } from '~/api';
+import { getDashboardSummary, getDashboardOperations, getDashboardPressure, getOrderStatusTrend, getOrders, getStatus, subscribeSyncEvents, triggerSync } from '~/api';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import { Badge } from '~/components/Badge';
@@ -55,6 +55,25 @@ const dayNumber = (iso: string): number => {
   return Date.UTC(year, month - 1, day) / 86_400_000;
 };
 
+type ChartStyle = 'bar' | 'line';
+
+const ChartTypeSwitch: Component<{
+  label: string;
+  value: ChartStyle;
+  options: { value: ChartStyle; label: string }[];
+  onChange: (value: ChartStyle) => void;
+}> = (props) => (
+  <div role="group" aria-label={props.label} class="inline-flex w-fit shrink-0 rounded-md border bg-background p-0.5">
+    <For each={props.options}>{(option) =>
+      <button type="button" aria-pressed={props.value === option.value} onClick={() => props.onChange(option.value)}
+        class="min-h-10 rounded px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
+        classList={{ 'bg-primary text-primary-foreground': props.value === option.value, 'text-muted-foreground hover:bg-secondary hover:text-foreground': props.value !== option.value }}>
+        {option.label}
+      </button>
+    }</For>
+  </div>
+);
+
 export const Dashboard: Component = () => {
   const { t, intlLocale, formatRelativeTime } = useI18n();
   const auth = useAuth();
@@ -84,9 +103,13 @@ export const Dashboard: Component = () => {
   const applyPreset = (from: string) => { setFromDate(from); setToDate(today); };
   const [summary, { refetch: refetchSummary }] = createResource(range, ({ from, to }) => getDashboardSummary({ from, to }));
   const [recentOrders, { refetch: refetchRecentOrders }] = createResource(range, ({ from, to }) => getOrders({ from, to, limit: 5 }));
-  const [statusTrend, { refetch: refetchStatusTrend }] = createResource(range, ({ from, to }) => getOrderStatusTrend({ from, to }));
+  const [statusTrend, { refetch: refetchStatusTrend }] = createResource(range, ({ from, to }) => getOrderStatusTrend({ from: addCalendarDays(from, -1), to }));
+  const [pressure, { refetch: refetchPressure }] = createResource(range, ({ from, to }) => getDashboardPressure({ from, to }));
   const [operations, { refetch: refetchOperations }] = createResource(getDashboardOperations);
   const [syncStatus, { refetch: refetchSyncStatus }] = createResource(getStatus);
+  const [dailyChartType, setDailyChartType] = createSignal<ChartStyle>('bar');
+  const [trendChartType, setTrendChartType] = createSignal<ChartStyle>('line');
+  const [deltaChartType, setDeltaChartType] = createSignal<ChartStyle>('bar');
   const [now, setNow] = createSignal(Date.now());
   const [syncing, setSyncing] = createSignal(false);
   const [syncActionError, setSyncActionError] = createSignal('');
@@ -100,6 +123,7 @@ export const Dashboard: Component = () => {
       void refetchSummary();
       void refetchRecentOrders();
       void refetchStatusTrend();
+      void refetchPressure();
     };
     const timer = setInterval(() => {
       setNow(Date.now());
@@ -136,7 +160,7 @@ export const Dashboard: Component = () => {
     setSyncActionSuccess(false);
     try {
       await triggerSync();
-      await Promise.all([refetchSyncStatus(), refetchOperations(), refetchSummary(), refetchRecentOrders(), refetchStatusTrend()]);
+      await Promise.all([refetchSyncStatus(), refetchOperations(), refetchSummary(), refetchRecentOrders(), refetchStatusTrend(), refetchPressure()]);
       setSyncActionSuccess(true);
       successTimer = window.setTimeout(() => setSyncActionSuccess(false), 6000);
     } catch (error) {
@@ -146,6 +170,8 @@ export const Dashboard: Component = () => {
       setSyncing(false);
     }
   };
+  const ordersInRange = (filters: Record<string, string>) => `${ROUTES.orders}?${new URLSearchParams({ from: fromDate(), to: toDate(), ...filters })}`;
+  const leadTimeValue = () => pressure()?.average_lead_time?.toLocaleString(intlLocale(), { maximumFractionDigits: 2 });
 
   const statusSegments = createMemo(() => {
     const counts = summary()?.status_counts ?? {};
@@ -235,6 +261,19 @@ export const Dashboard: Component = () => {
     };
   });
 
+  const dailyLineData = createMemo(() => ({
+    labels: dailyChartData().labels,
+    datasets: [{
+      data: dailyChartData().datasets[0].data,
+      borderColor: palette().primary,
+      backgroundColor: palette().primary,
+      borderWidth: 2,
+      pointRadius: dailyBuckets().length > 30 ? 2 : 3,
+      pointHoverRadius: 5,
+      tension: 0,
+    }],
+  }));
+
   const dailyChartOptions = createMemo(() => {
     const p = palette();
     const buckets = dailyBuckets();
@@ -292,7 +331,7 @@ export const Dashboard: Component = () => {
 		];
 	});
 
-  const trendPoints = createMemo(() => (statusTrend()?.points ?? []).map((point) => {
+  const snapshotPoints = createMemo(() => (statusTrend()?.points ?? []).map((point) => {
 		const counts: Record<string, number> = {
 			[ORDER_STATUS.COMPLETE]: 0, [ORDER_STATUS.PROCESSING]: 0, [ORDER_STATUS.UNFINISHED]: 0,
 			[ORDER_STATUS.PENDING]: 0, [ORDER_STATUS.CANCELLED]: 0, OTHER: 0,
@@ -307,6 +346,28 @@ export const Dashboard: Component = () => {
 		}
     return { date: point.date.slice(0, 10), counts };
   }));
+
+  const trendPoints = createMemo(() => snapshotPoints().filter((point) => {
+    const selected = range();
+    return !!selected && point.date >= selected.from && point.date <= selected.to;
+  }));
+
+  const deltaPoints = createMemo(() => {
+    const selected = range();
+    if (!selected) return [];
+    const snapshots = new Map(snapshotPoints().map((point) => [point.date, point.counts]));
+    let previous = snapshots.get(addCalendarDays(selected.from, -1));
+    return dailyPoints().map(({ date }) => {
+      const current = snapshots.get(date);
+      let counts: Record<string, number> | null = null;
+      if (current && previous) {
+        counts = {};
+        for (const series of trendSeries()) counts[series.key] = current[series.key] - previous[series.key];
+      }
+      previous = current;
+      return { date, counts };
+    });
+  });
 
   const trendChartData = createMemo(() => {
     const points = trendPoints();
@@ -336,6 +397,17 @@ export const Dashboard: Component = () => {
       })),
     };
   });
+
+  const trendBarData = createMemo(() => ({
+    labels: trendChartData().labels,
+    datasets: trendChartData().datasets.map((series) => ({
+      label: series.label,
+      data: series.data,
+      backgroundColor: series.backgroundColor,
+      stack: 'status',
+      maxBarThickness: 18,
+    })),
+  }));
 
   const trendChartOptions = createMemo(() => {
     const p = palette();
@@ -371,6 +443,94 @@ export const Dashboard: Component = () => {
           ticks: { color: p.muted, font: { size: 10 }, precision: 0, maxTicksLimit: 6 },
         },
       },
+    };
+  });
+
+  const trendBarOptions = createMemo(() => {
+    const options = trendChartOptions();
+    return {
+      ...options,
+      plugins: { ...options.plugins, legend: { ...options.plugins.legend, labels: { ...options.plugins.legend.labels, pointStyle: 'rect' as const } } },
+      scales: { x: { ...options.scales.x, stacked: true }, y: { ...options.scales.y, stacked: true } },
+    };
+  });
+
+  const signedDelta = (value: number) => `${value > 0 ? '+' : ''}${value.toLocaleString(intlLocale())}`;
+
+  const deltaChartData = createMemo(() => ({
+    labels: deltaPoints().map((point) => formatChartDate(point.date)),
+    datasets: trendSeries().map((series) => ({
+      label: series.label,
+      data: deltaPoints().map((point) => point.counts?.[series.key] ?? null),
+      backgroundColor: series.color,
+      stack: 'status',
+      maxBarThickness: 18,
+    })),
+  }));
+
+  const deltaLineData = createMemo(() => ({
+    labels: deltaChartData().labels,
+    datasets: deltaChartData().datasets.map((series) => ({
+      label: series.label,
+      data: series.data,
+      borderColor: series.backgroundColor,
+      backgroundColor: series.backgroundColor,
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 5,
+      tension: 0,
+      spanGaps: false,
+    })),
+  }));
+
+  const deltaChartOptions = createMemo(() => {
+    const p = palette();
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index' as const, intersect: false },
+      plugins: {
+        legend: {
+          position: 'bottom' as const,
+          labels: { color: p.muted, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'rect', font: { size: 11 }, padding: 16 },
+        },
+        tooltip: {
+          backgroundColor: p.card,
+          titleColor: p.foreground,
+          bodyColor: p.muted,
+          borderColor: p.border,
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            title: (items: { dataIndex: number }[]) => deltaPoints()[items[0]?.dataIndex ?? 0]?.date ?? '',
+            label: (item: { dataset: { label?: string }; parsed: { y: number } }) => `${item.dataset.label}: ${signedDelta(item.parsed.y)} ${t('dashboard.ordersUnit')}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+          border: { color: p.border },
+          ticks: { color: p.muted, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          grid: { color: p.border },
+          border: { display: false },
+          ticks: { color: p.muted, font: { size: 10 }, precision: 0, maxTicksLimit: 6, callback: (value: string | number) => signedDelta(Number(value)) },
+        },
+      },
+    };
+  });
+
+  const deltaLineOptions = createMemo(() => {
+    const options = deltaChartOptions();
+    return {
+      ...options,
+      plugins: { ...options.plugins, legend: { ...options.plugins.legend, labels: { ...options.plugins.legend.labels, pointStyle: 'circle' as const } } },
+      scales: { x: { ...options.scales.x, stacked: false }, y: { ...options.scales.y, stacked: false } },
     };
   });
 
@@ -526,12 +686,20 @@ export const Dashboard: Component = () => {
             </Card>
 
             <Card class="min-w-0">
-              <CardHeader><CardTitle class="text-base font-semibold">{t('dashboard.dailyOrders')}</CardTitle><CardDescription>{t('dashboard.dailyOrdersDesc')}</CardDescription></CardHeader>
+              <CardHeader class="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+                <div><CardTitle class="text-base font-semibold">{t('dashboard.dailyOrders')}</CardTitle><CardDescription>{t('dashboard.dailyOrdersDesc')}</CardDescription></div>
+                <Show when={!summary.loading && dailyPoints().some((point) => point.count > 0)}>
+                  <ChartTypeSwitch label={t('dashboard.chartTypeFor', { chart: t('dashboard.dailyOrders') })} value={dailyChartType()}
+                    options={[{ value: 'bar', label: t('dashboard.barChart') }, { value: 'line', label: t('dashboard.lineChart') }]} onChange={setDailyChartType} />
+                </Show>
+              </CardHeader>
               <CardContent>
                 <Show when={!summary.loading} fallback={<Skeleton class="h-56 w-full" />}>
                   <Show when={dailyPoints().some((point) => point.count > 0)} fallback={<p class="py-12 text-center text-sm text-muted-foreground">{t('dashboard.noDailyOrders')}</p>}>
                     <div class="relative h-56 w-full" role="img" aria-label={t('dashboard.dailyOrdersDesc')}>
-                      <Bar data={dailyChartData()} options={dailyChartOptions()} />
+                      <Show when={dailyChartType() === 'bar'} fallback={<Line data={dailyLineData()} options={dailyChartOptions()} />}>
+                        <Bar data={dailyChartData()} options={dailyChartOptions()} />
+                      </Show>
                     </div>
                     <ul class="sr-only"><For each={dailyPoints()}>{(point) => <li>{t('dashboard.dailyOrdersPoint', { date: formatChartDate(point.date), count: point.count })}</li>}</For></ul>
                   </Show>
@@ -541,8 +709,81 @@ export const Dashboard: Component = () => {
           </div>
         </Show>
 
+        <section class="overflow-hidden rounded-lg border bg-card" aria-labelledby="dashboard-pressure-title">
+          <div class="px-4 py-4 md:px-6 md:py-5">
+            <h2 id="dashboard-pressure-title" class="text-base font-semibold">{t('dashboard.pressureTitle')}</h2>
+            <p class="mt-1 text-sm text-muted-foreground">{t('dashboard.pressureDesc')}</p>
+          </div>
+          <Show when={!pressure.error} fallback={
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-4 text-sm md:px-6" role="alert">
+              <span>{t('dashboard.pressureLoadError')}</span>
+              <Button variant="outline" size="sm" onClick={() => refetchPressure()}><IconRefresh class="size-4" />{t('common.retry')}</Button>
+            </div>
+          }>
+            <Show when={!pressure.loading} fallback={
+              <div class="grid gap-6 border-t px-4 py-5 md:grid-cols-2 md:px-6"><div class="space-y-3"><Skeleton class="h-5 w-40" /><Skeleton class="h-12 w-full" /><Skeleton class="h-12 w-full" /></div><div class="space-y-3"><Skeleton class="h-5 w-48" /><Skeleton class="h-12 w-full" /><Skeleton class="h-12 w-full" /></div></div>
+            }>
+              <Show when={(pressure()?.areas.length ?? 0) + (pressure()?.customers.length ?? 0) > 0} fallback={
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-6 text-sm text-muted-foreground md:px-6">
+                  <span>{t('dashboard.pressureEmpty')}</span>
+                  <Button variant="outline" size="sm" onClick={() => applyPreset(addCalendarDays(today, -29))}>{t('dashboard.pressureExpandRange')}</Button>
+                </div>
+              }>
+                <div class="grid border-t md:grid-cols-2 md:divide-x">
+                  <div class="min-w-0 px-4 py-5 md:px-6">
+                    <h3 class="mb-3 text-sm font-semibold">{t('dashboard.areaPressure')}</h3>
+                    <ol class="space-y-1">
+                      <For each={pressure()?.areas}>{(area) => <li>
+                        <A href={ordersInRange({ area: area.name })} class="group block rounded-md px-2 py-2.5 -mx-2 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <div class="flex items-baseline justify-between gap-3 text-sm"><span class="min-w-0 font-medium group-hover:underline">{area.name}</span><strong class="shrink-0 font-semibold tabular-nums">{area.unfinished_items.toLocaleString(intlLocale())}</strong></div>
+                          <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden="true"><div class="h-full rounded-full bg-muted-foreground/70" style={{ width: `${100 * area.unfinished_items / (pressure()?.areas[0]?.unfinished_items || 1)}%` }} /></div>
+                          <Show when={area.pending_items > 0}><span class="mt-1 block text-xs text-status-pending">{t('dashboard.pendingItems', { count: area.pending_items })}</span></Show>
+                          <span class="sr-only">{t('dashboard.openAreaOrders', { name: area.name })}. {t('dashboard.unfinishedItems', { count: area.unfinished_items })}</span>
+                        </A>
+                      </li>}</For>
+                    </ol>
+                  </div>
+                  <div class="min-w-0 border-t px-4 py-5 md:border-t-0 md:px-6">
+                    <h3 class="mb-3 text-sm font-semibold">{t('dashboard.customerPressure')}</h3>
+                    <ol class="space-y-1">
+                      <For each={pressure()?.customers}>{(customer) => <li>
+                        <A href={ordersInRange({ customer: customer.name })} class="group block rounded-md px-2 py-2.5 -mx-2 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <div class="flex items-baseline justify-between gap-3 text-sm"><span class="min-w-0 font-medium group-hover:underline">{customer.name}</span><strong class="shrink-0 font-semibold tabular-nums">{customer.unfinished_items.toLocaleString(intlLocale())}</strong></div>
+                          <Show when={customer.area}><span class="block text-xs text-muted-foreground">{customer.area}</span></Show>
+                          <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden="true"><div class="h-full rounded-full bg-muted-foreground/70" style={{ width: `${100 * customer.unfinished_items / (pressure()?.customers[0]?.unfinished_items || 1)}%` }} /></div>
+                          <Show when={customer.pending_items > 0}><span class="mt-1 block text-xs text-status-pending">{t('dashboard.pendingItems', { count: customer.pending_items })}</span></Show>
+                          <span class="sr-only">{t('dashboard.openCustomerOrders', { name: customer.name })}. {t('dashboard.unfinishedItems', { count: customer.unfinished_items })}</span>
+                        </A>
+                      </li>}</For>
+                    </ol>
+                  </div>
+                </div>
+              </Show>
+              <div class="flex flex-wrap items-center justify-between gap-4 border-t bg-secondary/20 px-4 py-4 md:px-6">
+                <div class="min-w-0">
+                  <h3 class="text-sm font-semibold">{t('dashboard.averageLeadTime')}</h3>
+                  <p class="mt-1 text-xs text-muted-foreground">{t('dashboard.leadTimeMethod')}</p>
+                </div>
+                <div class="min-w-0 w-full text-left md:w-auto md:text-right">
+                  <Show when={leadTimeValue()} fallback={<span class="text-sm text-muted-foreground">{t('dashboard.noCompletedItems')}</span>}>
+                    <strong class="block text-xl font-semibold tabular-nums">{t('dashboard.averageLeadTimeValue', { value: leadTimeValue()! })}</strong>
+                    <span class="text-xs text-muted-foreground">{t('dashboard.completedItems', { count: pressure()?.completed_items ?? 0 })}</span>
+                    <A href={ordersInRange({ status: ORDER_STATUS.COMPLETE })} class="mt-1 block text-xs font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('dashboard.viewCompletedOrders')}</A>
+                  </Show>
+                </div>
+              </div>
+            </Show>
+          </Show>
+        </section>
+
         <Card class="min-w-0">
-          <CardHeader><CardTitle class="text-base font-semibold">{t('dashboard.statusTrend')}</CardTitle><CardDescription>{t('dashboard.statusTrendDesc')}</CardDescription></CardHeader>
+          <CardHeader class="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+            <div><CardTitle class="text-base font-semibold">{t('dashboard.statusTrend')}</CardTitle><CardDescription>{t('dashboard.statusTrendDesc')}</CardDescription></div>
+            <Show when={!statusTrend.loading && !statusTrend.error && trendPoints().length > 0}>
+              <ChartTypeSwitch label={t('dashboard.chartTypeFor', { chart: t('dashboard.statusTrend') })} value={trendChartType()}
+                options={[{ value: 'line', label: t('dashboard.lineChart') }, { value: 'bar', label: t('dashboard.stackedBarChart') }]} onChange={setTrendChartType} />
+            </Show>
+          </CardHeader>
           <CardContent>
             <Show when={!statusTrend.error} fallback={
               <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm" role="alert">
@@ -553,7 +794,9 @@ export const Dashboard: Component = () => {
               <Show when={!statusTrend.loading} fallback={<Skeleton class="h-64 w-full" />}>
                 <Show when={trendPoints().length > 0} fallback={<p class="py-12 text-center text-sm text-muted-foreground">{t('dashboard.noStatusHistory')}</p>}>
                   <div class="relative h-64 w-full" role="img" aria-label={t('dashboard.statusTrend')}>
-                    <Line data={trendChartData()} options={trendChartOptions()} />
+                    <Show when={trendChartType() === 'line'} fallback={<Bar data={trendBarData()} options={trendBarOptions()} />}>
+                      <Line data={trendChartData()} options={trendChartOptions()} />
+                    </Show>
                   </div>
                   <div class="sr-only">
                     <p>{t('dashboard.statusTrend')}</p>
@@ -562,6 +805,40 @@ export const Dashboard: Component = () => {
                       const total = () => Object.values(point.counts).reduce((sum, count) => sum + count, 0);
                       return <li>{t('dashboard.statusTrendPoint', { date: formatChartDate(point.date), count: total() })}. {values()}</li>;
                     }}</For></ul>
+                  </div>
+                </Show>
+              </Show>
+            </Show>
+          </CardContent>
+        </Card>
+
+        <Card class="min-w-0">
+          <CardHeader class="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+            <div><CardTitle class="text-base font-semibold">{t('dashboard.statusDelta')}</CardTitle><CardDescription>{t('dashboard.statusDeltaDesc')}</CardDescription></div>
+            <Show when={!statusTrend.loading && !statusTrend.error && deltaPoints().some((point) => point.counts !== null)}>
+              <ChartTypeSwitch label={t('dashboard.chartTypeFor', { chart: t('dashboard.statusDelta') })} value={deltaChartType()}
+                options={[{ value: 'bar', label: t('dashboard.stackedBarChart') }, { value: 'line', label: t('dashboard.lineChart') }]} onChange={setDeltaChartType} />
+            </Show>
+          </CardHeader>
+          <CardContent>
+            <Show when={!statusTrend.error} fallback={
+              <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm" role="alert">
+                <span>{t('dashboard.loadError')}</span>
+                <Button variant="outline" size="sm" onClick={() => refetchStatusTrend()}><IconRefresh class="size-4" />{t('common.retry')}</Button>
+              </div>
+            }>
+              <Show when={!statusTrend.loading} fallback={<Skeleton class="h-64 w-full" />}>
+                <Show when={deltaPoints().some((point) => point.counts !== null)} fallback={<p class="py-12 text-center text-sm text-muted-foreground">{t('dashboard.noStatusDelta')}</p>}>
+                  <div class="relative h-64 w-full" role="img" aria-label={t('dashboard.statusDelta')}>
+                    <Show when={deltaChartType() === 'bar'} fallback={<Line data={deltaLineData()} options={deltaLineOptions()} />}>
+                      <Bar data={deltaChartData()} options={deltaChartOptions()} />
+                    </Show>
+                  </div>
+                  <div class="sr-only">
+                    <p>{t('dashboard.statusDeltaDesc')}</p>
+                    <ul><For each={deltaPoints().filter((point) => point.counts !== null)}>{(point) =>
+                      <li>{t('dashboard.statusDeltaPoint', { date: point.date })}: {trendSeries().map((series) => `${series.label} ${signedDelta(point.counts![series.key])}`).join(', ')}</li>
+                    }</For></ul>
                   </div>
                 </Show>
               </Show>

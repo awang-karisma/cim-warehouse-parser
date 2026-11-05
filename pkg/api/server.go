@@ -372,6 +372,15 @@ func (s *Server) registerOperations() {
 		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDashboardOperations)
 	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-dashboard-pressure",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/dashboard/pressure",
+		Summary:     "Get order-date-filtered pressure metrics",
+		Description: "Returns ranked areas and customers with unfinished items and average policy-calculated lead time",
+		Tags:        []string{"dashboard"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDashboardPressure)
+	huma.Register(s.humaAPI, huma.Operation{
 		OperationID: "list-sync-history",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/sync/history",

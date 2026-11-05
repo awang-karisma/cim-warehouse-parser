@@ -64,6 +64,23 @@ export interface DashboardOperations {
   active_runs: number;
 }
 
+export interface DashboardPressureRow {
+  name: string;
+  unfinished_items: number;
+  pending_items: number;
+}
+
+export interface DashboardCustomerPressureRow extends DashboardPressureRow {
+  area: string;
+}
+
+export interface DashboardPressure {
+  areas: DashboardPressureRow[];
+  customers: DashboardCustomerPressureRow[];
+  average_lead_time: number | null;
+  completed_items: number;
+}
+
 
 export interface OrderStatusPoint {
   date: string;

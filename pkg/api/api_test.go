@@ -3163,9 +3163,14 @@ func TestDashboardDateRangeEndpoints(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/dashboard/summary?from=2026-01-02",
 		"/api/v1/dashboard/status-trend?from=2026-01-02",
+		"/api/v1/dashboard/pressure?from=2026-01-02",
+		"/api/v1/dashboard/pressure?to=2026-01-02",
+		"/api/v1/dashboard/pressure",
 		"/api/v1/dashboard/summary?from=2026-02-02&to=2026-01-02",
 		"/api/v1/dashboard/status-trend?from=2026-02-02&to=2026-01-02",
+		"/api/v1/dashboard/pressure?from=2026-02-02&to=2026-01-02",
 		"/api/v1/dashboard/summary?from=2026-02-30&to=2026-03-01",
+		"/api/v1/dashboard/pressure?from=2026-02-30&to=2026-03-01",
 	} {
 		badResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, path, nil))
 		if err != nil || badResp.StatusCode != http.StatusBadRequest {
@@ -3519,5 +3524,160 @@ func TestDashboardOperationsAPI(t *testing.T) {
 	defer respAdmin.Body.Close()
 	if respAdmin.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for admin on dashboard operations, got %d", respAdmin.StatusCode)
+	}
+}
+
+func TestDashboardPressureAPI(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+
+	// 1. Unseeded / empty response structure verification
+	emptyResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/pressure?from=2026-10-01&to=2026-10-02", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer emptyResp.Body.Close()
+
+	if emptyResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", emptyResp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(emptyResp.Body)
+	if err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
+	rawJSON := string(bodyBytes)
+	if !strings.Contains(rawJSON, `"areas":[]`) {
+		t.Errorf("expected areas:[] in JSON, got %s", rawJSON)
+	}
+	if !strings.Contains(rawJSON, `"customers":[]`) {
+		t.Errorf("expected customers:[] in JSON, got %s", rawJSON)
+	}
+	if !strings.Contains(rawJSON, `"average_lead_time":null`) {
+		t.Errorf("expected average_lead_time:null in JSON, got %s", rawJSON)
+	}
+	if !strings.Contains(rawJSON, `"completed_items":0`) {
+		t.Errorf("expected completed_items:0 in JSON, got %s", rawJSON)
+	}
+
+	var emptyPressure storage.DashboardPressure
+	if err := json.Unmarshal(bodyBytes, &emptyPressure); err != nil {
+		t.Fatalf("failed to unmarshal JSON: %v", err)
+	}
+	if len(emptyPressure.Areas) != 0 || len(emptyPressure.Customers) != 0 || emptyPressure.AverageLeadTime != nil || emptyPressure.CompletedItems != 0 {
+		t.Errorf("unexpected empty pressure struct: %+v", emptyPressure)
+	}
+
+	// 2. Seed orders and items within range
+	date := func(s string) time.Time {
+		d, _ := time.Parse("2006-01-02", s)
+		return d
+	}
+
+	orders := []model.Order{
+		{
+			ID: "ORD-P-1", OrderNumber: "ORD-P-1", Tanggal: date("2026-10-01"), Customer: "RSUD Praya", Area: "Lombok Tengah",
+			Items: []model.OrderItem{
+				{RowIndex: 1, NamaBarang: "Spuit 3cc", StatusOrder: "BELUM SELESAI"},
+				{RowIndex: 2, NamaBarang: "Spuit 5cc", StatusOrder: "PENDING"},
+			},
+		},
+		{
+			ID: "ORD-P-2", OrderNumber: "ORD-P-2", Tanggal: date("2026-10-01"), Customer: "RS Mataram", Area: "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 3, NamaBarang: "Yellowtip", StatusOrder: "SELESAI", LeadTimePengiriman: "3.0"},
+				{RowIndex: 4, NamaBarang: "Bluetip", StatusOrder: "SELESAI", LeadTimePengiriman: "5.0"},
+			},
+		},
+	}
+	if err := store.SyncMirror(ctx, nil, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	popResp, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/pressure?from=2026-10-01&to=2026-10-01", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer popResp.Body.Close()
+
+	if popResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", popResp.StatusCode)
+	}
+
+	var pressure storage.DashboardPressure
+	if err := json.NewDecoder(popResp.Body).Decode(&pressure); err != nil {
+		t.Fatalf("failed to decode populated response: %v", err)
+	}
+
+	if len(pressure.Areas) != 1 || pressure.Areas[0].Name != "Lombok Tengah" || pressure.Areas[0].UnfinishedItems != 1 || pressure.Areas[0].PendingItems != 1 {
+		t.Errorf("unexpected populated areas: %+v", pressure.Areas)
+	}
+	if len(pressure.Customers) != 1 || pressure.Customers[0].Name != "RSUD Praya" || pressure.Customers[0].Area != "Lombok Tengah" || pressure.Customers[0].UnfinishedItems != 1 || pressure.Customers[0].PendingItems != 1 {
+		t.Errorf("unexpected populated customers: %+v", pressure.Customers)
+	}
+	if pressure.CompletedItems != 2 {
+		t.Errorf("expected completed_items=2, got %d", pressure.CompletedItems)
+	}
+	if pressure.AverageLeadTime == nil || *pressure.AverageLeadTime != 4.0 {
+		t.Errorf("expected average_lead_time=4.0, got %v", pressure.AverageLeadTime)
+	}
+
+	// 3. Auth role enforcement (minRole: user)
+	jwtSecret := "pressure-jwt-secret"
+	authCfg := &config.Config{
+		GoogleClientID: "test-client-id",
+		JWTSecret:      jwtSecret,
+	}
+	authSrv, authStore, _ := setupTestServer(t, authCfg)
+
+	guestUser, _ := authStore.UpsertUser(ctx, "guest@example.com", "Guest", "")
+	normalUser, _ := authStore.UpsertUser(ctx, "user@example.com", "User", "")
+	adminUser, _ := authStore.UpsertUser(ctx, "admin@example.com", "Admin", "")
+	if err := authStore.SetUserRole(ctx, normalUser.Email, string(model.RoleUser)); err != nil {
+		t.Fatal(err)
+	}
+	if err := authStore.SetUserRole(ctx, adminUser.Email, string(model.RoleAdmin)); err != nil {
+		t.Fatal(err)
+	}
+	normalUser.Role = string(model.RoleUser)
+	adminUser.Role = string(model.RoleAdmin)
+	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)
+	userToken, _ := auth.GenerateToken(jwtSecret, normalUser, nil)
+	adminToken, _ := auth.GenerateToken(jwtSecret, adminUser, nil)
+
+	// Guest gets 403
+	reqGuest := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/pressure?from=2026-10-01&to=2026-10-01", nil)
+	reqGuest.AddCookie(&http.Cookie{Name: "warehouse_session", Value: guestToken})
+	respGuest, err := authSrv.App().Test(reqGuest)
+	if err != nil {
+		t.Fatalf("guest request failed: %v", err)
+	}
+	defer respGuest.Body.Close()
+	if respGuest.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for guest on dashboard pressure, got %d", respGuest.StatusCode)
+	}
+
+	// User gets 200
+	reqUser := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/pressure?from=2026-10-01&to=2026-10-01", nil)
+	reqUser.AddCookie(&http.Cookie{Name: "warehouse_session", Value: userToken})
+	respUser, err := authSrv.App().Test(reqUser)
+	if err != nil {
+		t.Fatalf("user request failed: %v", err)
+	}
+	defer respUser.Body.Close()
+	if respUser.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for user on dashboard pressure, got %d", respUser.StatusCode)
+	}
+
+	// Admin gets 200
+	reqAdmin := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/pressure?from=2026-10-01&to=2026-10-01", nil)
+	reqAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
+	respAdmin, err := authSrv.App().Test(reqAdmin)
+	if err != nil {
+		t.Fatalf("admin request failed: %v", err)
+	}
+	defer respAdmin.Body.Close()
+	if respAdmin.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for admin on dashboard pressure, got %d", respAdmin.StatusCode)
 	}
 }

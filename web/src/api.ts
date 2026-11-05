@@ -1,6 +1,7 @@
 import type {
 	DashboardSummary,
 	DashboardOperations,
+	DashboardPressure,
 	OrderStatusTrendResponse,
   Stats,
   PaginatedOrders,
@@ -82,6 +83,11 @@ export const getDashboardSummary = (params: { from: string; to: string }) => {
 };
 
 export const getDashboardOperations = () => apiFetch<DashboardOperations>('/api/v1/dashboard/operations');
+
+export const getDashboardPressure = (params: { from: string; to: string }) => {
+  const query = qs(params);
+  return apiFetch<DashboardPressure>(`/api/v1/dashboard/pressure?${query}`);
+};
 
 export const getOrderStatusTrend = (params: { from: string; to: string }) => {
   const query = qs(params);

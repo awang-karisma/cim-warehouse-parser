@@ -10,6 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,6 +118,30 @@ type DashboardOperations struct {
 	ActiveBacklogOrders int `json:"active_backlog_orders"`
 	ShelfReadyItems     int `json:"shelf_ready_items"`
 	ActiveRuns          int `json:"active_runs"`
+}
+
+// PressureArea represents an area with unfinished and pending item counts.
+type PressureArea struct {
+	Name            string `json:"name"`
+	UnfinishedItems int    `json:"unfinished_items"`
+	PendingItems    int    `json:"pending_items"`
+}
+
+// PressureCustomer represents a customer with unfinished and pending item counts,
+// and unambiguous area if uniform across matched orders.
+type PressureCustomer struct {
+	Name            string `json:"name"`
+	Area            string `json:"area"`
+	UnfinishedItems int    `json:"unfinished_items"`
+	PendingItems    int    `json:"pending_items"`
+}
+
+// DashboardPressure represents operational pressure metrics for the dashboard.
+type DashboardPressure struct {
+	Areas           []PressureArea     `json:"areas"`
+	Customers       []PressureCustomer `json:"customers"`
+	AverageLeadTime *float64           `json:"average_lead_time"`
+	CompletedItems  int                `json:"completed_items"`
 }
 
 type OrderStatusPoint struct {
@@ -2367,6 +2394,226 @@ func (s *Storage) GetDashboardOperations(ctx context.Context) (*DashboardOperati
 		return nil, fmt.Errorf("failed to query dashboard operations: %w", err)
 	}
 	return ops, nil
+}
+
+// GetDashboardPressure computes order-date-filtered area/customer unfinished ranks and average lead time.
+func (s *Storage) GetDashboardPressure(ctx context.Context, from, to string) (*DashboardPressure, error) {
+	pressure := &DashboardPressure{
+		Areas:          []PressureArea{},
+		Customers:      []PressureCustomer{},
+		CompletedItems: 0,
+	}
+
+	// 1. Fetch matched orders within date range
+	orderRows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(customer, ''), COALESCE(area, '')
+		FROM orders
+		WHERE tanggal >= ? AND tanggal <= ?
+	`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query matched orders for pressure: %w", err)
+	}
+	defer orderRows.Close()
+
+	type orderInfo struct {
+		customer string
+		area     string
+	}
+	type customerAreaState struct {
+		area      string
+		ambiguous bool
+	}
+	ordersMap := make(map[string]orderInfo)
+	customerAreas := make(map[string]customerAreaState)
+	for orderRows.Next() {
+		var id string
+		var o orderInfo
+		if err := orderRows.Scan(&id, &o.customer, &o.area); err != nil {
+			return nil, fmt.Errorf("failed to scan matched order for pressure: %w", err)
+		}
+		ordersMap[id] = o
+		name := strings.TrimSpace(o.customer)
+		if name != "" {
+			area := normalizer.NormalizeArea(o.area)
+			state, exists := customerAreas[name]
+			if exists && state.area != area {
+				state.ambiguous = true
+			}
+			if !exists {
+				state.area = area
+			}
+			customerAreas[name] = state
+		}
+	}
+	if err := orderRows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read matched orders for pressure: %w", err)
+	}
+	orderRows.Close()
+
+	// If no matched orders exist in the date range, return initialized empty pressure
+	if len(ordersMap) == 0 {
+		return pressure, nil
+	}
+
+	// Every item belongs to one order; no delivery join or item deduplication is needed.
+	itemRows, err := s.db.QueryContext(ctx, `
+		SELECT i.order_id, COALESCE(i.customer, ''), COALESCE(i.area, ''),
+		       COALESCE(i.status_order, ''), COALESCE(i.lead_time_pengiriman, '')
+		FROM orders o
+		JOIN items i ON i.order_id = o.id
+		WHERE o.tanggal >= ? AND o.tanggal <= ?
+	`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query matched items for pressure: %w", err)
+	}
+	defer itemRows.Close()
+
+	type areaCounts struct {
+		unfinished int
+		pending    int
+	}
+	type customerCounts struct {
+		unfinished int
+		pending    int
+	}
+
+	areaData := make(map[string]*areaCounts)
+	customerData := make(map[string]*customerCounts)
+	var completedLeadTimeSum float64
+	var completedCount int
+
+	for itemRows.Next() {
+		var orderID, itemCust, itemArea, statusOrder, leadTimeStr string
+		if err := itemRows.Scan(&orderID, &itemCust, &itemArea, &statusOrder, &leadTimeStr); err != nil {
+			return nil, fmt.Errorf("failed to scan matched item for pressure: %w", err)
+		}
+
+		ord, hasOrd := ordersMap[orderID]
+
+		effArea := normalizer.NormalizeArea(itemArea)
+		if effArea == "" && hasOrd {
+			effArea = normalizer.NormalizeArea(ord.area)
+		}
+
+		effCust := strings.TrimSpace(itemCust)
+		if effCust == "" && hasOrd {
+			effCust = strings.TrimSpace(ord.customer)
+		}
+
+		normStatus := strings.ToUpper(strings.TrimSpace(normalizer.NormalizeStatusOrder(statusOrder)))
+
+		isUnfinished := normStatus == "BELUM SELESAI" || normStatus == "PROSES"
+		isPending := normStatus == "PENDING"
+		isCompleted := normStatus == "SELESAI" || normStatus == "COMPLETED"
+
+		if effArea != "" {
+			ac, ok := areaData[effArea]
+			if !ok {
+				ac = &areaCounts{}
+				areaData[effArea] = ac
+			}
+			if isUnfinished {
+				ac.unfinished++
+			} else if isPending {
+				ac.pending++
+			}
+		}
+
+		if effCust != "" {
+			cc, ok := customerData[effCust]
+			if !ok {
+				cc = &customerCounts{}
+				customerData[effCust] = cc
+			}
+			if isUnfinished {
+				cc.unfinished++
+			} else if isPending {
+				cc.pending++
+			}
+		}
+
+		if isCompleted {
+			cleanLT := strings.TrimSpace(leadTimeStr)
+			if cleanLT != "" {
+				if val, err := strconv.ParseFloat(cleanLT, 64); err == nil {
+					if !math.IsNaN(val) && !math.IsInf(val, 0) && val >= 0 {
+						completedLeadTimeSum += val
+						completedCount++
+					}
+				}
+			}
+		}
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read matched items for pressure: %w", err)
+	}
+	itemRows.Close()
+
+	for name, ac := range areaData {
+		if ac.unfinished > 0 {
+			pressure.Areas = append(pressure.Areas, PressureArea{
+				Name:            name,
+				UnfinishedItems: ac.unfinished,
+				PendingItems:    ac.pending,
+			})
+		}
+	}
+	sort.Slice(pressure.Areas, func(i, j int) bool {
+		if pressure.Areas[i].UnfinishedItems != pressure.Areas[j].UnfinishedItems {
+			return pressure.Areas[i].UnfinishedItems > pressure.Areas[j].UnfinishedItems
+		}
+		nameI := strings.ToLower(pressure.Areas[i].Name)
+		nameJ := strings.ToLower(pressure.Areas[j].Name)
+		if nameI != nameJ {
+			return nameI < nameJ
+		}
+		return pressure.Areas[i].Name < pressure.Areas[j].Name
+	})
+
+	var rankedCustomers []PressureCustomer
+	for name, cc := range customerData {
+		if cc.unfinished > 0 {
+			state := customerAreas[name]
+			resolvedArea := ""
+			if !state.ambiguous {
+				resolvedArea = state.area
+			}
+
+			rankedCustomers = append(rankedCustomers, PressureCustomer{
+				Name:            name,
+				Area:            resolvedArea,
+				UnfinishedItems: cc.unfinished,
+				PendingItems:    cc.pending,
+			})
+		}
+	}
+	sort.Slice(rankedCustomers, func(i, j int) bool {
+		if rankedCustomers[i].UnfinishedItems != rankedCustomers[j].UnfinishedItems {
+			return rankedCustomers[i].UnfinishedItems > rankedCustomers[j].UnfinishedItems
+		}
+		nameI := strings.ToLower(rankedCustomers[i].Name)
+		nameJ := strings.ToLower(rankedCustomers[j].Name)
+		if nameI != nameJ {
+			return nameI < nameJ
+		}
+		return rankedCustomers[i].Name < rankedCustomers[j].Name
+	})
+
+	if len(rankedCustomers) > 5 {
+		pressure.Customers = rankedCustomers[:5]
+	} else if len(rankedCustomers) > 0 {
+		pressure.Customers = rankedCustomers
+	}
+
+	pressure.CompletedItems = completedCount
+	if completedCount > 0 {
+		avg := completedLeadTimeSum / float64(completedCount)
+		pressure.AverageLeadTime = &avg
+	} else {
+		pressure.AverageLeadTime = nil
+	}
+
+	return pressure, nil
 }
 
 func (s *Storage) GetOrderStatusTrend(ctx context.Context, from, to string) ([]OrderStatusPoint, error) {

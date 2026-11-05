@@ -122,6 +122,15 @@ type DashboardOperationsOutput struct {
 	Body storage.DashboardOperations
 }
 
+type DashboardPressureInput struct {
+	From string `query:"from" doc:"Inclusive order placement start date (YYYY-MM-DD)"`
+	To   string `query:"to" doc:"Inclusive order placement end date (YYYY-MM-DD)"`
+}
+
+type DashboardPressureOutput struct {
+	Body storage.DashboardPressure
+}
+
 // Sync history
 type ListSyncHistoryInput struct {
 	Limit  int `query:"limit" default:"10" doc:"Max records"`
@@ -672,6 +681,20 @@ func (s *Server) handleGetDashboardOperations(ctx context.Context, input *struct
 		return nil, huma.Error500InternalServerError("failed to get dashboard operations", err)
 	}
 	return &DashboardOperationsOutput{Body: *ops}, nil
+}
+
+func (s *Server) handleGetDashboardPressure(ctx context.Context, input *DashboardPressureInput) (*DashboardPressureOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if err := validateISODateBounds(input.From, input.To, true); err != nil {
+		return nil, huma.Error400BadRequest("invalid date range", err)
+	}
+	pressure, err := s.store.GetDashboardPressure(ctx, input.From, input.To)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get dashboard pressure", err)
+	}
+	return &DashboardPressureOutput{Body: *pressure}, nil
 }
 
 func (s *Server) handleListSyncHistory(ctx context.Context, input *ListSyncHistoryInput) (*SyncHistoryOutput, error) {

@@ -3770,3 +3770,365 @@ func TestDashboardOperations_MetricsAndReadiness(t *testing.T) {
 		t.Errorf("expected 4 active runs, got %d", ops.ActiveRuns)
 	}
 }
+
+func TestDashboardPressure_RangeAndEmpty(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+
+	parseDate := func(value string) time.Time {
+		d, err := time.Parse("2006-01-02", value)
+		if err != nil {
+			t.Fatalf("failed to parse test date %s: %v", value, err)
+		}
+		return d
+	}
+
+	orders := []model.Order{
+		{
+			ID: "ord-before", OrderNumber: "OUT-BEFORE", Tanggal: parseDate("2026-09-30"), Customer: "RS Alpha", Area: "Mataram",
+			Items: []model.OrderItem{{RowIndex: 1, NamaBarang: "Item 1", StatusOrder: "BELUM SELESAI"}},
+		},
+		{
+			ID: "ord-start", OrderNumber: "IN-START", Tanggal: parseDate("2026-10-01"), Customer: "RS Alpha", Area: "Mataram",
+			Items: []model.OrderItem{{RowIndex: 2, NamaBarang: "Item 2", StatusOrder: "BELUM SELESAI"}},
+		},
+		{
+			ID: "ord-mid", OrderNumber: "IN-MID", Tanggal: parseDate("2026-10-02"), Customer: "RS Beta", Area: "Lombok Barat",
+			Items: []model.OrderItem{{RowIndex: 3, NamaBarang: "Item 3", StatusOrder: "PROSES"}},
+		},
+		{
+			ID: "ord-end", OrderNumber: "IN-END", Tanggal: parseDate("2026-10-03"), Customer: "RS Gamma", Area: "Lombok Tengah",
+			Items: []model.OrderItem{{RowIndex: 4, NamaBarang: "Item 4", StatusOrder: "SELESAI", LeadTimePengiriman: "3.5"}},
+		},
+		{
+			ID: "ord-after", OrderNumber: "OUT-AFTER", Tanggal: parseDate("2026-10-04"), Customer: "RS Delta", Area: "Mataram",
+			Items: []model.OrderItem{{RowIndex: 5, NamaBarang: "Item 5", StatusOrder: "BELUM SELESAI"}},
+		},
+	}
+	if err := store.SyncMirror(ctx, nil, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	// 1. Query range [2026-10-01, 2026-10-03]
+	res, err := store.GetDashboardPressure(ctx, "2026-10-01", "2026-10-03")
+	if err != nil {
+		t.Fatalf("GetDashboardPressure failed: %v", err)
+	}
+
+	if len(res.Areas) != 2 {
+		t.Fatalf("expected 2 areas with unfinished items, got %d: %+v", len(res.Areas), res.Areas)
+	}
+	if len(res.Customers) != 2 {
+		t.Fatalf("expected 2 customers with unfinished items, got %d: %+v", len(res.Customers), res.Customers)
+	}
+	if res.CompletedItems != 1 {
+		t.Errorf("expected completed_items=1, got %d", res.CompletedItems)
+	}
+	if res.AverageLeadTime == nil || *res.AverageLeadTime != 3.5 {
+		t.Errorf("expected average_lead_time=3.5, got %v", res.AverageLeadTime)
+	}
+
+	// 2. Query empty range with no orders
+	emptyRes, err := store.GetDashboardPressure(ctx, "2026-11-01", "2026-11-02")
+	if err != nil {
+		t.Fatalf("GetDashboardPressure on empty range failed: %v", err)
+	}
+	if emptyRes.Areas == nil || len(emptyRes.Areas) != 0 {
+		t.Errorf("expected non-nil empty areas slice, got %#v", emptyRes.Areas)
+	}
+	if emptyRes.Customers == nil || len(emptyRes.Customers) != 0 {
+		t.Errorf("expected non-nil empty customers slice, got %#v", emptyRes.Customers)
+	}
+	if emptyRes.AverageLeadTime != nil {
+		t.Errorf("expected nil average_lead_time on empty range, got %v", emptyRes.AverageLeadTime)
+	}
+	if emptyRes.CompletedItems != 0 {
+		t.Errorf("expected completed_items=0 on empty range, got %d", emptyRes.CompletedItems)
+	}
+}
+
+func TestDashboardPressure_StatusNormalizationAndCancellation(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+
+	parseDate := func(value string) time.Time {
+		d, _ := time.Parse("2006-01-02", value)
+		return d
+	}
+
+	orders := []model.Order{
+		{
+			ID: "ord-statuses", OrderNumber: "ORD-STATUSES", Tanggal: parseDate("2026-10-01"), Customer: "RS Normalizer", Area: "Mataram",
+			Items: []model.OrderItem{
+				{RowIndex: 1, NamaBarang: "Item 1", StatusOrder: "BELUM SELESAI"},
+				{RowIndex: 2, NamaBarang: "Item 2", StatusOrder: " belum selesai "},
+				{RowIndex: 3, NamaBarang: "Item 3", StatusOrder: "PROSES"},
+				{RowIndex: 4, NamaBarang: "Item 4", StatusOrder: " proses "},
+				{RowIndex: 5, NamaBarang: "Item 5", StatusOrder: ""},  // normalizes to BELUM SELESAI
+				{RowIndex: 6, NamaBarang: "Item 6", StatusOrder: "-"}, // normalizes to BELUM SELESAI
+				{RowIndex: 7, NamaBarang: "Item 7", StatusOrder: "PENDING"},
+				{RowIndex: 8, NamaBarang: "Item 8", StatusOrder: " pending "},
+				{RowIndex: 9, NamaBarang: "Item 9", StatusOrder: "BATAL"},
+				{RowIndex: 10, NamaBarang: "Item 10", StatusOrder: "CANCEL"},
+				{RowIndex: 11, NamaBarang: "Item 11", StatusOrder: " batal "},
+				{RowIndex: 12, NamaBarang: "Item 12", StatusOrder: " cancel "},
+			},
+		},
+	}
+	if err := store.SyncMirror(ctx, nil, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	res, err := store.GetDashboardPressure(ctx, "2026-10-01", "2026-10-01")
+	if err != nil {
+		t.Fatalf("GetDashboardPressure failed: %v", err)
+	}
+
+	// Unfinished items: rows 1, 2, 3, 4, 5, 6 = 6 unfinished items
+	// Pending items: rows 7, 8 = 2 pending items
+	// Cancelled: rows 9, 10, 11, 12 = completely excluded
+	if len(res.Areas) != 1 || res.Areas[0].UnfinishedItems != 6 || res.Areas[0].PendingItems != 2 {
+		t.Fatalf("unexpected area status counts: %+v", res.Areas)
+	}
+	if len(res.Customers) != 1 || res.Customers[0].UnfinishedItems != 6 || res.Customers[0].PendingItems != 2 {
+		t.Fatalf("unexpected customer status counts: %+v", res.Customers)
+	}
+}
+
+func TestDashboardPressure_RankingAndTieBreaking(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+
+	parseDate := func(value string) time.Time {
+		d, _ := time.Parse("2006-01-02", value)
+		return d
+	}
+
+	orders := []model.Order{
+		{
+			ID: "ord-denpasar-1", Tanggal: parseDate("2026-10-01"), Customer: "Customer A", Area: "Denpasar",
+			Items: []model.OrderItem{
+				{RowIndex: 1, NamaBarang: "A1", StatusOrder: "BELUM SELESAI"},
+				{RowIndex: 2, NamaBarang: "A2", StatusOrder: "BELUM SELESAI"},
+				{RowIndex: 3, NamaBarang: "A3", StatusOrder: "PROSES"},
+				{RowIndex: 4, NamaBarang: "A4", StatusOrder: "PROSES"},
+			},
+		},
+		{
+			ID: "ord-denpasar-2", Tanggal: parseDate("2026-10-01"), Customer: "Customer B", Area: "Denpasar",
+			Items: []model.OrderItem{
+				{RowIndex: 5, NamaBarang: "B1", StatusOrder: "BELUM SELESAI"},
+				{RowIndex: 6, NamaBarang: "B2", StatusOrder: "PROSES"},
+			},
+		},
+		{
+			ID: "ord-bima", Tanggal: parseDate("2026-10-01"), Customer: "Customer C", Area: "Bima",
+			Items: []model.OrderItem{
+				{RowIndex: 7, NamaBarang: "C1", StatusOrder: "BELUM SELESAI"},
+				{RowIndex: 8, NamaBarang: "C2", StatusOrder: "PROSES"},
+			},
+		},
+		{
+			ID: "ord-mataram-1", Tanggal: parseDate("2026-10-01"), Customer: "Customer D", Area: "Mataram",
+			Items: []model.OrderItem{{RowIndex: 9, NamaBarang: "D1", StatusOrder: "BELUM SELESAI"}},
+		},
+		{
+			ID: "ord-mataram-2", Tanggal: parseDate("2026-10-01"), Customer: "Customer E", Area: "Mataram",
+			Items: []model.OrderItem{{RowIndex: 10, NamaBarang: "E1", StatusOrder: "BELUM SELESAI"}},
+		},
+		{
+			ID: "ord-mataram-3", Tanggal: parseDate("2026-10-01"), Customer: "Customer F", Area: "Denpasar",
+			Items: []model.OrderItem{{RowIndex: 11, NamaBarang: "F1", StatusOrder: "BELUM SELESAI"}},
+		},
+		{
+			ID: "ord-pending-only", Tanggal: parseDate("2026-10-01"), Customer: "Customer G", Area: "Lombok Barat",
+			Items: []model.OrderItem{
+				{RowIndex: 12, NamaBarang: "G1", StatusOrder: "PENDING"},
+				{RowIndex: 13, NamaBarang: "G2", StatusOrder: "PENDING"},
+			},
+		},
+		{
+			ID: "ord-empty-names", Tanggal: parseDate("2026-10-01"), Customer: "", Area: "",
+			Items: []model.OrderItem{
+				{RowIndex: 14, NamaBarang: "Blank", StatusOrder: "BELUM SELESAI"},
+			},
+		},
+	}
+	if err := store.SyncMirror(ctx, nil, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	res, err := store.GetDashboardPressure(ctx, "2026-10-01", "2026-10-01")
+	if err != nil {
+		t.Fatalf("GetDashboardPressure failed: %v", err)
+	}
+
+	if len(res.Areas) != 3 {
+		t.Fatalf("expected 3 areas, got %d: %+v", len(res.Areas), res.Areas)
+	}
+	if res.Areas[0].Name != "Denpasar" || res.Areas[0].UnfinishedItems != 7 {
+		t.Errorf("expected 1st area Denpasar (7), got %+v", res.Areas[0])
+	}
+	if res.Areas[1].Name != "Bima" || res.Areas[1].UnfinishedItems != 2 {
+		t.Errorf("expected 2nd area Bima (2), got %+v", res.Areas[1])
+	}
+	if res.Areas[2].Name != "Mataram" || res.Areas[2].UnfinishedItems != 2 {
+		t.Errorf("expected 3rd area Mataram (2), got %+v", res.Areas[2])
+	}
+
+	if len(res.Customers) != 5 {
+		t.Fatalf("expected top 5 customers, got %d: %+v", len(res.Customers), res.Customers)
+	}
+	expectedCusts := []string{"Customer A", "Customer B", "Customer C", "Customer D", "Customer E"}
+	for i, exp := range expectedCusts {
+		if res.Customers[i].Name != exp {
+			t.Errorf("customer rank %d expected %s, got %s", i, exp, res.Customers[i].Name)
+		}
+	}
+}
+
+func TestDashboardPressure_CustomerAreaAmbiguity(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "pressure_area.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	parseDate := func(value string) time.Time {
+		d, _ := time.Parse("2006-01-02", value)
+		return d
+	}
+
+	orders := []model.Order{
+		// Cust1: all orders in Mataram -> area "Mataram"
+		{ID: "c1-ord1", Tanggal: parseDate("2026-10-01"), Customer: "Cust Unambiguous", Area: "Mataram", Items: []model.OrderItem{{RowIndex: 1, NamaBarang: "X", StatusOrder: "BELUM SELESAI"}}},
+		{ID: "c1-ord2", Tanggal: parseDate("2026-10-02"), Customer: "Cust Unambiguous", Area: "Mataram", Items: []model.OrderItem{{RowIndex: 2, NamaBarang: "Y", StatusOrder: "BELUM SELESAI"}}},
+
+		// Cust2: orders in Mataram and Lombok Barat -> area ""
+		{ID: "c2-ord1", Tanggal: parseDate("2026-10-01"), Customer: "Cust MultiArea", Area: "Mataram", Items: []model.OrderItem{{RowIndex: 3, NamaBarang: "X", StatusOrder: "BELUM SELESAI"}}},
+		{ID: "c2-ord2", Tanggal: parseDate("2026-10-02"), Customer: "Cust MultiArea", Area: "Lombok Barat", Items: []model.OrderItem{{RowIndex: 4, NamaBarang: "Y", StatusOrder: "BELUM SELESAI"}}},
+
+		// Cust3: one order in Mataram, one order with empty area -> area ""
+		{ID: "c3-ord1", Tanggal: parseDate("2026-10-01"), Customer: "Cust MissingArea", Area: "Mataram", Items: []model.OrderItem{{RowIndex: 5, NamaBarang: "X", StatusOrder: "BELUM SELESAI"}}},
+		{ID: "c3-ord2", Tanggal: parseDate("2026-10-02"), Customer: "Cust MissingArea", Area: "", Items: []model.OrderItem{{RowIndex: 6, NamaBarang: "Y", StatusOrder: "BELUM SELESAI"}}},
+
+		// Cust4: all orders empty area -> area ""
+		{ID: "c4-ord1", Tanggal: parseDate("2026-10-01"), Customer: "Cust AllBlank", Area: "", Items: []model.OrderItem{{RowIndex: 7, NamaBarang: "X", StatusOrder: "BELUM SELESAI"}}},
+	}
+	if err := store.SyncMirror(ctx, nil, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+	// SyncMirror backfills a customer's missing area from other orders. Model a
+	// legacy row with genuinely missing persisted area to exercise ambiguity.
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, `UPDATE orders SET area = '' WHERE id = 'c3-ord2'`); err != nil {
+		t.Fatalf("clear order area: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE items SET area = '' WHERE order_id = 'c3-ord2'`); err != nil {
+		t.Fatalf("clear item area: %v", err)
+	}
+
+	res, err := store.GetDashboardPressure(ctx, "2026-10-01", "2026-10-02")
+	if err != nil {
+		t.Fatalf("GetDashboardPressure failed: %v", err)
+	}
+
+	custMap := make(map[string]string)
+	for _, c := range res.Customers {
+		custMap[c.Name] = c.Area
+	}
+
+	if custMap["Cust Unambiguous"] != "Mataram" {
+		t.Errorf("expected Cust Unambiguous area 'Mataram', got %q", custMap["Cust Unambiguous"])
+	}
+	if custMap["Cust MultiArea"] != "" {
+		t.Errorf("expected Cust MultiArea area empty, got %q", custMap["Cust MultiArea"])
+	}
+	if custMap["Cust MissingArea"] != "" {
+		t.Errorf("expected Cust MissingArea area empty, got %q", custMap["Cust MissingArea"])
+	}
+	if custMap["Cust AllBlank"] != "" {
+		t.Errorf("expected Cust AllBlank area empty, got %q", custMap["Cust AllBlank"])
+	}
+}
+
+func TestDashboardPressure_LeadTimeAndWeighting(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStorage(t)
+
+	parseDate := func(value string) time.Time {
+		d, _ := time.Parse("2006-01-02", value)
+		return d
+	}
+
+	items := []model.NormalizedItem{
+		{
+			RowIndex: 1, OrderNumber: "ORD-LT-1", Tanggal: parseDate("2026-10-01"), Customer: "RS Alpha", Area: "Mataram",
+			NamaBarang: "Multi-Delivery Item", StatusOrder: "SELESAI", LeadTimePengiriman: "6.0", TanggalPengiriman: "07/01/2026 (1), 08/01/2026 (1), 09/01/2026 (1)",
+		},
+		{
+			RowIndex: 2, OrderNumber: "ORD-LT-1", Tanggal: parseDate("2026-10-01"), Customer: "RS Alpha", Area: "Mataram",
+			NamaBarang: "Single-Delivery Item", StatusOrder: "SELESAI", LeadTimePengiriman: "2.0", TanggalPengiriman: "07/01/2026 (1)",
+		},
+		{
+			RowIndex: 3, OrderNumber: "ORD-LT-2", Tanggal: parseDate("2026-10-01"), Customer: "RS Beta", Area: "Mataram",
+			NamaBarang: "Unfinished With LT", StatusOrder: "BELUM SELESAI", LeadTimePengiriman: "10.0",
+		},
+		{
+			RowIndex: 4, OrderNumber: "ORD-LT-2", Tanggal: parseDate("2026-10-01"), Customer: "RS Beta", Area: "Mataram",
+			NamaBarang: "Cancelled With LT", StatusOrder: "BATAL", LeadTimePengiriman: "10.0",
+		},
+		{
+			RowIndex: 5, OrderNumber: "ORD-LT-2", Tanggal: parseDate("2026-10-01"), Customer: "RS Beta", Area: "Mataram",
+			NamaBarang: "Completed Empty LT", StatusOrder: "SELESAI", LeadTimePengiriman: "",
+		},
+		{
+			RowIndex: 6, OrderNumber: "ORD-LT-2", Tanggal: parseDate("2026-10-01"), Customer: "RS Beta", Area: "Mataram",
+			NamaBarang: "Completed Neg LT", StatusOrder: "SELESAI", LeadTimePengiriman: "-1",
+		},
+		{
+			RowIndex: 7, OrderNumber: "ORD-LT-2", Tanggal: parseDate("2026-10-01"), Customer: "RS Beta", Area: "Mataram",
+			NamaBarang: "Completed Bad LT", StatusOrder: "SELESAI", LeadTimePengiriman: "invalid",
+		},
+	}
+	orders := []model.Order{
+		{
+			ID: "ORD-LT-1", OrderNumber: "ORD-LT-1", Tanggal: parseDate("2026-10-01"), Customer: "RS Alpha", Area: "Mataram",
+			Items: []model.OrderItem{{RowIndex: 1}, {RowIndex: 2}},
+		},
+		{
+			ID: "ORD-LT-2", OrderNumber: "ORD-LT-2", Tanggal: parseDate("2026-10-01"), Customer: "RS Beta", Area: "Mataram",
+			Items: []model.OrderItem{{RowIndex: 3}, {RowIndex: 4}, {RowIndex: 5}, {RowIndex: 6}, {RowIndex: 7}},
+		},
+	}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+
+	var dCount int
+	if err := store.DB().QueryRow("SELECT COUNT(*) FROM deliveries").Scan(&dCount); err != nil || dCount != 4 {
+		t.Fatalf("expected 4 deliveries seeded (3 for item 1, 1 for item 2), got %d, err %v", dCount, err)
+	}
+
+	res, err := store.GetDashboardPressure(ctx, "2026-10-01", "2026-10-01")
+	if err != nil {
+		t.Fatalf("GetDashboardPressure failed: %v", err)
+	}
+
+	// Weighting check: 1 count per completed item, not per delivery row
+	if res.CompletedItems != 2 {
+		t.Fatalf("expected completed_items=2, got %d", res.CompletedItems)
+	}
+	if res.AverageLeadTime == nil {
+		t.Fatalf("expected non-nil average_lead_time")
+	}
+	if *res.AverageLeadTime != 4.0 {
+		t.Errorf("weighting test failed: expected average_lead_time=4.0 (per item), got %f", *res.AverageLeadTime)
+	}
+}
