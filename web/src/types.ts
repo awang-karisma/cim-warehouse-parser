@@ -91,6 +91,15 @@ export interface OrderStatusTrendResponse {
   points: OrderStatusPoint[];
 }
 
+export interface OrderStatusChangePoint {
+  date: string;
+  entered_status_counts: Record<string, number>;
+}
+
+export interface OrderStatusChangesResponse {
+  points: OrderStatusChangePoint[];
+}
+
 export interface SyncRecord {
   id: number;
   synced_at: string;

@@ -404,6 +404,18 @@ func (s *Storage) migrate() error {
 		status_counts_json TEXT NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_sync_status_snapshots_date_id ON sync_status_snapshots(snapshot_date, sync_history_id);
+	CREATE TABLE IF NOT EXISTS daily_order_status_days (
+		day TEXT PRIMARY KEY,
+		sync_history_id INTEGER NOT NULL REFERENCES sync_history(id) ON DELETE CASCADE
+	);
+	CREATE TABLE IF NOT EXISTS daily_order_statuses (
+		day TEXT NOT NULL REFERENCES daily_order_status_days(day) ON DELETE CASCADE,
+		order_key TEXT NOT NULL,
+		baseline_status TEXT,
+		latest_status TEXT NOT NULL,
+		present INTEGER NOT NULL CHECK(present IN (0,1)),
+		PRIMARY KEY(day, order_key)
+	);
 
 	CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer);
 	CREATE INDEX IF NOT EXISTS idx_orders_tanggal ON orders(tanggal);
@@ -854,12 +866,20 @@ func (s *Storage) repairDeliveries() error {
 // SyncMirror replaces all existing items and orders with remote items and orders
 // in a single atomic transaction. If anything fails, changes are rolled back.
 func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, orders []model.Order) error {
+	return s.syncMirrorAt(ctx, items, orders, time.Now().UTC())
+}
+
+func (s *Storage) syncMirrorAt(ctx context.Context, items []model.NormalizedItem, orders []model.Order, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
+	oldStates, err := readOrderStates(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("failed to read previous order states: %w", err)
+	}
 	// Clear existing deliveries, items and orders
 	if _, err := tx.ExecContext(ctx, "DELETE FROM deliveries"); err != nil {
 		return fmt.Errorf("failed to clear existing deliveries: %w", err)
@@ -979,7 +999,7 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 		}
 	}
 
-	now := time.Now().UTC()
+	now = now.UTC()
 
 	orderByID := make(map[string]model.Order, len(orders))
 	for _, ord := range orders {
@@ -1154,6 +1174,10 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	if err != nil {
 		return fmt.Errorf("failed to read sync history ID: %w", err)
 	}
+	newStates, err := readOrderStates(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("failed to read current order states: %w", err)
+	}
 	statusCounts, err := orderStatusCounts(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("failed to derive order status snapshot: %w", err)
@@ -1172,6 +1196,9 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	`, syncID, now.In(location).Format("2006-01-02"), string(countsJSON)); err != nil {
 		return fmt.Errorf("failed to record order status snapshot: %w", err)
 	}
+	if err := recordDailyOrderStatuses(ctx, tx, syncID, now.In(location).Format("2006-01-02"), oldStates, newStates); err != nil {
+		return fmt.Errorf("failed to record daily order status outcomes: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit sync transaction: %w", err)
@@ -1180,39 +1207,40 @@ func (s *Storage) SyncMirror(ctx context.Context, items []model.NormalizedItem, 
 	return nil
 }
 
-func orderStatusCounts(ctx context.Context, tx *sql.Tx) (map[string]int, error) {
-	rows, err := tx.QueryContext(ctx, `
-		SELECT o.id, i.status_order FROM orders o LEFT JOIN items i ON i.order_id = o.id
-		ORDER BY o.id, i.id
-	`)
+type orderState struct {
+	ID, Number, Date, Customer, Status string
+	FirstRow                           int
+}
+
+func readOrderStates(ctx context.Context, tx *sql.Tx) ([]orderState, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT o.id, o.order_number, o.tanggal, o.customer, i.status_order, COALESCE(i.row_index, 0) FROM orders o LEFT JOIN items i ON i.order_id = o.id ORDER BY o.id, i.id`)
 	if err != nil {
 		return nil, err
 	}
-	statusesByOrder := make(map[string][]string)
-	orderIDs := make([]string, 0)
+	defer rows.Close()
+	states := make([]orderState, 0)
+	statusLists := make([][]string, 0)
 	for rows.Next() {
-		var orderID string
+		var state orderState
 		var status sql.NullString
-		if err := rows.Scan(&orderID, &status); err != nil {
-			rows.Close()
+		if err := rows.Scan(&state.ID, &state.Number, &state.Date, &state.Customer, &status, &state.FirstRow); err != nil {
 			return nil, err
 		}
-		if _, exists := statusesByOrder[orderID]; !exists {
-			orderIDs = append(orderIDs, orderID)
+		if len(states) == 0 || states[len(states)-1].ID != state.ID {
+			states = append(states, state)
+			statusLists = append(statusLists, nil)
 		}
-		statusesByOrder[orderID] = append(statusesByOrder[orderID], strings.ToUpper(strings.TrimSpace(status.String)))
+		idx := len(states) - 1
+		if states[idx].FirstRow <= 0 && state.FirstRow > 0 {
+			states[idx].FirstRow = state.FirstRow
+		}
+		statusLists[idx] = append(statusLists[idx], strings.ToUpper(strings.TrimSpace(status.String)))
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
 		return nil, err
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	counts := make(map[string]int)
 	priority := []string{"BELUM SELESAI", "PROSES", "PENDING"}
-	for _, orderID := range orderIDs {
-		statuses := statusesByOrder[orderID]
+	for i, statuses := range statusLists {
 		allCancelled := len(statuses) > 0
 		for _, status := range statuses {
 			if model.OrderStatus(status) != model.OrderCancelled && model.OrderStatus(status) != model.OrderCancel {
@@ -1221,35 +1249,175 @@ func orderStatusCounts(ctx context.Context, tx *sql.Tx) (map[string]int, error) 
 			}
 		}
 		if allCancelled {
-			counts["BATAL"]++
+			states[i].Status = "BATAL"
 			continue
 		}
-		chosen := ""
 		for _, preferred := range priority {
 			for _, status := range statuses {
 				if status == preferred {
-					chosen = preferred
+					states[i].Status = preferred
 					break
 				}
 			}
-			if chosen != "" {
+			if states[i].Status != "" {
 				break
 			}
 		}
-		if chosen == "" {
+		if states[i].Status == "" {
 			for _, status := range statuses {
 				if status != "" && model.OrderStatus(status) != model.OrderCancelled && model.OrderStatus(status) != model.OrderCancel {
-					chosen = status
+					states[i].Status = status
 					break
 				}
 			}
 		}
-		if chosen == "" {
-			chosen = "PENDING"
+		if states[i].Status == "" {
+			states[i].Status = "PENDING"
 		}
-		counts[chosen]++
+	}
+	return states, nil
+}
+
+func orderStatusCounts(ctx context.Context, tx *sql.Tx) (map[string]int, error) {
+	states, err := readOrderStates(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int)
+	for _, state := range states {
+		counts[state.Status]++
 	}
 	return counts, nil
+}
+
+func identityTuple(kind string, values ...string) string {
+	encoded, _ := json.Marshal(append([]string{kind}, values...))
+	return string(encoded)
+}
+
+func orderFallbackKey(state orderState) string {
+	customer := strings.ToLower(strings.TrimSpace(state.Customer))
+	if state.FirstRow > 0 {
+		return identityTuple("row", state.Date, customer, strconv.Itoa(state.FirstRow))
+	}
+	return identityTuple("id", state.Date, customer, state.ID)
+}
+
+func dailyOrderKeys(oldStates, newStates []orderState) (map[string]string, map[string]string, error) {
+	counts := make(map[string][2]int)
+	for _, state := range oldStates {
+		number := strings.ToUpper(strings.TrimSpace(state.Number))
+		if number != "" {
+			value := counts[number]
+			value[0]++
+			counts[number] = value
+		}
+	}
+	for _, state := range newStates {
+		number := strings.ToUpper(strings.TrimSpace(state.Number))
+		if number != "" {
+			value := counts[number]
+			value[1]++
+			counts[number] = value
+		}
+	}
+	keys := func(states []orderState, side int) (map[string]string, error) {
+		result := make(map[string]string, len(states))
+		seenFallback := make(map[string]string, len(states))
+		seen := make(map[string]string, len(states))
+		for _, state := range states {
+			fallback := orderFallbackKey(state)
+			if prior, exists := seenFallback[fallback]; exists {
+				return nil, fmt.Errorf("duplicate fallback order identity for %q and %q", prior, state.ID)
+			}
+			seenFallback[fallback] = state.ID
+			customer := strings.ToLower(strings.TrimSpace(state.Customer))
+			number := strings.ToUpper(strings.TrimSpace(state.Number))
+			key := ""
+			if number != "" && counts[number][side] == 1 && counts[number][1-side] == 1 {
+				key = identityTuple("number", number, state.Date, customer)
+			} else if state.FirstRow > 0 {
+				key = identityTuple("row", state.Date, customer, strconv.Itoa(state.FirstRow))
+			} else {
+				key = identityTuple("id", state.Date, customer, state.ID)
+			}
+			if prior, exists := seen[key]; exists {
+				return nil, fmt.Errorf("duplicate order identity for %q and %q", prior, state.ID)
+			}
+			seen[key] = state.ID
+			result[state.ID] = key
+		}
+		return result, nil
+	}
+	oldKeys, err := keys(oldStates, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	newKeys, err := keys(newStates, 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	return oldKeys, newKeys, nil
+}
+
+func recordDailyOrderStatuses(ctx context.Context, tx *sql.Tx, syncID int64, day string, oldStates, newStates []orderState) error {
+	oldKeys, newKeys, err := dailyOrderKeys(oldStates, newStates)
+	if err != nil {
+		return err
+	}
+	existingKeys := make(map[string]struct{})
+	existingRows, err := tx.QueryContext(ctx, `SELECT order_key FROM daily_order_statuses WHERE day=?`, day)
+	if err != nil {
+		return err
+	}
+	for existingRows.Next() {
+		var key string
+		if err := existingRows.Scan(&key); err != nil {
+			existingRows.Close()
+			return err
+		}
+		existingKeys[key] = struct{}{}
+	}
+	if err := existingRows.Err(); err != nil {
+		existingRows.Close()
+		return err
+	}
+	if err := existingRows.Close(); err != nil {
+		return err
+	}
+	for _, state := range oldStates {
+		if _, ok := existingKeys[orderFallbackKey(state)]; ok {
+			oldKeys[state.ID] = orderFallbackKey(state)
+		}
+	}
+	for _, state := range newStates {
+		if _, ok := existingKeys[orderFallbackKey(state)]; ok {
+			newKeys[state.ID] = orderFallbackKey(state)
+		}
+	}
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM daily_order_status_days WHERE day = ?)`, day).Scan(&exists); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO daily_order_status_days(day, sync_history_id) VALUES(?, ?) ON CONFLICT(day) DO UPDATE SET sync_history_id=excluded.sync_history_id`, day, syncID); err != nil {
+		return err
+	}
+	if exists == 0 {
+		for _, state := range oldStates {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO daily_order_statuses(day, order_key, baseline_status, latest_status, present) VALUES(?, ?, ?, ?, 0)`, day, oldKeys[state.ID], state.Status, state.Status); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE daily_order_statuses SET present=0 WHERE day=?`, day); err != nil {
+		return err
+	}
+	for _, state := range newStates {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO daily_order_statuses(day, order_key, baseline_status, latest_status, present) VALUES(?, ?, NULL, ?, 1) ON CONFLICT(day, order_key) DO UPDATE SET baseline_status=COALESCE(daily_order_statuses.baseline_status, excluded.baseline_status), latest_status=excluded.latest_status, present=1`, day, newKeys[state.ID], state.Status); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RecordSync records a standalone sync history entry (e.g. for sync failures).
@@ -2649,6 +2817,42 @@ func (s *Storage) GetOrderStatusTrend(ctx context.Context, from, to string) ([]O
 	return points, nil
 }
 
+type OrderStatusChangePoint struct {
+	Date                string         `json:"date"`
+	EnteredStatusCounts map[string]int `json:"entered_status_counts"`
+}
+
+func (s *Storage) GetDailyOrderStatusChanges(ctx context.Context, from, to string) ([]OrderStatusChangePoint, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT d.day, o.latest_status, COUNT(o.order_key) FROM daily_order_status_days d LEFT JOIN daily_order_statuses o ON o.day=d.day AND o.present=1 AND (o.baseline_status IS NULL OR o.baseline_status <> o.latest_status) WHERE d.day >= ? AND d.day <= ? GROUP BY d.day, o.latest_status ORDER BY d.day ASC`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query daily order status changes: %w", err)
+	}
+	defer rows.Close()
+	points := make([]OrderStatusChangePoint, 0)
+	byDate := make(map[string]int)
+	for rows.Next() {
+		var date string
+		var status sql.NullString
+		var count int
+		if err := rows.Scan(&date, &status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan daily order status changes: %w", err)
+		}
+		idx, exists := byDate[date]
+		if !exists {
+			idx = len(points)
+			byDate[date] = idx
+			points = append(points, OrderStatusChangePoint{Date: date, EnteredStatusCounts: map[string]int{}})
+		}
+		if status.Valid {
+			points[idx].EnteredStatusCounts[status.String] = count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read daily order status changes: %w", err)
+	}
+	return points, nil
+}
+
 // GetStats returns aggregated statistics including order count, item count,
 // unique customer count, unique area count, and status breakdown.
 func (s *Storage) GetStats(ctx context.Context) (*Stats, error) {
@@ -3263,7 +3467,7 @@ func (s *Storage) ClearData(ctx context.Context) error {
 		_ = tx.Rollback()
 	}()
 
-	tables := []string{"deliveries", "items", "orders", "sync_status_snapshots", "sync_history"}
+	tables := []string{"deliveries", "items", "orders", "daily_order_statuses", "daily_order_status_days", "sync_status_snapshots", "sync_history"}
 	for _, table := range tables {
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", table)); err != nil {
 			return fmt.Errorf("failed to clear table %s: %w", table, err)

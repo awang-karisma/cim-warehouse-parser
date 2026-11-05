@@ -3218,6 +3218,58 @@ func TestDashboardDateRangeEndpoints(t *testing.T) {
 	}
 }
 
+func TestDashboardStatusChangesAPI(t *testing.T) {
+	srv, store, _ := setupTestServer(t)
+	ctx := context.Background()
+	date := time.Now().In(time.FixedZone("WITA", 8*60*60)).Format("2006-01-02")
+	orderDate := model.ParseDate("02/01/2026")
+	items := []model.NormalizedItem{{RowIndex: 2, Tanggal: orderDate, Customer: "Clinic A", NamaBarang: "Item", Jumlah: "1", StatusOrder: "PROSES"}}
+	orders := []model.Order{{ID: "ORD-1", Tanggal: orderDate, Customer: "Clinic A", Items: []model.OrderItem{{RowIndex: 2, NamaBarang: "Item", Jumlah: "1", StatusOrder: "PROSES"}}}}
+	if err := store.SyncMirror(ctx, items, orders); err != nil {
+		t.Fatal(err)
+	}
+	request := func(path string) (*http.Response, error) {
+		return srv.App().Test(httptest.NewRequest(http.MethodGet, path, nil))
+	}
+	resp, err := request("/api/v1/dashboard/status-changes?from=" + date + "&to=" + date)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("status changes request failed: response=%v error=%v", resp, err)
+	}
+	var body struct {
+		Points []storage.OrderStatusChangePoint `json:"points"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(body.Points) != 1 || body.Points[0].Date != date || body.Points[0].EnteredStatusCounts["PROSES"] != 1 {
+		t.Fatalf("unexpected status changes response: %+v", body)
+	}
+	empty, err := request("/api/v1/dashboard/status-changes?from=2000-01-01&to=2000-01-02")
+	if err != nil || empty.StatusCode != http.StatusOK {
+		t.Fatalf("empty range failed: response=%v error=%v", empty, err)
+	}
+	var emptyBody struct {
+		Points []storage.OrderStatusChangePoint `json:"points"`
+	}
+	if err := json.NewDecoder(empty.Body).Decode(&emptyBody); err != nil {
+		empty.Body.Close()
+		t.Fatal(err)
+	}
+	empty.Body.Close()
+	if len(emptyBody.Points) != 0 {
+		t.Fatalf("expected no pre-tracking points, got %+v", emptyBody)
+	}
+	for _, path := range []string{"/api/v1/dashboard/status-changes?from=2026-01-01", "/api/v1/dashboard/status-changes", "/api/v1/dashboard/status-changes?from=2026-02-02&to=2026-02-01", "/api/v1/dashboard/status-changes?from=2026-02-30&to=2026-03-01"} {
+		bad, err := request(path)
+		if err != nil || bad.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400 for %s, response=%v error=%v", path, bad, err)
+		}
+		bad.Body.Close()
+	}
+}
+
 func TestBarcodePresetSettingsAPI(t *testing.T) {
 	store, err := storage.New(":memory:")
 	if err != nil {

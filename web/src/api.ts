@@ -3,6 +3,7 @@ import type {
 	DashboardOperations,
 	DashboardPressure,
 	OrderStatusTrendResponse,
+	OrderStatusChangesResponse,
   Stats,
   PaginatedOrders,
   Order,
@@ -92,6 +93,12 @@ export const getDashboardPressure = (params: { from: string; to: string }) => {
 export const getOrderStatusTrend = (params: { from: string; to: string }) => {
   const query = qs(params);
   return apiFetch<OrderStatusTrendResponse>(`/api/v1/dashboard/status-trend${query ? '?' + query : ''}`);
+};
+
+
+export const getDailyOrderStatusChanges = (params: { from: string; to: string }) => {
+  const query = qs(params);
+  return apiFetch<OrderStatusChangesResponse>(`/api/v1/dashboard/status-changes${query ? '?' + query : ''}`);
 };
 
 export const getOrders = (params?: {

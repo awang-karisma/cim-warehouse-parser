@@ -102,8 +102,8 @@ type DashboardSummaryInput struct {
 }
 
 type DashboardTrendInput struct {
-	From string `query:"from" doc:"Inclusive snapshot start date (YYYY-MM-DD)"`
-	To   string `query:"to" doc:"Inclusive snapshot end date (YYYY-MM-DD)"`
+	From string `query:"from" doc:"Inclusive WITA observation start date (YYYY-MM-DD)"`
+	To   string `query:"to" doc:"Inclusive WITA observation end date (YYYY-MM-DD)"`
 }
 
 type DashboardSummaryOutput struct {
@@ -116,6 +116,12 @@ type DashboardTrendResponse struct {
 
 type DashboardTrendOutput struct {
 	Body DashboardTrendResponse
+}
+
+type DashboardStatusChangesOutput struct {
+	Body struct {
+		Points []storage.OrderStatusChangePoint `json:"points"`
+	}
 }
 
 type DashboardOperationsOutput struct {
@@ -670,6 +676,22 @@ func (s *Server) handleGetDashboardStatusTrend(ctx context.Context, input *Dashb
 		return nil, huma.Error500InternalServerError("failed to get dashboard status trend", err)
 	}
 	return &DashboardTrendOutput{Body: DashboardTrendResponse{Points: points}}, nil
+}
+
+func (s *Server) handleGetDashboardStatusChanges(ctx context.Context, input *DashboardTrendInput) (*DashboardStatusChangesOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if err := validateISODateBounds(input.From, input.To, true); err != nil {
+		return nil, huma.Error400BadRequest("invalid date range", err)
+	}
+	points, err := s.store.GetDailyOrderStatusChanges(ctx, input.From, input.To)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to get dashboard status changes", err)
+	}
+	return &DashboardStatusChangesOutput{Body: struct {
+		Points []storage.OrderStatusChangePoint `json:"points"`
+	}{Points: points}}, nil
 }
 
 func (s *Server) handleGetDashboardOperations(ctx context.Context, input *struct{}) (*DashboardOperationsOutput, error) {

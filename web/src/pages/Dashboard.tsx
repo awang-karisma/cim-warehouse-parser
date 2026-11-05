@@ -15,7 +15,7 @@ import {
   IconUsers,
   IconBuildingWarehouse,
 } from '@tabler/icons-solidjs';
-import { getDashboardSummary, getDashboardOperations, getDashboardPressure, getOrderStatusTrend, getOrders, getStatus, subscribeSyncEvents, triggerSync } from '~/api';
+	import { getDailyOrderStatusChanges, getDashboardSummary, getDashboardOperations, getDashboardPressure, getOrderStatusTrend, getOrders, getStatus, subscribeSyncEvents, triggerSync } from '~/api';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import { Badge } from '~/components/Badge';
@@ -103,7 +103,8 @@ export const Dashboard: Component = () => {
   const applyPreset = (from: string) => { setFromDate(from); setToDate(today); };
   const [summary, { refetch: refetchSummary }] = createResource(range, ({ from, to }) => getDashboardSummary({ from, to }));
   const [recentOrders, { refetch: refetchRecentOrders }] = createResource(range, ({ from, to }) => getOrders({ from, to, limit: 5 }));
-  const [statusTrend, { refetch: refetchStatusTrend }] = createResource(range, ({ from, to }) => getOrderStatusTrend({ from: addCalendarDays(from, -1), to }));
+	const [statusTrend, { refetch: refetchStatusTrend }] = createResource(range, ({ from, to }) => getOrderStatusTrend({ from, to }));
+	const [statusChanges, { refetch: refetchStatusChanges }] = createResource(range, ({ from, to }) => getDailyOrderStatusChanges({ from, to }));
   const [pressure, { refetch: refetchPressure }] = createResource(range, ({ from, to }) => getDashboardPressure({ from, to }));
   const [operations, { refetch: refetchOperations }] = createResource(getDashboardOperations);
   const [syncStatus, { refetch: refetchSyncStatus }] = createResource(getStatus);
@@ -123,6 +124,7 @@ export const Dashboard: Component = () => {
       void refetchSummary();
       void refetchRecentOrders();
       void refetchStatusTrend();
+	  void refetchStatusChanges();
       void refetchPressure();
     };
     const timer = setInterval(() => {
@@ -160,7 +162,7 @@ export const Dashboard: Component = () => {
     setSyncActionSuccess(false);
     try {
       await triggerSync();
-      await Promise.all([refetchSyncStatus(), refetchOperations(), refetchSummary(), refetchRecentOrders(), refetchStatusTrend(), refetchPressure()]);
+	  await Promise.all([refetchSyncStatus(), refetchOperations(), refetchSummary(), refetchRecentOrders(), refetchStatusTrend(), refetchStatusChanges(), refetchPressure()]);
       setSyncActionSuccess(true);
       successTimer = window.setTimeout(() => setSyncActionSuccess(false), 6000);
     } catch (error) {
@@ -331,12 +333,12 @@ export const Dashboard: Component = () => {
 		];
 	});
 
-  const snapshotPoints = createMemo(() => (statusTrend()?.points ?? []).map((point) => {
+	const normalizeStatusCounts = (raw: Record<string, number>) => {
 		const counts: Record<string, number> = {
 			[ORDER_STATUS.COMPLETE]: 0, [ORDER_STATUS.PROCESSING]: 0, [ORDER_STATUS.UNFINISHED]: 0,
 			[ORDER_STATUS.PENDING]: 0, [ORDER_STATUS.CANCELLED]: 0, OTHER: 0,
 		};
-		for (const [status, count] of Object.entries(point.status_counts ?? {})) {
+		for (const [status, count] of Object.entries(raw)) {
 			const upper = status.trim().toUpperCase();
 			const key = upper === 'COMPLETED' ? ORDER_STATUS.COMPLETE
 				: upper === 'PARTIAL' ? ORDER_STATUS.PROCESSING
@@ -344,30 +346,22 @@ export const Dashboard: Component = () => {
 						: upper in counts ? upper : 'OTHER';
 			counts[key] += count;
 		}
-    return { date: point.date.slice(0, 10), counts };
-  }));
+		return counts;
+	};
 
-  const trendPoints = createMemo(() => snapshotPoints().filter((point) => {
-    const selected = range();
-    return !!selected && point.date >= selected.from && point.date <= selected.to;
-  }));
+	const snapshotPoints = createMemo(() => (statusTrend()?.points ?? []).map((point) => ({
+		date: point.date.slice(0, 10), counts: normalizeStatusCounts(point.status_counts ?? {}),
+	})));
 
-  const deltaPoints = createMemo(() => {
-    const selected = range();
-    if (!selected) return [];
-    const snapshots = new Map(snapshotPoints().map((point) => [point.date, point.counts]));
-    let previous = snapshots.get(addCalendarDays(selected.from, -1));
-    return dailyPoints().map(({ date }) => {
-      const current = snapshots.get(date);
-      let counts: Record<string, number> | null = null;
-      if (current && previous) {
-        counts = {};
-        for (const series of trendSeries()) counts[series.key] = current[series.key] - previous[series.key];
-      }
-      previous = current;
-      return { date, counts };
-    });
-  });
+	const trendPoints = createMemo(() => snapshotPoints().filter((point) => {
+		const selected = range();
+		return !!selected && point.date >= selected.from && point.date <= selected.to;
+	}));
+
+	const deltaPoints = createMemo(() => {
+		const changesByDate = new Map((statusChanges()?.points ?? []).map((point) => [point.date.slice(0, 10), normalizeStatusCounts(point.entered_status_counts ?? {})]));
+		return dailyPoints().map(({ date }) => ({ date, counts: changesByDate.get(date) ?? null }));
+	});
 
   const trendChartData = createMemo(() => {
     const points = trendPoints();
@@ -455,7 +449,6 @@ export const Dashboard: Component = () => {
     };
   });
 
-  const signedDelta = (value: number) => `${value > 0 ? '+' : ''}${value.toLocaleString(intlLocale())}`;
 
   const deltaChartData = createMemo(() => ({
     labels: deltaPoints().map((point) => formatChartDate(point.date)),
@@ -503,7 +496,7 @@ export const Dashboard: Component = () => {
           padding: 10,
           callbacks: {
             title: (items: { dataIndex: number }[]) => deltaPoints()[items[0]?.dataIndex ?? 0]?.date ?? '',
-            label: (item: { dataset: { label?: string }; parsed: { y: number } }) => `${item.dataset.label}: ${signedDelta(item.parsed.y)} ${t('dashboard.ordersUnit')}`,
+			label: (item: { dataset: { label?: string }; parsed: { y: number } }) => `${item.dataset.label}: ${item.parsed.y.toLocaleString(intlLocale())} ${t('dashboard.ordersUnit')}`,
           },
         },
       },
@@ -519,7 +512,7 @@ export const Dashboard: Component = () => {
           beginAtZero: true,
           grid: { color: p.border },
           border: { display: false },
-          ticks: { color: p.muted, font: { size: 10 }, precision: 0, maxTicksLimit: 6, callback: (value: string | number) => signedDelta(Number(value)) },
+			ticks: { color: p.muted, font: { size: 10 }, precision: 0, maxTicksLimit: 6 },
         },
       },
     };
@@ -815,20 +808,20 @@ export const Dashboard: Component = () => {
         <Card class="min-w-0">
           <CardHeader class="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
             <div><CardTitle class="text-base font-semibold">{t('dashboard.statusDelta')}</CardTitle><CardDescription>{t('dashboard.statusDeltaDesc')}</CardDescription></div>
-            <Show when={!statusTrend.loading && !statusTrend.error && deltaPoints().some((point) => point.counts !== null)}>
+			<Show when={!statusChanges.loading && !statusChanges.error && deltaPoints().some((point) => point.counts !== null)}>
               <ChartTypeSwitch label={t('dashboard.chartTypeFor', { chart: t('dashboard.statusDelta') })} value={deltaChartType()}
                 options={[{ value: 'bar', label: t('dashboard.stackedBarChart') }, { value: 'line', label: t('dashboard.lineChart') }]} onChange={setDeltaChartType} />
             </Show>
           </CardHeader>
           <CardContent>
-            <Show when={!statusTrend.error} fallback={
-              <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm" role="alert">
-                <span>{t('dashboard.loadError')}</span>
-                <Button variant="outline" size="sm" onClick={() => refetchStatusTrend()}><IconRefresh class="size-4" />{t('common.retry')}</Button>
-              </div>
-            }>
-              <Show when={!statusTrend.loading} fallback={<Skeleton class="h-64 w-full" />}>
-                <Show when={deltaPoints().some((point) => point.counts !== null)} fallback={<p class="py-12 text-center text-sm text-muted-foreground">{t('dashboard.noStatusDelta')}</p>}>
+			<Show when={!statusChanges.error} fallback={
+			  <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm" role="alert">
+				<span>{t('dashboard.loadError')}</span>
+				<Button variant="outline" size="sm" onClick={() => refetchStatusChanges()}><IconRefresh class="size-4" />{t('common.retry')}</Button>
+			  </div>
+			}>
+			  <Show when={!statusChanges.loading} fallback={<Skeleton class="h-64 w-full" />}>
+				<Show when={deltaPoints().some((point) => point.counts !== null)} fallback={<p class="py-12 text-center text-sm text-muted-foreground">{t('dashboard.noStatusDelta')}</p>}>
                   <div class="relative h-64 w-full" role="img" aria-label={t('dashboard.statusDelta')}>
                     <Show when={deltaChartType() === 'bar'} fallback={<Line data={deltaLineData()} options={deltaLineOptions()} />}>
                       <Bar data={deltaChartData()} options={deltaChartOptions()} />
@@ -837,7 +830,7 @@ export const Dashboard: Component = () => {
                   <div class="sr-only">
                     <p>{t('dashboard.statusDeltaDesc')}</p>
                     <ul><For each={deltaPoints().filter((point) => point.counts !== null)}>{(point) =>
-                      <li>{t('dashboard.statusDeltaPoint', { date: point.date })}: {trendSeries().map((series) => `${series.label} ${signedDelta(point.counts![series.key])}`).join(', ')}</li>
+					  <li>{t('dashboard.statusDeltaPoint', { date: point.date })}: {trendSeries().map((series) => `${series.label} ${point.counts![series.key].toLocaleString(intlLocale())}`).join(', ')}</li>
                     }</For></ul>
                   </div>
                 </Show>
