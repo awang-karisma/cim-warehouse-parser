@@ -105,6 +105,7 @@ export const dict: RawDictionary = {
     synchronizingRemote: "Menyelaraskan dengan sumber data remote...",
     syncSuccessDetail: "Sinkronisasi berhasil! Memperbarui {{count}} barang dalam {{duration}}md.",
     triggerSyncFailed: "Gagal memicu sinkronisasi",
+    statusRefreshFailed: "Sinkronisasi selesai, tetapi status tidak dapat diperbarui",
   },
   theme: {
     toggle: "Ganti tema",

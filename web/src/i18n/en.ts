@@ -107,6 +107,7 @@ export const dict = {
     synchronizingRemote: "Synchronizing with remote source...",
     syncSuccessDetail: "Sync successful! Updated {{count}} items in {{duration}}ms.",
     triggerSyncFailed: "Trigger sync failed",
+    statusRefreshFailed: "Sync completed, but the status could not be refreshed",
   },
   theme: {
     toggle: "Toggle theme",

@@ -1,8 +1,7 @@
 import { USER_ROLE, SYNC_STATUS } from '~/domain';
 import { ROUTES } from '~/routes';
-
 import { type Component, For, Show, createMemo, createSignal, onMount, onCleanup, createResource } from 'solid-js';
-import { getStatus, getConfig } from '~/api';
+import { getStatus, getConfig, triggerSync } from '~/api';
 import { cn } from '~/lib/utils';
 import { A, useLocation } from '@solidjs/router';
 import { useAuth } from '~/auth';
@@ -21,10 +20,9 @@ import {
   IconSearch,
   IconSettings,
   IconUserCog,
-  IconChevronDown,
+  IconLoader2,
   type IconProps,
 } from '@tabler/icons-solidjs';
-import * as Accordion from '@kobalte/core/accordion';
 
 import {
   Sidebar,
@@ -32,6 +30,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -39,6 +38,7 @@ import {
   SidebarRail,
   useSidebar,
 } from '~/components/ui/sidebar';
+import { Button } from '~/components/ui/button';
 
 interface NavItem {
   href: string;
@@ -48,7 +48,6 @@ interface NavItem {
 }
 
 interface NavGroup {
-  id: 'overview' | 'operations' | 'customersAndAreas' | 'tools' | 'administration';
   label: string;
   items: NavItem[];
 }
@@ -87,9 +86,13 @@ function formatCountdown(ms: number): string {
 
 const SyncStatusFooter: Component = () => {
   const { t, formatRelativeTime } = useI18n();
+  const auth = useAuth();
   const [status, { refetch: refetchStatus }] = createResource(getStatus);
   const [config] = createResource(getConfig);
   const [now, setNow] = createSignal(Date.now());
+  const [isSyncing, setIsSyncing] = createSignal(false);
+  const [syncError, setSyncError] = createSignal<string | null>(null);
+  const [syncFeedback, setSyncFeedback] = createSignal<string | null>(null);
 
   onMount(() => {
     const pollTimer = setInterval(() => {
@@ -103,6 +106,34 @@ const SyncStatusFooter: Component = () => {
       clearInterval(tickTimer);
     });
   });
+
+  const canTriggerSync = () => {
+    if (auth.authConfig()?.auth_enabled === false) return true;
+    const role = auth.user()?.role;
+    return role === 'admin' || role === 'superadmin';
+  };
+
+  const handleManualSync = async () => {
+    if (isSyncing()) return;
+
+    setIsSyncing(true);
+    setSyncError(null);
+    setSyncFeedback(null);
+    try {
+      await triggerSync();
+      try {
+        await refetchStatus();
+      } catch {
+        setSyncFeedback(t('sync.statusRefreshFailed'));
+      }
+      setNow(Date.now());
+    } catch (err: unknown) {
+      setSyncError(err instanceof Error ? err.message : t('sync.triggerSyncFailed'));
+      void refetchStatus();
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const parsedInterval = createMemo(() => parseDuration(config()?.sync_interval));
 
@@ -128,16 +159,19 @@ const SyncStatusFooter: Component = () => {
     return t('sync.synced', { time: formatRelativeTime(date, now()) });
   });
 
+  const isWorkerSyncing = createMemo(() => status()?.status === 'SYNCING');
+
   const line2 = createMemo(() => {
-    const s = status();
-    if (s?.status === 'syncing' || s?.status === 'running') {
+    if (syncError()) return t('sync.syncFailed');
+    if (syncFeedback()) return syncFeedback()!;
+    if (isSyncing() || isWorkerSyncing()) {
       return t('sync.inProgress');
     }
-    if (s?.is_inside_work_hours === false) {
+    if (status()?.is_inside_work_hours === false) {
       return t('sync.outsideWorkHours');
     }
-    if (s?.next_sync) {
-      const nextTime = new Date(s.next_sync).getTime();
+    if (status()?.next_sync) {
+      const nextTime = new Date(status()!.next_sync!).getTime();
       const diff = nextTime - now();
       if (diff > 0) {
         return t('sync.nextIn', { time: formatCountdown(diff) });
@@ -161,28 +195,59 @@ const SyncStatusFooter: Component = () => {
     if (status()?.is_inside_work_hours === false) {
       parts.push(t('sync.outsideActive'));
     }
+    if (syncError()) {
+      parts.push(`${t('sync.syncFailed')}: ${syncError()}`);
+    } else if (syncFeedback()) {
+      parts.push(syncFeedback()!);
+    }
     return parts.join('\n');
   });
 
-  const isSyncing = () => status()?.status === 'syncing' || status()?.status === 'running';
+  const buttonLabel = createMemo(() => {
+    if (isSyncing()) return t('sync.syncing');
+    if (syncError()) return `${t('sync.syncNow')}. ${t('sync.syncFailed')}: ${syncError()}`;
+    if (syncFeedback()) return `${t('sync.syncNow')}. ${syncFeedback()}`;
+    return t('sync.syncNow');
+  });
+
 
   return (
-    <SidebarFooter class="p-3 text-xs text-muted-foreground">
+    <SidebarFooter class="p-3 text-xs text-muted-foreground group-data-[collapsible=icon]:p-1">
       <div
-        class="flex items-center gap-2 px-2 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+        class="flex items-center gap-2 px-2 py-1 group-data-[collapsible=icon]:gap-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
         title={tooltipTitle()}
       >
-        <span
-          class={cn(
-            'size-2 shrink-0 rounded-full',
-            dotColorClass(),
-            isSyncing() ? 'animate-ping' : 'animate-pulse'
-          )}
-        />
-        <div class="flex flex-col min-w-0 group-data-[collapsible=icon]:hidden leading-tight">
-          <span class="truncate font-medium text-foreground/80">{line1()}</span>
-          <span class="truncate text-[10px] text-muted-foreground">{line2()}</span>
+        <div class="flex min-w-0 flex-1 items-center gap-2 group-data-[collapsible=icon]:flex-none">
+          <span
+            class={cn(
+              'size-2 shrink-0 rounded-full',
+              dotColorClass(),
+              isSyncing() || isWorkerSyncing() ? 'animate-ping' : 'animate-pulse'
+            )}
+          />
+          <div class="flex flex-col min-w-0 group-data-[collapsible=icon]:hidden leading-tight">
+            <span class="truncate font-medium text-foreground/80">{line1()}</span>
+            <span class={cn('truncate text-[10px]', syncError() ? 'text-destructive' : 'text-muted-foreground')}>
+              {line2()}
+            </span>
+          </div>
         </div>
+        <Show when={canTriggerSync()}>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            class="size-7 shrink-0 border-sidebar-border bg-sidebar text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            aria-label={buttonLabel()}
+            title={buttonLabel()}
+            disabled={isSyncing() || isWorkerSyncing()}
+            onClick={() => void handleManualSync()}
+          >
+            <Show when={isSyncing()} fallback={<IconRefresh class="size-3.5" />}>
+              <IconLoader2 class="size-3.5 animate-spin" />
+            </Show>
+          </Button>
+        </Show>
       </div>
     </SidebarFooter>
   );
@@ -205,51 +270,35 @@ export const AppSidebar: Component = () => {
 		return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
 	});
 
-  const currentNavGroups = createMemo<NavGroup[]>(() => {
-    const groups: NavGroup[] = [
-		{ id: 'overview', label: t('navGroups.overview'), items: [
+  const currentNavGroups = createMemo<NavGroup[]>(() => [
+		{ label: t('navGroups.overview'), items: [
 			{ href: ROUTES.root, label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
 		] },
-		{ id: 'operations', label: t('navGroups.operations'), items: [
+		{ label: t('navGroups.operations'), items: [
 			{ href: ROUTES.orders, label: t('nav.orders'), icon: IconClipboardList },
 			{ href: ROUTES.items, label: t('nav.items'), icon: IconPackage },
 			{ href: ROUTES.deliveryFlow, label: t('nav.deliveryFlow'), icon: IconTruckDelivery },
 			{ href: ROUTES.timeline, label: t('nav.deliveryTimeline'), icon: IconTimeline },
 		] },
-		{ id: 'customersAndAreas', label: t('navGroups.customersAndAreas'), items: [
+		{ label: t('navGroups.customersAndAreas'), items: [
 			{ href: ROUTES.customers, label: t('nav.customerView'), icon: IconUsers },
 			{ href: ROUTES.customerAliases, label: t('nav.customerAliases'), icon: IconAddressBook },
 			{ href: ROUTES.areas, label: t('nav.areaMap'), icon: IconMapPin },
 	] },
-	{ id: 'tools', label: t('navGroups.tools'), items: [
+	{ label: t('navGroups.tools'), items: [
 		{ href: ROUTES.barcode, label: t('nav.barcodePrinter'), icon: IconBarcode },
 		{ href: ROUTES.search, label: t('nav.search'), icon: IconSearch },
 	] },
-	{ id: 'administration', label: t('navGroups.administration'), items: [
+	{ label: t('navGroups.administration'), items: [
 		{ href: ROUTES.sync, label: t('nav.syncManager'), icon: IconRefresh },
 		{ href: ROUTES.settings, label: t('nav.settings'), icon: IconSettings },
 		...(isPrivileged() ? [{ href: ROUTES.users, label: t('nav.userManagement'), icon: IconUserCog }] : []),
 	] },
-    ];
-    return groups;
-  });
+  ]);
 
 	const isActive = (item: NavItem) => item.exact
 		? location.pathname === ROUTES.root || location.pathname === ROUTES.dashboard
 		: location.pathname.startsWith(item.href);
-	const activeGroupId = createMemo<NavGroup['id']>(() => {
-		const path = location.pathname;
-		if (path === ROUTES.root || path === ROUTES.dashboard) return 'overview';
-		if ([ROUTES.orders, ROUTES.items, ROUTES.deliveryFlow, ROUTES.timeline].some((prefix) => path.startsWith(prefix))) return 'operations';
-		if ([ROUTES.customers, ROUTES.customerAliases, ROUTES.areas].some((prefix) => path.startsWith(prefix))) return 'customersAndAreas';
-		if ([ROUTES.barcode, ROUTES.search].some((prefix) => path.startsWith(prefix))) return 'tools';
-		return 'administration';
-	});
-  const [userOpenGroups, setUserOpenGroups] = createSignal<string[]>([]);
-  const expandedGroups = createMemo(() => [...new Set([...userOpenGroups(), activeGroupId()])]);
-  const handleAccordionChange = (value: string[]) => {
-    setUserOpenGroups(value.filter((id) => id !== activeGroupId()));
-  };
   const NavLinks: Component<{ items: NavItem[] }> = (props) => (
     <SidebarMenu>
       <For each={props.items}>{(item) => {
@@ -283,31 +332,14 @@ export const AppSidebar: Component = () => {
       </SidebarHeader>
 
       <SidebarContent class="group-data-[collapsible=icon]:overflow-y-auto group-data-[collapsible=icon]:overflow-x-hidden">
-        <Show when={sidebar.state() === 'collapsed'} fallback={
-          <Accordion.Root multiple collapsible value={expandedGroups()} onChange={handleAccordionChange} class="w-full">
-            <For each={currentNavGroups()}>{(group) => (
-              <Accordion.Item value={group.id}>
-                <SidebarGroup class="p-0">
-                  <Accordion.Header class="w-full">
-                    <Accordion.Trigger class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground/70 outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring">
-                      <span class="truncate">{group.label}</span>
-                      <IconChevronDown class="ml-auto size-4 shrink-0" />
-                    </Accordion.Trigger>
-                  </Accordion.Header>
-                  <Accordion.Content>
-                    <SidebarGroupContent><NavLinks items={group.items} /></SidebarGroupContent>
-                  </Accordion.Content>
-                </SidebarGroup>
-              </Accordion.Item>
-            )}</For>
-          </Accordion.Root>
-        }>
-          <SidebarGroup class="p-0">
+        <For each={currentNavGroups()}>{(group) => (
+          <SidebarGroup>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
-              <For each={currentNavGroups()}>{(group) => <NavLinks items={group.items} />}</For>
+              <NavLinks items={group.items} />
             </SidebarGroupContent>
           </SidebarGroup>
-        </Show>
+        )}</For>
       </SidebarContent>
 
       <SyncStatusFooter />
