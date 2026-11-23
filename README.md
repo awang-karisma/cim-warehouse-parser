@@ -262,24 +262,32 @@ docker run -d \
 ### 3. Local Development Setup
 
 #### Prerequisites
-- **Go**: `1.27+`
+- **Go**: `1.27+` (Air and Hivemind are tracked as Go module tools in `go.mod`)
 - **Node.js**: `22+`
 - **pnpm**: `12+` (`corepack enable pnpm`)
 
-#### Run Backend Server
+#### Run Development Environment
+
+Run both the backend (Air live reload) and frontend (Vite dev server) concurrently under Hivemind process supervision:
+
 ```bash
-# Run server in dev mode (reads .env automatically)
+# Runs Hivemind via `go tool hivemind Procfile.dev` (Go backend on :8080 + Vite on :3000)
 make dev
-# or: go run ./cmd/warehouse-server
 ```
 
-#### Run Frontend in Vite Dev Server
+Open `http://localhost:3000`. Vite automatically proxies API requests (`/api`, `/auth`, `/health`) to the Go backend on `http://localhost:8080`.
+
+#### Running Services Individually
+
 ```bash
-cd web
-pnpm install
-pnpm dev
+# Run backend only with Air live reload
+make dev-backend
+# or: make dev-server
+
+# Run frontend only (Vite dev server)
+make dev-frontend
+# or: cd web && pnpm dev
 ```
-Open `http://localhost:3000`. API requests to `/api`, `/auth`, and `/health` are automatically proxied to the backend running on `http://localhost:8080`.
 
 #### Build Server with Embedded Frontend Assets
 ```bash

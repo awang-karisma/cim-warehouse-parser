@@ -1,5 +1,7 @@
 # Binaries
 bin/
+tmp/
+build-errors.log
 
 # Data and SQLite databases
 data/

@@ -1,0 +1,51 @@
+#:schema https://json.schemastore.org/any.json
+
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/warehouse-server ./cmd/warehouse-server"
+  bin = "./tmp/warehouse-server"
+  entrypoint = ["./tmp/warehouse-server"]
+  args_bin = []
+  delay = 500
+  include_dir = ["cmd", "pkg"]
+  include_ext = ["go", "yaml", "json"]
+  exclude_dir = ["assets", "bin", "data", "testdata", "tmp", "vendor", "web"]
+  exclude_file = []
+  exclude_regex = ["_test\\.go$", ".*\\.db.*", ".*\\.log$"]
+  exclude_unchanged = false
+  follow_symlink = false
+  full_bin = ""
+  kill_delay = "2s"
+  log = "tmp/build-errors.log"
+  poll = false
+  poll_interval = 0
+  post_cmd = []
+  pre_cmd = []
+  rerun = false
+  rerun_delay = 500
+  send_interrupt = true
+  stop_on_error = false
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  mode = ""
+  runner = "green"
+  watcher = "cyan"
+  build_errors = "red"
+
+[log]
+  main_only = false
+  silent = false
+  time = false
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

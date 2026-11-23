@@ -1,0 +1,2 @@
+backend: go tool air
+frontend: pnpm --dir web dev
