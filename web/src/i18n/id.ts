@@ -63,6 +63,8 @@ export const dict: RawDictionary = {
     deliveryFlow: "Alur Pengiriman",
     deliveryTimeline: "Timeline Pengiriman",
     barcodePrinter: "Cetak Barcode",
+    datalogger: "Data Logger",
+    dataloggerReadings: "Log Bacaan Data Logger",
     syncManager: "Manajer Sinkronisasi",
     search: "Pencarian",
     settings: "Pengaturan",

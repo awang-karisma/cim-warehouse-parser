@@ -38,6 +38,8 @@ import type {
   DeliveryRun,
   DeliveryRunsResponse,
   DeliveryRunStatus,
+  DataloggerSession,
+  DataloggerRecord,
 } from './types';
 
 export class ApiError extends Error {
@@ -430,4 +432,53 @@ export const toggleDeliveryRunItemPick = (runId: number, itemId: number, picked:
 export const deleteDeliveryRun = (id: number) =>
   apiFetch<{ status: string }>(`/api/v1/delivery-runs/${id}`, {
     method: 'DELETE',
+  });
+
+// Elitech Data Logger API
+export const getDataloggerSessions = (params?: {
+  from?: string;
+  to?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const query = qs(params);
+  return apiFetch<{ sessions: DataloggerSession[]; total: number }>(
+    `/api/v1/datalogger/sessions${query ? '?' + query : ''}`,
+  );
+};
+
+export const getDataloggerSession = (id: number) =>
+  apiFetch<{ session: DataloggerSession }>(`/api/v1/datalogger/sessions/${id}`);
+
+export const getDataloggerRecords = (sessionId: number) =>
+  apiFetch<{ records: DataloggerRecord[] }>(`/api/v1/datalogger/sessions/${sessionId}/records`);
+
+export const getDataloggerRecordsBatch = (sessionIds: number[]) =>
+  apiFetch<{ records: Record<string, DataloggerRecord[]> }>('/api/v1/datalogger/records/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_ids: sessionIds }),
+  });
+
+export const createDataloggerSession = (payload: {
+  name: string;
+  device_model: string;
+  serial_number: string;
+  records: Array<{ timestamp: string; temperature: number; humidity: number | null; flags: string }>;
+}) =>
+  apiFetch<{ session: DataloggerSession }>('/api/v1/datalogger/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+export const deleteDataloggerSession = (id: number) =>
+  apiFetch<{ status: string }>(`/api/v1/datalogger/sessions/${id}`, { method: 'DELETE' });
+
+export const renameDataloggerSession = (id: number, name: string) =>
+  apiFetch<{ status: string }>(`/api/v1/datalogger/sessions/${id}/name`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
   });

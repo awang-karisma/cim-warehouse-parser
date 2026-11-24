@@ -4132,3 +4132,203 @@ func TestDashboardPressure_LeadTimeAndWeighting(t *testing.T) {
 		t.Errorf("weighting test failed: expected average_lead_time=4.0 (per item), got %f", *res.AverageLeadTime)
 	}
 }
+
+func TestDatalogger(t *testing.T) {
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+
+	hum1 := 55.5
+	hum2 := 61.2
+	records := make([]model.DataloggerRecord, 10)
+	base := time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC)
+	for i := range 10 {
+		// Insert slightly shuffled order to verify timestamp sorting & min/max start/end calculation
+		idx := (i + 3) % 10
+		ts := base.Add(time.Duration(idx) * 15 * time.Minute).Format(time.RFC3339)
+		temp := 20.0 + float64(idx)*0.5
+		var hum *float64
+		if idx%2 == 0 {
+			v := hum1 + float64(idx)
+			hum = &v
+		} else if idx == 9 {
+			v := hum2
+			hum = &v
+		}
+		records[i] = model.DataloggerRecord{
+			Timestamp:   ts,
+			Temperature: temp,
+			Humidity:    hum,
+			Flags:       "—",
+		}
+	}
+
+	sess := &model.DataloggerSession{
+		Name:         "Cold Room A - Morning",
+		DeviceModel:  "Elitech RC-51H",
+		SerialNumber: "EF1234567890",
+	}
+	id, err := store.CreateDataloggerSession(ctx, sess, records)
+	if err != nil {
+		t.Fatalf("CreateDataloggerSession failed: %v", err)
+	}
+	if id <= 0 || sess.ID != id {
+		t.Fatalf("expected positive session ID, got %d (sess.ID=%d)", id, sess.ID)
+	}
+	if sess.RecordCount != 10 {
+		t.Errorf("expected RecordCount=10, got %d", sess.RecordCount)
+	}
+	if sess.TempMin != 20.0 || sess.TempMax != 24.5 {
+		t.Errorf("expected TempMin=20.0 TempMax=24.5, got %v..%v", sess.TempMin, sess.TempMax)
+	}
+	if !sess.HasHumidity {
+		t.Errorf("expected HasHumidity=true")
+	}
+	expectedStart := base.Format(time.RFC3339)
+	expectedEnd := base.Add(9 * 15 * time.Minute).Format(time.RFC3339)
+	if sess.StartTime != expectedStart || sess.EndTime != expectedEnd {
+		t.Errorf("expected StartTime=%s EndTime=%s, got %s..%s", expectedStart, expectedEnd, sess.StartTime, sess.EndTime)
+	}
+
+	// List sessions
+	sessions, err := store.GetDataloggerSessions(ctx)
+	if err != nil {
+		t.Fatalf("GetDataloggerSessions failed: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ID != id || sessions[0].RecordCount != 10 {
+		t.Fatalf("unexpected sessions list: %+v", sessions)
+	}
+
+	// Get single session
+	fetched, err := store.GetDataloggerSession(ctx, id)
+	if err != nil {
+		t.Fatalf("GetDataloggerSession failed: %v", err)
+	}
+	if fetched.Name != "Cold Room A - Morning" {
+		t.Errorf("unexpected fetched session name: %q", fetched.Name)
+	}
+
+	// Get records sorted by timestamp ascending
+	gotRecords, err := store.GetDataloggerRecords(ctx, id)
+	if err != nil {
+		t.Fatalf("GetDataloggerRecords failed: %v", err)
+	}
+	if len(gotRecords) != 10 {
+		t.Fatalf("expected 10 records, got %d", len(gotRecords))
+	}
+	for i := 1; i < len(gotRecords); i++ {
+		if gotRecords[i].Timestamp < gotRecords[i-1].Timestamp {
+			t.Errorf("records not sorted ascending at index %d: %s < %s", i, gotRecords[i].Timestamp, gotRecords[i-1].Timestamp)
+		}
+	}
+	if gotRecords[1].Humidity != nil {
+		t.Errorf("expected nil humidity for record 1, got %v", *gotRecords[1].Humidity)
+	}
+	if gotRecords[0].Humidity == nil || *gotRecords[0].Humidity != hum1 {
+		t.Errorf("expected humidity %v for record 0, got %v", hum1, gotRecords[0].Humidity)
+	}
+
+	// Batch records
+	batch, err := store.GetDataloggerRecordsBatch(ctx, []int64{id, 99999})
+	if err != nil {
+		t.Fatalf("GetDataloggerRecordsBatch failed: %v", err)
+	}
+	if len(batch[id]) != 10 || len(batch[99999]) != 0 {
+		t.Errorf("unexpected batch sizes: id=%d, missing=%d", len(batch[id]), len(batch[99999]))
+	}
+
+	// Rename validation and update
+	if err := store.RenameDataloggerSession(ctx, id, "   "); !errors.Is(err, storage.ErrValidation) {
+		t.Errorf("expected ErrValidation for empty rename, got %v", err)
+	}
+	if err := store.RenameDataloggerSession(ctx, id, "Cold Room A - Renamed"); err != nil {
+		t.Fatalf("RenameDataloggerSession failed: %v", err)
+	}
+	renamed, err := store.GetDataloggerSession(ctx, id)
+	if err != nil || renamed.Name != "Cold Room A - Renamed" {
+		t.Errorf("expected renamed session, got %+v, err=%v", renamed, err)
+	}
+
+	// Delete cascades child records
+	if err := store.DeleteDataloggerSession(ctx, id); err != nil {
+		t.Fatalf("DeleteDataloggerSession failed: %v", err)
+	}
+	if _, err := store.GetDataloggerSession(ctx, id); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+	var remainingRecords int
+	if err := store.DB().QueryRow("SELECT COUNT(*) FROM datalogger_records WHERE session_id = ?", id).Scan(&remainingRecords); err != nil {
+		t.Fatalf("failed counting remaining records: %v", err)
+	}
+	if remainingRecords != 0 {
+		t.Errorf("expected 0 remaining records after session delete, got %d", remainingRecords)
+	}
+}
+
+func TestDataloggerDateOverlapFilterAndPagination(t *testing.T) {
+	store, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ctx := context.Background()
+
+	seed := func(name, startISO, endISO string) {
+		t.Helper()
+		_, err := store.CreateDataloggerSession(ctx, &model.DataloggerSession{
+			Name:        name,
+			DeviceModel: "Elitech RC-51H",
+		}, []model.DataloggerRecord{
+			{Timestamp: startISO, Temperature: 4.0},
+			{Timestamp: endISO, Temperature: 5.0},
+		})
+		if err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+	}
+
+	// Exact user scenario: filter Nov 10 -> Oct 1..Nov 12 AND Nov 10..Dec 1 MUST match;
+	// Oct 1..Nov 9 and Nov 11..Dec 1 MUST NOT match.
+	seed("Spanning Oct1-Nov12", "2026-10-01T08:00:00Z", "2026-11-12T18:00:00Z")
+	seed("Starting Nov10-Dec1", "2026-11-10T09:00:00Z", "2026-12-01T18:00:00Z")
+	seed("Before Oct1-Nov9", "2026-10-01T08:00:00Z", "2026-11-09T23:59:59Z")
+	seed("After Nov11-Dec1", "2026-11-11T00:00:00Z", "2026-12-01T18:00:00Z")
+
+	matched, total, err := store.QueryDataloggerSessions(ctx, storage.DataloggerSessionFilter{
+		From: "2026-11-10",
+		To:   "2026-11-10",
+	})
+	if err != nil {
+		t.Fatalf("QueryDataloggerSessions failed: %v", err)
+	}
+	if total != 2 || len(matched) != 2 {
+		t.Fatalf("expected 2 overlapping sessions for 2026-11-10, got total=%d len=%d (%+v)", total, len(matched), matched)
+	}
+	names := map[string]bool{matched[0].Name: true, matched[1].Name: true}
+	if !names["Spanning Oct1-Nov12"] || !names["Starting Nov10-Dec1"] {
+		t.Fatalf("unexpected matched sessions: %+v", names)
+	}
+
+	// Pagination check
+	page1, totalAll, err := store.QueryDataloggerSessions(ctx, storage.DataloggerSessionFilter{
+		Limit:  2,
+		Offset: 0,
+	})
+	if err != nil {
+		t.Fatalf("page1 failed: %v", err)
+	}
+	page2, _, err := store.QueryDataloggerSessions(ctx, storage.DataloggerSessionFilter{
+		Limit:  2,
+		Offset: 2,
+	})
+	if err != nil {
+		t.Fatalf("page2 failed: %v", err)
+	}
+	if totalAll != 4 || len(page1) != 2 || len(page2) != 2 || page1[0].ID == page2[0].ID {
+		t.Fatalf("unexpected pagination result: total=%d p1=%d p2=%d", totalAll, len(page1), len(page2))
+	}
+}

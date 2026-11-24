@@ -65,6 +65,8 @@ export const dict = {
     deliveryFlow: "Delivery Flow",
     deliveryTimeline: "Delivery Timeline",
     barcodePrinter: "Barcode Printer",
+    datalogger: "Data Logger",
+    dataloggerReadings: "Data Logger Readings",
     syncManager: "Sync Manager",
     search: "Search",
     settings: "Settings",

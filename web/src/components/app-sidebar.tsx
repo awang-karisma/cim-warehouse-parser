@@ -19,6 +19,7 @@ import {
   IconRefresh,
   IconSearch,
   IconSettings,
+  IconThermometer,
   IconUserCog,
   IconLoader2,
   type IconProps,
@@ -287,6 +288,7 @@ export const AppSidebar: Component = () => {
 	] },
 	{ label: t('navGroups.tools'), items: [
 		{ href: ROUTES.barcode, label: t('nav.barcodePrinter'), icon: IconBarcode },
+		{ href: ROUTES.datalogger, label: t('nav.datalogger'), icon: IconThermometer },
 		{ href: ROUTES.search, label: t('nav.search'), icon: IconSearch },
 	] },
 	{ label: t('navGroups.administration'), items: [

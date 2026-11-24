@@ -3733,3 +3733,237 @@ func TestDashboardPressureAPI(t *testing.T) {
 		t.Errorf("expected 200 for admin on dashboard pressure, got %d", respAdmin.StatusCode)
 	}
 }
+
+func TestDataloggerEndpoints(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+
+	// 1. Create two sessions via POST /api/v1/datalogger/sessions
+	payload1 := `{
+		"name": "Vaccine Fridge #1",
+		"device_model": "Elitech RC-51H",
+		"serial_number": "SN-001",
+		"records": [
+			{"timestamp": "2026-05-01T08:00:00Z", "temperature": 4.2, "humidity": 52.0, "flags": "—"},
+			{"timestamp": "2026-05-01T08:15:00Z", "temperature": 4.6, "humidity": 53.1, "flags": "—"},
+			{"timestamp": "2026-05-01T08:30:00Z", "temperature": 3.9, "humidity": null, "flags": "M"}
+		]
+	}`
+	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/datalogger/sessions", strings.NewReader(payload1))
+	req1.Header.Set("Content-Type", "application/json")
+	resp1, err := srv.App().Test(req1)
+	if err != nil {
+		t.Fatalf("POST session 1 failed: %v", err)
+	}
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp1.Body)
+		t.Fatalf("expected 200 creating session 1, got %d: %s", resp1.StatusCode, string(bodyBytes))
+	}
+	var createOut1 struct {
+		Session model.DataloggerSession `json:"session"`
+	}
+	if err := json.NewDecoder(resp1.Body).Decode(&createOut1); err != nil {
+		t.Fatalf("decode create response 1: %v", err)
+	}
+	s1 := createOut1.Session
+	if s1.ID <= 0 || s1.RecordCount != 3 || !s1.HasHumidity || s1.TempMin != 3.9 || s1.TempMax != 4.6 {
+		t.Fatalf("unexpected created session 1: %+v", s1)
+	}
+
+	payload2 := `{
+		"name": "Cold Box #2",
+		"device_model": "Elitech RC-5+",
+		"serial_number": "SN-002",
+		"records": [
+			{"timestamp": "2026-05-01T08:05:00Z", "temperature": 5.1, "humidity": null, "flags": "—"}
+		]
+	}`
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/datalogger/sessions", strings.NewReader(payload2))
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, err := srv.App().Test(req2)
+	if err != nil {
+		t.Fatalf("POST session 2 failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	var createOut2 struct {
+		Session model.DataloggerSession `json:"session"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&createOut2); err != nil {
+		t.Fatalf("decode create response 2: %v", err)
+	}
+	s2 := createOut2.Session
+
+	// 2. GET /api/v1/datalogger/sessions lists both
+	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/datalogger/sessions", nil)
+	respList, err := srv.App().Test(reqList)
+	if err != nil {
+		t.Fatalf("GET sessions failed: %v", err)
+	}
+	defer respList.Body.Close()
+	if respList.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing sessions, got %d", respList.StatusCode)
+	}
+	var listOut struct {
+		Sessions []model.DataloggerSession `json:"sessions"`
+	}
+	if err := json.NewDecoder(respList.Body).Decode(&listOut); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listOut.Sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(listOut.Sessions))
+	}
+
+	// 3. GET /api/v1/datalogger/sessions/{id}/records
+	reqRecs := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/datalogger/sessions/%d/records", s1.ID), nil)
+	respRecs, err := srv.App().Test(reqRecs)
+	if err != nil {
+		t.Fatalf("GET records failed: %v", err)
+	}
+	defer respRecs.Body.Close()
+	if respRecs.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 getting records, got %d", respRecs.StatusCode)
+	}
+	var recsOut struct {
+		Records []model.DataloggerRecord `json:"records"`
+	}
+	if err := json.NewDecoder(respRecs.Body).Decode(&recsOut); err != nil {
+		t.Fatalf("decode records response: %v", err)
+	}
+	if len(recsOut.Records) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(recsOut.Records))
+	}
+
+	// 4. POST /api/v1/datalogger/records/batch
+	batchBody := fmt.Sprintf(`{"session_ids": [%d, %d]}`, s1.ID, s2.ID)
+	reqBatch := httptest.NewRequest(http.MethodPost, "/api/v1/datalogger/records/batch", strings.NewReader(batchBody))
+	reqBatch.Header.Set("Content-Type", "application/json")
+	respBatch, err := srv.App().Test(reqBatch)
+	if err != nil {
+		t.Fatalf("POST batch failed: %v", err)
+	}
+	defer respBatch.Body.Close()
+	if respBatch.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on batch records, got %d", respBatch.StatusCode)
+	}
+	var batchOut struct {
+		Records map[string][]model.DataloggerRecord `json:"records"`
+	}
+	if err := json.NewDecoder(respBatch.Body).Decode(&batchOut); err != nil {
+		t.Fatalf("decode batch response: %v", err)
+	}
+	if len(batchOut.Records[fmt.Sprintf("%d", s1.ID)]) != 3 || len(batchOut.Records[fmt.Sprintf("%d", s2.ID)]) != 1 {
+		t.Fatalf("unexpected batch records map: %+v", batchOut.Records)
+	}
+
+	// 5. PUT /api/v1/datalogger/sessions/{id}/name
+	reqRename := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/datalogger/sessions/%d/name", s1.ID), strings.NewReader(`{"name": "Vaccine Fridge #1 (Verified)"}`))
+	reqRename.Header.Set("Content-Type", "application/json")
+	respRename, err := srv.App().Test(reqRename)
+	if err != nil {
+		t.Fatalf("PUT rename failed: %v", err)
+	}
+	defer respRename.Body.Close()
+	if respRename.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on rename, got %d", respRename.StatusCode)
+	}
+
+	reqGet1 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/datalogger/sessions/%d", s1.ID), nil)
+	respGet1, err := srv.App().Test(reqGet1)
+	if err != nil {
+		t.Fatalf("GET session 1 failed: %v", err)
+	}
+	defer respGet1.Body.Close()
+	var getOut1 struct {
+		Session model.DataloggerSession `json:"session"`
+	}
+	if err := json.NewDecoder(respGet1.Body).Decode(&getOut1); err != nil {
+		t.Fatalf("decode get session 1: %v", err)
+	}
+	if getOut1.Session.Name != "Vaccine Fridge #1 (Verified)" {
+		t.Errorf("expected renamed session, got %q", getOut1.Session.Name)
+	}
+
+	// 6. DELETE /api/v1/datalogger/sessions/{id}
+	reqDel := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/datalogger/sessions/%d", s1.ID), nil)
+	respDel, err := srv.App().Test(reqDel)
+	if err != nil {
+		t.Fatalf("DELETE session 1 failed: %v", err)
+	}
+	defer respDel.Body.Close()
+	if respDel.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on delete, got %d", respDel.StatusCode)
+	}
+
+	reqGone := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/datalogger/sessions/%d", s1.ID), nil)
+	respGone, err := srv.App().Test(reqGone)
+	if err != nil {
+		t.Fatalf("GET deleted session failed: %v", err)
+	}
+	defer respGone.Body.Close()
+	if respGone.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", respGone.StatusCode)
+	}
+}
+
+func TestDataloggerFilterAndPaginationEndpoints(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+
+	post := func(name, startISO, endISO string) {
+		t.Helper()
+		body := fmt.Sprintf(`{
+			"name": %q,
+			"device_model": "Elitech RC-51H",
+			"records": [
+				{"timestamp": %q, "temperature": 4.0, "humidity": 50.0, "flags": "—"},
+				{"timestamp": %q, "temperature": 5.0, "humidity": 52.0, "flags": "—"}
+			]
+		}`, name, startISO, endISO)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/datalogger/sessions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("POST %s failed: %v", name, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 creating %s, got %d", name, resp.StatusCode)
+		}
+	}
+
+	post("Oct1-Nov12", "2026-10-01T00:00:00Z", "2026-11-12T23:00:00Z")
+	post("Nov10-Dec1", "2026-11-10T06:00:00Z", "2026-12-01T12:00:00Z")
+	post("Oct1-Nov9", "2026-10-01T00:00:00Z", "2026-11-09T20:00:00Z")
+	post("Nov11-Dec1", "2026-11-11T00:00:00Z", "2026-12-01T12:00:00Z")
+
+	// Inclusive filter on Nov 10 -> both Oct1-Nov12 and Nov10-Dec1 match
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/datalogger/sessions?from=2026-11-10&to=2026-11-10&limit=1&offset=0", nil)
+	resp, err := srv.App().Test(req)
+	if err != nil {
+		t.Fatalf("GET filtered failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on filtered GET, got %d", resp.StatusCode)
+	}
+	var out struct {
+		Sessions []model.DataloggerSession `json:"sessions"`
+		Total    int                       `json:"total"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode filtered response: %v", err)
+	}
+	if out.Total != 2 || len(out.Sessions) != 1 {
+		t.Fatalf("expected total=2 and page len=1, got total=%d len=%d", out.Total, len(out.Sessions))
+	}
+
+	// Invalid date range returns 400
+	reqBad := httptest.NewRequest(http.MethodGet, "/api/v1/datalogger/sessions?from=2026-11-15&to=2026-11-10", nil)
+	respBad, err := srv.App().Test(reqBad)
+	if err != nil {
+		t.Fatalf("GET bad range failed: %v", err)
+	}
+	defer respBad.Body.Close()
+	if respBad.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for inverted date range, got %d", respBad.StatusCode)
+	}
+}

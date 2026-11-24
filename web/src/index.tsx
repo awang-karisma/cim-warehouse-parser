@@ -2,6 +2,7 @@ import { ROUTES } from './routes';
 
 import { ColorModeProvider, ColorModeScript, createLocalStorageManager } from '@kobalte/core';
 import { Route, Router } from '@solidjs/router';
+import { lazy } from 'solid-js';
 import { render } from 'solid-js/web';
 import './app.css';
 
@@ -24,6 +25,8 @@ import { SyncManager } from './pages/SyncManager';
 import { Terms } from './pages/Terms';
 import { Timeline } from './pages/Timeline';
 import { UserManagement } from './pages/UserManagement';
+const Datalogger = lazy(() => import('./pages/datalogger'));
+const DataloggerRecords = lazy(() => import('./pages/DataloggerRecords'));
 const storageManager = createLocalStorageManager('warehouse-ui-theme');
 
 const root = document.getElementById('root');
@@ -53,6 +56,8 @@ if (root) {
 				<Route path={ROUTES.users} component={UserManagement} />
 				<Route path={ROUTES.privacy} component={Privacy} />
 				<Route path={ROUTES.terms} component={Terms} />
+				<Route path={ROUTES.datalogger} component={Datalogger} />
+				<Route path={ROUTES.dataloggerRecordsPattern} component={DataloggerRecords} />
               </Router>
             </I18nProvider>
           </AuthProvider>

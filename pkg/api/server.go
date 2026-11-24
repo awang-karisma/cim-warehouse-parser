@@ -790,6 +790,77 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"accurate"},
 		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateSourceDocumentItems)
+
+	// Elitech Data Logger endpoints
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-datalogger-sessions",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/datalogger/sessions",
+		Summary:     "List datalogger sessions",
+		Description: "List stored Elitech temperature/humidity data logger sessions",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDataloggerSessions)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-datalogger-session",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/datalogger/sessions/{id}",
+		Summary:     "Get datalogger session",
+		Description: "Get metadata for a single datalogger session",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDataloggerSession)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-datalogger-records",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/datalogger/sessions/{id}/records",
+		Summary:     "Get datalogger session records",
+		Description: "Get timestamped readings for a single datalogger session",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDataloggerRecords)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "get-datalogger-records-batch",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/datalogger/records/batch",
+		Summary:     "Batch fetch datalogger records",
+		Description: "Fetch timestamped readings grouped by session ID for multi-session comparison",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDataloggerRecordsBatch)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "create-datalogger-session",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/datalogger/sessions",
+		Summary:     "Create datalogger session",
+		Description: "Save a new datalogger session and its readings",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleCreateDataloggerSession)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "delete-datalogger-session",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/datalogger/sessions/{id}",
+		Summary:     "Delete datalogger session",
+		Description: "Delete a datalogger session and its associated readings",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleDeleteDataloggerSession)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "rename-datalogger-session",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/datalogger/sessions/{id}/name",
+		Summary:     "Rename datalogger session",
+		Description: "Rename an existing datalogger session",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleRenameDataloggerSession)
 }
 
 // clearSessionCookie expires the warehouse_session cookie.

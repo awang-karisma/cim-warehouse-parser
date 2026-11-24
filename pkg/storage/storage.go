@@ -556,6 +556,30 @@ func (s *Storage) migrate() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_delivery_run_items_run_id ON delivery_run_items(run_id);
 	CREATE INDEX IF NOT EXISTS idx_delivery_run_items_source_key ON delivery_run_items(source_key);
+
+	CREATE TABLE IF NOT EXISTS datalogger_sessions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		device_model TEXT NOT NULL DEFAULT '',
+		serial_number TEXT NOT NULL DEFAULT '',
+		record_count INTEGER NOT NULL DEFAULT 0,
+		start_time TEXT NOT NULL DEFAULT '',
+		end_time TEXT NOT NULL DEFAULT '',
+		temp_min REAL NOT NULL DEFAULT 0,
+		temp_max REAL NOT NULL DEFAULT 0,
+		has_humidity INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
+	CREATE TABLE IF NOT EXISTS datalogger_records (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER NOT NULL REFERENCES datalogger_sessions(id) ON DELETE CASCADE,
+		timestamp TEXT NOT NULL,
+		temperature REAL NOT NULL,
+		humidity REAL,
+		flags TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_datalogger_records_session ON datalogger_records(session_id);
+	CREATE INDEX IF NOT EXISTS idx_datalogger_records_ts ON datalogger_records(session_id, timestamp);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -4755,4 +4779,413 @@ func (s *Storage) DeleteDeliveryRun(ctx context.Context, id int64) error {
 		return fmt.Errorf("delivery run %d: %w", id, ErrNotFound)
 	}
 	return tx.Commit()
+}
+
+// DataloggerSessionFilter specifies optional inclusive overlap date bounds, search, and pagination.
+type DataloggerSessionFilter struct {
+	From   string // Inclusive overlap start bound (YYYY-MM-DD or RFC3339)
+	To     string // Inclusive overlap end bound (YYYY-MM-DD or RFC3339)
+	Query  string // Substring match on name, device_model, serial_number
+	Limit  int    // <= 0 returns all matching rows
+	Offset int    // >= 0
+}
+
+func parseDataloggerBound(raw string, endOfDay bool) (time.Time, bool, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, false, nil
+	}
+	if len(trimmed) == 10 {
+		d, err := time.Parse("2006-01-02", trimmed)
+		if err != nil {
+			return time.Time{}, false, &ValidationError{Message: fmt.Sprintf("invalid date %q: expected YYYY-MM-DD or RFC3339", trimmed)}
+		}
+		if endOfDay {
+			return time.Date(d.Year(), d.Month(), d.Day(), 23, 59, 59, 999999999, time.UTC), true, nil
+		}
+		return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC), true, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, trimmed)
+	if err != nil {
+		return time.Time{}, false, &ValidationError{Message: fmt.Sprintf("invalid timestamp %q: expected YYYY-MM-DD or RFC3339", trimmed)}
+	}
+	return t.UTC(), true, nil
+}
+
+// QueryDataloggerSessions returns stored datalogger sessions matching inclusive date overlap,
+// optional text search, and limit/offset pagination, along with the total matching count.
+func (s *Storage) QueryDataloggerSessions(ctx context.Context, filter DataloggerSessionFilter) ([]model.DataloggerSession, int, error) {
+	fromBound, hasFrom, err := parseDataloggerBound(filter.From, false)
+	if err != nil {
+		return nil, 0, err
+	}
+	toBound, hasTo, err := parseDataloggerBound(filter.To, true)
+	if err != nil {
+		return nil, 0, err
+	}
+	if hasFrom && hasTo && fromBound.After(toBound) {
+		return nil, 0, &ValidationError{Message: "from date cannot be after to date"}
+	}
+	if filter.Offset < 0 {
+		return nil, 0, &ValidationError{Message: "offset cannot be negative"}
+	}
+
+	q := strings.TrimSpace(filter.Query)
+	var rows *sql.Rows
+	if q != "" {
+		like := "%" + strings.ToLower(q) + "%"
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, name, device_model, serial_number, record_count, start_time, end_time,
+			       temp_min, temp_max, has_humidity, created_at
+			FROM datalogger_sessions
+			WHERE LOWER(name) LIKE ? OR LOWER(device_model) LIKE ? OR LOWER(serial_number) LIKE ?
+			ORDER BY created_at DESC, id DESC
+		`, like, like, like)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, name, device_model, serial_number, record_count, start_time, end_time,
+			       temp_min, temp_max, has_humidity, created_at
+			FROM datalogger_sessions
+			ORDER BY created_at DESC, id DESC
+		`)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query datalogger sessions: %w", err)
+	}
+	defer rows.Close()
+
+	matched := []model.DataloggerSession{}
+	for rows.Next() {
+		var sess model.DataloggerSession
+		var hasHum int
+		if err := rows.Scan(
+			&sess.ID, &sess.Name, &sess.DeviceModel, &sess.SerialNumber,
+			&sess.RecordCount, &sess.StartTime, &sess.EndTime,
+			&sess.TempMin, &sess.TempMax, &hasHum, &sess.CreatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan datalogger session: %w", err)
+		}
+		sess.HasHumidity = hasHum != 0
+
+		if hasFrom || hasTo {
+			sessStart, errStart := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime))
+			sessEnd, errEnd := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.EndTime))
+			if errStart != nil || errEnd != nil {
+				continue
+			}
+			sessStart = sessStart.UTC()
+			sessEnd = sessEnd.UTC()
+			if hasFrom && sessEnd.Before(fromBound) {
+				continue
+			}
+			if hasTo && sessStart.After(toBound) {
+				continue
+			}
+		}
+
+		matched = append(matched, sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating datalogger sessions: %w", err)
+	}
+
+	total := len(matched)
+	if filter.Offset >= total {
+		return []model.DataloggerSession{}, total, nil
+	}
+	end := total
+	if filter.Limit > 0 && filter.Offset+filter.Limit < end {
+		end = filter.Offset + filter.Limit
+	}
+	return matched[filter.Offset:end], total, nil
+}
+
+// GetDataloggerSessions returns all stored datalogger sessions ordered by creation time descending.
+func (s *Storage) GetDataloggerSessions(ctx context.Context) ([]model.DataloggerSession, error) {
+	sessions, _, err := s.QueryDataloggerSessions(ctx, DataloggerSessionFilter{})
+	return sessions, err
+}
+
+// GetDataloggerSession returns a single datalogger session by ID.
+func (s *Storage) GetDataloggerSession(ctx context.Context, id int64) (*model.DataloggerSession, error) {
+	var sess model.DataloggerSession
+	var hasHum int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, name, device_model, serial_number, record_count, start_time, end_time,
+		       temp_min, temp_max, has_humidity, created_at
+		FROM datalogger_sessions
+		WHERE id = ?
+	`, id).Scan(
+		&sess.ID, &sess.Name, &sess.DeviceModel, &sess.SerialNumber,
+		&sess.RecordCount, &sess.StartTime, &sess.EndTime,
+		&sess.TempMin, &sess.TempMax, &hasHum, &sess.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("datalogger session %d: %w: %w", id, ErrNotFound, err)
+		}
+		return nil, fmt.Errorf("failed to get datalogger session %d: %w", id, err)
+	}
+	sess.HasHumidity = hasHum != 0
+	return &sess, nil
+}
+
+// GetDataloggerRecords returns all records for a datalogger session ordered by timestamp ascending.
+func (s *Storage) GetDataloggerRecords(ctx context.Context, sessionID int64) ([]model.DataloggerRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_id, timestamp, temperature, humidity, flags
+		FROM datalogger_records
+		WHERE session_id = ?
+		ORDER BY timestamp ASC, id ASC
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query datalogger records: %w", err)
+	}
+	defer rows.Close()
+
+	records := []model.DataloggerRecord{}
+	for rows.Next() {
+		var rec model.DataloggerRecord
+		var hum sql.NullFloat64
+		if err := rows.Scan(&rec.ID, &rec.SessionID, &rec.Timestamp, &rec.Temperature, &hum, &rec.Flags); err != nil {
+			return nil, fmt.Errorf("failed to scan datalogger record: %w", err)
+		}
+		if hum.Valid {
+			v := hum.Float64
+			rec.Humidity = &v
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating datalogger records: %w", err)
+	}
+	return records, nil
+}
+
+// GetDataloggerRecordsBatch returns records grouped by session ID for multiple sessions.
+func (s *Storage) GetDataloggerRecordsBatch(ctx context.Context, sessionIDs []int64) (map[int64][]model.DataloggerRecord, error) {
+	result := make(map[int64][]model.DataloggerRecord, len(sessionIDs))
+	uniqueIDs := make([]int64, 0, len(sessionIDs))
+	seen := make(map[int64]struct{}, len(sessionIDs))
+	for _, id := range sessionIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			uniqueIDs = append(uniqueIDs, id)
+			result[id] = []model.DataloggerRecord{}
+		}
+	}
+	if len(uniqueIDs) == 0 {
+		return result, nil
+	}
+
+	placeholders := make([]string, len(uniqueIDs))
+	args := make([]any, len(uniqueIDs))
+	for i, id := range uniqueIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, session_id, timestamp, temperature, humidity, flags
+		FROM datalogger_records
+		WHERE session_id IN (%s)
+		ORDER BY session_id ASC, timestamp ASC, id ASC
+	`, strings.Join(placeholders, ","))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query datalogger records batch: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var rec model.DataloggerRecord
+		var hum sql.NullFloat64
+		if err := rows.Scan(&rec.ID, &rec.SessionID, &rec.Timestamp, &rec.Temperature, &hum, &rec.Flags); err != nil {
+			return nil, fmt.Errorf("failed to scan datalogger record: %w", err)
+		}
+		if hum.Valid {
+			v := hum.Float64
+			rec.Humidity = &v
+		}
+		result[rec.SessionID] = append(result[rec.SessionID], rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating datalogger records batch: %w", err)
+	}
+	return result, nil
+}
+
+// CreateDataloggerSession persists a new datalogger session and its records atomically.
+// Computed summary metadata (record_count, start_time, end_time, temp_min, temp_max, has_humidity)
+// is calculated from records and written back onto session.
+func (s *Storage) CreateDataloggerSession(ctx context.Context, session *model.DataloggerSession, records []model.DataloggerRecord) (int64, error) {
+	if session == nil {
+		return 0, &ValidationError{Message: "session is required"}
+	}
+	name := strings.TrimSpace(session.Name)
+	if name == "" {
+		return 0, &ValidationError{Message: "session name cannot be empty"}
+	}
+	session.Name = name
+	session.DeviceModel = strings.TrimSpace(session.DeviceModel)
+	session.SerialNumber = strings.TrimSpace(session.SerialNumber)
+	session.RecordCount = len(records)
+	session.StartTime = ""
+	session.EndTime = ""
+	session.TempMin = 0
+	session.TempMax = 0
+	session.HasHumidity = false
+
+	var minParsed, maxParsed time.Time
+	hasParsedTime := false
+	for i, rec := range records {
+		ts := strings.TrimSpace(rec.Timestamp)
+		if i == 0 {
+			session.TempMin = rec.Temperature
+			session.TempMax = rec.Temperature
+			session.StartTime = ts
+			session.EndTime = ts
+			if parsed, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+				minParsed, maxParsed = parsed, parsed
+				hasParsedTime = true
+			}
+		} else {
+			if rec.Temperature < session.TempMin {
+				session.TempMin = rec.Temperature
+			}
+			if rec.Temperature > session.TempMax {
+				session.TempMax = rec.Temperature
+			}
+			if parsed, err := time.Parse(time.RFC3339Nano, ts); err == nil && hasParsedTime {
+				if parsed.Before(minParsed) {
+					minParsed = parsed
+					session.StartTime = ts
+				}
+				if parsed.After(maxParsed) {
+					maxParsed = parsed
+					session.EndTime = ts
+				}
+			} else {
+				hasParsedTime = false
+				if ts < session.StartTime {
+					session.StartTime = ts
+				}
+				if ts > session.EndTime {
+					session.EndTime = ts
+				}
+			}
+		}
+		if rec.Humidity != nil {
+			session.HasHumidity = true
+		}
+	}
+
+	hasHumInt := 0
+	if session.HasHumidity {
+		hasHumInt = 1
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin datalogger session transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO datalogger_sessions (
+			name, device_model, serial_number, record_count, start_time, end_time,
+			temp_min, temp_max, has_humidity
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, session.Name, session.DeviceModel, session.SerialNumber, session.RecordCount,
+		session.StartTime, session.EndTime, session.TempMin, session.TempMax, hasHumInt)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert datalogger session: %w", err)
+	}
+	sessionID, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get datalogger session id: %w", err)
+	}
+
+	if len(records) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO datalogger_records (session_id, timestamp, temperature, humidity, flags)
+			VALUES (?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return 0, fmt.Errorf("failed to prepare datalogger record insert: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, rec := range records {
+			var hum any
+			if rec.Humidity != nil {
+				hum = *rec.Humidity
+			}
+			if _, err := stmt.ExecContext(ctx, sessionID, strings.TrimSpace(rec.Timestamp), rec.Temperature, hum, rec.Flags); err != nil {
+				return 0, fmt.Errorf("failed to insert datalogger record: %w", err)
+			}
+		}
+	}
+
+	var createdAt string
+	if err := tx.QueryRowContext(ctx, "SELECT created_at FROM datalogger_sessions WHERE id = ?", sessionID).Scan(&createdAt); err != nil {
+		return 0, fmt.Errorf("failed to fetch datalogger session created_at: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit datalogger session: %w", err)
+	}
+
+	session.ID = sessionID
+	session.CreatedAt = createdAt
+	return sessionID, nil
+}
+
+// DeleteDataloggerSession deletes a datalogger session and all its records in a transaction.
+func (s *Storage) DeleteDataloggerSession(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM datalogger_records WHERE session_id = ?", id); err != nil {
+		return fmt.Errorf("failed to delete datalogger records for session %d: %w", id, err)
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM datalogger_sessions WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete datalogger session %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("datalogger session %d: %w", id, ErrNotFound)
+	}
+	return tx.Commit()
+}
+
+// RenameDataloggerSession updates a datalogger session's display name.
+func (s *Storage) RenameDataloggerSession(ctx context.Context, id int64, name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return &ValidationError{Message: "session name cannot be empty"}
+	}
+	res, err := s.db.ExecContext(ctx, "UPDATE datalogger_sessions SET name = ? WHERE id = ?", trimmed, id)
+	if err != nil {
+		return fmt.Errorf("failed to rename datalogger session %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("datalogger session %d: %w", id, ErrNotFound)
+	}
+	return nil
 }

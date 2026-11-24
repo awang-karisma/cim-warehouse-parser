@@ -51,8 +51,9 @@ export const App: Component<RouteSectionProps> = (props) => {
 		if (path.startsWith(ROUTES.deliveryFlow)) return t('nav.deliveryFlow');
 		if (path.startsWith(ROUTES.timeline)) return t('nav.deliveryTimeline');
 		if (path.startsWith(ROUTES.barcode)) return t('nav.barcodePrinter');
+		if (path.startsWith('/datalogger-records')) return t('nav.dataloggerReadings');
+		if (path.startsWith(ROUTES.datalogger)) return t('nav.datalogger');
 		if (path.startsWith(ROUTES.sync)) return t('nav.syncManager');
-		if (path.startsWith(ROUTES.search)) return t('nav.search');
 		if (path.startsWith(ROUTES.settings)) return t('nav.settings');
 		if (path.startsWith(ROUTES.users)) return t('nav.userManagement');
 		if (path.startsWith(ROUTES.privacy)) return t('nav.privacyPolicy');

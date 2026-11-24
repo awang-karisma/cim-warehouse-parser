@@ -10,8 +10,11 @@ import {
   LineElement,
   LinearScale,
   PointElement,
+  ScatterController,
+  TimeScale,
   Tooltip,
 } from 'chart.js';
+import 'chartjs-adapter-date-fns';
 
 Chart.register(
   BarController,
@@ -21,6 +24,8 @@ Chart.register(
   LineElement,
   LinearScale,
   PointElement,
+  ScatterController,
+  TimeScale,
   Filler,
   Legend,
   Tooltip,

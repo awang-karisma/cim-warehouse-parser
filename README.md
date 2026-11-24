@@ -81,6 +81,14 @@ Automated order ingestion, normalization, and visualization system.
     - **Integrated Filter Drawer & Sidebar**: Text search filtering (`searchTerm`) is housed inside the floating dock's integrated drawer on mobile and the filter sidebar (`PlanSelectSidebarContent`) on desktop, removing redundant search inputs from the top toolbar. Filter count badge dynamically reflects active search queries, readiness toggles, and area filters.
     - **Design-System Micro-Pills & Product Units**: Separate, compact micro-pills for `status_barang` (e.g. `STOK GUDANG`) and `status_order` (e.g. `BELUM SELESAI`, `PENDING`) using uniform design system tokens and colors (`Badge.tsx`). The remaining quantity column consistently renders with product unit (`{remaining} / {total} {satuan}`), preventing text wrapping and preserving layout stability.
     - **Desktop Invariant**: Desktop rendering (`!isMobile()`) preserves the full 8-column main content table and 4-column right sidebar across all routes without layout shifts.
+- **Elitech Data Logger Workspace (`/datalogger`, `/datalogger-records/:id`)**:
+  - Accessible directly from the main sidebar under Tools (`navGroups.tools.datalogger` with thermometer icon).
+  - Ingests Elitech USB temperature/humidity data loggers directly in Chromium browsers via WebHID or from Elitech / custom-mapped CSV exports.
+  - Persists named recording sessions and readings in SQLite (`datalogger_sessions`, `datalogger_records`) independently of spreadsheet resyncs, exposed via `/api/v1/datalogger/*` (with inclusive date overlap filtering, text search, and customizable pagination).
+  - Cold-chain telemetry KPI cards prominently placed at the top (`Total Sessions`, `Total Records`, `Temp Range`, `Latest Import`) with the refresh action inline with the navigation tabs.
+  - Dual desktop/mobile table representation: full 9-column `DataTable` on desktop and touchscreen-friendly responsive card list on mobile (eliminating horizontal clipping).
+  - Dedicated tabbed Graph View with full-width `ZoomableTimeChart` (dual-axis zoom & pan), active session pills, date range windowing, and per-session summary stats table with direct "View Raw" action links (zero merged records clutter).
+  - Dedicated single-session Raw Data log viewing and CSV file export at `/datalogger-records/:id`.
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.

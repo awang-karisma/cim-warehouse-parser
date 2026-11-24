@@ -530,3 +530,26 @@ export interface DeliveryRunsResponse {
 export interface DeliveryCandidatesResponse {
   orders: Order[];
 }
+
+export interface DataloggerSession {
+  id: number;
+  name: string;
+  device_model: string;
+  serial_number: string;
+  record_count: number;
+  start_time: string;
+  end_time: string;
+  temp_min: number;
+  temp_max: number;
+  has_humidity: boolean;
+  created_at: string;
+}
+
+export interface DataloggerRecord {
+  id: number;
+  session_id: number;
+  timestamp: string;
+  temperature: number;
+  humidity: number | null;
+  flags: string;
+}

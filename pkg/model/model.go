@@ -326,3 +326,36 @@ func BuildDeliveryItemSourceKey(orderNumber, orderID, customer, namaBarang strin
 	}
 	return fmt.Sprintf("%s:%s:%s", docKey, cleanCust, cleanItem)
 }
+
+// DataloggerSession represents a stored Elitech data logger recording session.
+type DataloggerSession struct {
+	ID           int64   `json:"id"`
+	Name         string  `json:"name"`
+	DeviceModel  string  `json:"device_model"`
+	SerialNumber string  `json:"serial_number"`
+	RecordCount  int     `json:"record_count"`
+	StartTime    string  `json:"start_time"`
+	EndTime      string  `json:"end_time"`
+	TempMin      float64 `json:"temp_min"`
+	TempMax      float64 `json:"temp_max"`
+	HasHumidity  bool    `json:"has_humidity"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+// DataloggerRecord represents a single timestamped temperature/humidity reading.
+type DataloggerRecord struct {
+	ID          int64    `json:"id,omitempty"`
+	SessionID   int64    `json:"session_id,omitempty"`
+	Timestamp   string   `json:"timestamp"`
+	Temperature float64  `json:"temperature"`
+	Humidity    *float64 `json:"humidity"`
+	Flags       string   `json:"flags"`
+}
+
+// DataloggerImportPayload is the request payload for saving a new datalogger session.
+type DataloggerImportPayload struct {
+	Name         string             `json:"name"`
+	DeviceModel  string             `json:"device_model,omitempty"`
+	SerialNumber string             `json:"serial_number,omitempty"`
+	Records      []DataloggerRecord `json:"records"`
+}

@@ -16,8 +16,14 @@ export const ROUTES = {
   users: "/admin/users",
   privacy: "/privacy",
   terms: "/terms",
+  datalogger: "/datalogger",
+  dataloggerRecordsPattern: "/datalogger-records/:id",
 } as const;
 
 export function orderDetailPath(id: string): string {
   return `${ROUTES.orders}/${id}`;
+}
+
+export function dataloggerRecordsPath(id: number | string): string {
+  return `/datalogger-records/${id}`;
 }
