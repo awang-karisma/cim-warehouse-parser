@@ -36,3 +36,10 @@ export type BarcodeSymbology = (typeof BARCODE_SYMBOLOGY)[keyof typeof BARCODE_S
 export type BarcodeHeight = (typeof BARCODE_HEIGHT)[keyof typeof BARCODE_HEIGHT];
 export type FontSize = (typeof FONT_SIZE)[keyof typeof FONT_SIZE];
 export type QtyMode = (typeof QTY_MODE)[keyof typeof QTY_MODE];
+export const DATALOGGER_START_MODE = {
+  IMMEDIATE: "immediate",
+  MANUAL: "manual",
+  TIMER: "timer",
+} as const;
+
+export type DataloggerStartMode = (typeof DATALOGGER_START_MODE)[keyof typeof DATALOGGER_START_MODE];

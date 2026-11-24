@@ -1,5 +1,5 @@
-import type { BarcodeHeight, BarcodeSymbology, DeliveryRunStatus, FontSize, QtyMode, UserRole } from "~/domain";
-export type { BarcodeHeight, DeliveryRunStatus, FontSize, QtyMode } from "~/domain";
+import type { BarcodeHeight, BarcodeSymbology, DataloggerStartMode, DeliveryRunStatus, FontSize, QtyMode, UserRole } from "~/domain";
+export type { BarcodeHeight, DataloggerStartMode, DeliveryRunStatus, FontSize, QtyMode } from "~/domain";
 
 export interface OrderItem {
   row_index: number;
@@ -552,4 +552,26 @@ export interface DataloggerRecord {
   temperature: number;
   humidity: number | null;
   flags: string;
+}
+
+export interface DataloggerConfiguration {
+  interval_seconds: number;
+  duration_seconds: number | null;
+  start_mode: DataloggerStartMode;
+  start_delay_seconds: number;
+  scheduled_start_local: string | null;
+  trip_number: string;
+  trip_description: string;
+}
+
+export interface DataloggerProfile {
+  id: number;
+  name: string;
+  config: DataloggerConfiguration;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataloggerProfilesResponse {
+  profiles: DataloggerProfile[];
 }

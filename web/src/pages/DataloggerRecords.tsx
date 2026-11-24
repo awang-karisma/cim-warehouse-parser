@@ -53,15 +53,18 @@ export default function DataloggerRecords() {
   const [pageSize, setPageSize] = createSignal(50);
   const [showHumidity, setShowHumidity] = createSignal(true);
 
+  const dateFilteredRecords = createMemo(() =>
+    filterRecordsByRange(rawRecords(), fromDate(), toDate()),
+  );
+
   const filteredRecords = createMemo(() => {
-    let list = filterRecordsByRange(rawRecords(), fromDate(), toDate());
+    let list = dateFilteredRecords();
     const q = query().trim().toLowerCase();
     if (q) {
       list = list.filter((r) => r.timestamp.toLowerCase().includes(q) || r.flags.toLowerCase().includes(q));
     }
     return list;
   });
-
   createEffect(() => {
     const maxPage = Math.max(1, Math.ceil(filteredRecords().length / Math.max(1, pageSize())));
     if (page() > maxPage) setPage(maxPage);
@@ -103,7 +106,7 @@ export default function DataloggerRecords() {
   const recordsBySessionMap = createMemo<Record<string, DataloggerRecord[]>>(() => {
     const s = session();
     if (!s) return {};
-    return { [String(s.id)]: rawRecords() };
+    return { [String(s.id)]: dateFilteredRecords() };
   });
 
   return (

@@ -580,6 +580,13 @@ func (s *Storage) migrate() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_datalogger_records_session ON datalogger_records(session_id);
 	CREATE INDEX IF NOT EXISTS idx_datalogger_records_ts ON datalogger_records(session_id, timestamp);
+	CREATE TABLE IF NOT EXISTS datalogger_profiles (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		config_json TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -5186,6 +5193,232 @@ func (s *Storage) RenameDataloggerSession(ctx context.Context, id int64, name st
 	}
 	if rows == 0 {
 		return fmt.Errorf("datalogger session %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+func isPrintableASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidateAndCanonicalizeDataloggerConfig validates a DataloggerConfiguration and canonicalizes inactive mode fields.
+func ValidateAndCanonicalizeDataloggerConfig(cfg *model.DataloggerConfiguration) error {
+	if cfg == nil {
+		return &ValidationError{Message: "config is required"}
+	}
+	if cfg.IntervalSeconds < 10 || cfg.IntervalSeconds > 655350 || cfg.IntervalSeconds%10 != 0 {
+		return &ValidationError{Message: "interval_seconds must be between 10 and 655350 and divisible by 10"}
+	}
+	if cfg.DurationSeconds != nil {
+		if *cfg.DurationSeconds <= 0 || *cfg.DurationSeconds > 9007199254740991 {
+			return &ValidationError{Message: "duration_seconds must be a positive integer <= 9007199254740991"}
+		}
+	}
+	mode := model.DataloggerStartMode(cfg.StartMode)
+	switch mode {
+	case model.DataloggerStartModeImmediate, model.DataloggerStartModeManual, model.DataloggerStartModeTimer:
+	default:
+		return &ValidationError{Message: "start_mode must be immediate, manual, or timer"}
+	}
+	if cfg.StartDelaySeconds < 0 || cfg.StartDelaySeconds > 655350 || cfg.StartDelaySeconds%10 != 0 {
+		return &ValidationError{Message: "start_delay_seconds must be between 0 and 655350 and divisible by 10"}
+	}
+	if mode != model.DataloggerStartModeManual {
+		cfg.StartDelaySeconds = 0
+	}
+	if mode == model.DataloggerStartModeTimer {
+		if cfg.ScheduledStartLocal == nil || *cfg.ScheduledStartLocal == "" {
+			return &ValidationError{Message: "scheduled_start_local is required when start_mode is timer"}
+		}
+		rawSched := *cfg.ScheduledStartLocal
+		if len(rawSched) != len("2006-01-02T15:04:05") {
+			return &ValidationError{Message: "scheduled_start_local must be in YYYY-MM-DDTHH:mm:ss format"}
+		}
+		parsed, err := time.Parse("2006-01-02T15:04:05", rawSched)
+		if err != nil || parsed.Format("2006-01-02T15:04:05") != rawSched {
+			return &ValidationError{Message: "scheduled_start_local must be a valid calendar timestamp in YYYY-MM-DDTHH:mm:ss format"}
+		}
+		if parsed.Year() < 2000 || parsed.Year() > 2099 {
+			return &ValidationError{Message: "scheduled_start_local year must be between 2000 and 2099"}
+		}
+	} else {
+		cfg.ScheduledStartLocal = nil
+	}
+	if len(cfg.TripNumber) > 13 {
+		return &ValidationError{Message: "trip_number must be at most 13 printable ASCII characters"}
+	}
+	if !isPrintableASCII(cfg.TripNumber) {
+		return &ValidationError{Message: "trip_number must contain only printable ASCII characters"}
+	}
+	if len(cfg.TripDescription) > 100 {
+		return &ValidationError{Message: "trip_description must be at most 100 printable ASCII characters"}
+	}
+	if !isPrintableASCII(cfg.TripDescription) {
+		return &ValidationError{Message: "trip_description must contain only printable ASCII characters"}
+	}
+	return nil
+}
+
+var requiredDataloggerConfigKeys = []string{
+	"interval_seconds",
+	"duration_seconds",
+	"start_mode",
+	"start_delay_seconds",
+	"scheduled_start_local",
+	"trip_number",
+	"trip_description",
+}
+
+// ParseStrictDataloggerConfigJSON decodes a complete DataloggerConfiguration JSON object,
+// rejecting missing fields, unknown fields, null non-nullable fields, or invalid values.
+func ParseStrictDataloggerConfigJSON(raw []byte) (model.DataloggerConfiguration, error) {
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rawMap); err != nil {
+		return model.DataloggerConfiguration{}, &ValidationError{Message: fmt.Sprintf("invalid config json: %v", err)}
+	}
+	if rawMap == nil {
+		return model.DataloggerConfiguration{}, &ValidationError{Message: "config must be a JSON object"}
+	}
+	for _, key := range requiredDataloggerConfigKeys {
+		val, ok := rawMap[key]
+		if !ok {
+			return model.DataloggerConfiguration{}, &ValidationError{Message: fmt.Sprintf("config.%s is required", key)}
+		}
+		if key != "duration_seconds" && key != "scheduled_start_local" && strings.TrimSpace(string(val)) == "null" {
+			return model.DataloggerConfiguration{}, &ValidationError{Message: fmt.Sprintf("config.%s cannot be null", key)}
+		}
+	}
+	if len(rawMap) != len(requiredDataloggerConfigKeys) {
+		return model.DataloggerConfiguration{}, &ValidationError{Message: "config contains unsupported fields"}
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var cfg model.DataloggerConfiguration
+	if err := dec.Decode(&cfg); err != nil {
+		return model.DataloggerConfiguration{}, &ValidationError{Message: fmt.Sprintf("invalid config fields: %v", err)}
+	}
+	if err := ValidateAndCanonicalizeDataloggerConfig(&cfg); err != nil {
+		return model.DataloggerConfiguration{}, err
+	}
+	return cfg, nil
+}
+
+func validateAndEncodeDataloggerProfile(profile *model.DataloggerProfile) (string, error) {
+	profile.Name = strings.TrimSpace(profile.Name)
+	if profile.Name == "" {
+		return "", &ValidationError{Message: "profile name cannot be empty"}
+	}
+	if err := ValidateAndCanonicalizeDataloggerConfig(&profile.Config); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(profile.Config)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal datalogger profile config: %w", err)
+	}
+	return string(encoded), nil
+}
+
+// GetDataloggerProfiles lists saved datalogger configuration profiles ordered by name case-insensitively.
+func (s *Storage) GetDataloggerProfiles(ctx context.Context) ([]model.DataloggerProfile, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, config_json, created_at, updated_at
+		FROM datalogger_profiles
+		ORDER BY name COLLATE NOCASE
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query datalogger profiles: %w", err)
+	}
+	defer rows.Close()
+
+	profiles := make([]model.DataloggerProfile, 0)
+	for rows.Next() {
+		var p model.DataloggerProfile
+		var rawConfig string
+		if err := rows.Scan(&p.ID, &p.Name, &rawConfig, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan datalogger profile: %w", err)
+		}
+		cfg, err := ParseStrictDataloggerConfigJSON([]byte(rawConfig))
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode datalogger profile %d config: %w", p.ID, err)
+		}
+		p.Config = cfg
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate datalogger profiles: %w", err)
+	}
+	return profiles, nil
+}
+
+// CreateDataloggerProfile validates and stores a new datalogger configuration profile.
+func (s *Storage) CreateDataloggerProfile(ctx context.Context, profile model.DataloggerProfile) (int64, error) {
+	configJSON, err := validateAndEncodeDataloggerProfile(&profile)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO datalogger_profiles (name, config_json) VALUES (?, ?)`,
+		profile.Name, configJSON,
+	)
+	if err != nil {
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+			return 0, fmt.Errorf("failed to insert datalogger profile: %w: %w", &ValidationError{Message: "profile name already exists"}, err)
+		}
+		return 0, fmt.Errorf("failed to insert datalogger profile: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get datalogger profile ID: %w", err)
+	}
+	return id, nil
+}
+
+// UpdateDataloggerProfile validates and updates an existing datalogger configuration profile.
+func (s *Storage) UpdateDataloggerProfile(ctx context.Context, id int64, profile model.DataloggerProfile) error {
+	configJSON, err := validateAndEncodeDataloggerProfile(&profile)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE datalogger_profiles
+		SET name = ?, config_json = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`, profile.Name, configJSON, id)
+	if err != nil {
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+			return fmt.Errorf("failed to update datalogger profile %d: %w: %w", id, &ValidationError{Message: "profile name already exists"}, err)
+		}
+		return fmt.Errorf("failed to update datalogger profile %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get datalogger profile rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("datalogger profile %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// DeleteDataloggerProfile deletes a datalogger configuration profile by ID.
+func (s *Storage) DeleteDataloggerProfile(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM datalogger_profiles WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete datalogger profile %d: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get datalogger profile rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("datalogger profile %d: %w", id, ErrNotFound)
 	}
 	return nil
 }

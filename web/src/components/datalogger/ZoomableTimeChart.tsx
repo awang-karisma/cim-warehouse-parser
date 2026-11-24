@@ -1,21 +1,27 @@
-import { createMemo, createSignal, onCleanup, Show } from 'solid-js';
+import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import { Line, Scatter } from 'solid-chartjs';
 import type { ChartData, ChartOptions } from 'chart.js';
 import {
   IconArrowsMaximize,
-  IconChartDots,
-  IconChartLine,
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronUp,
+  IconFlag,
   IconHandGrab,
   IconZoomIn,
   IconZoomOut,
 } from '@tabler/icons-solidjs';
 import { readPalette, useThemeSignal } from '~/components/chartSetup';
+import { DataTable } from '~/components/DataTable';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
+import { useI18n } from '~/i18n';
 import type { DataloggerRecord, DataloggerSession } from '~/types';
 import { getSessionColor } from './colors';
+import { formatDateTimeFull } from './format';
 import type { RawRecord } from './types';
-
 export interface ChartLayerStyle {
   color?: string;
   opacity?: number;
@@ -32,13 +38,39 @@ interface ZoomableTimeChartProps {
   emptyMessage?: string;
 }
 
-type Point = { x: number; y: number };
+export interface MarkedEventItem {
+  sessionId: number;
+  sessionName: string;
+  serialNumber: string;
+  sourceIndex: number;
+  ordinal: number;
+  timestampMs: number;
+  timestampIso: string;
+  temperature: number;
+  humidity: number | null;
+  flags: string;
+  color: string;
+}
+
+export function isMarkedEventFlag(flags: string | null | undefined): boolean {
+  if (!flags) return false;
+  return flags.includes('M');
+}
+
+type Point = { x: number; y: number; mark?: MarkedEventItem };
+
+type TaggedDataset = ChartData<'line', Point[]>['datasets'][number] & {
+  isMarkedEventDataset?: boolean;
+  seriesKey?: string;
+  seriesKind?: 'temperature' | 'humidity' | 'mark';
+};
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
 
 export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
+  const { t } = useI18n();
   const isDark = useThemeSignal();
 
   let canvasContainerEl: HTMLDivElement | undefined;
@@ -56,6 +88,81 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
   const [scrollProgY, setScrollProgY] = createSignal(0);
 
   const [isPanning, setIsPanning] = createSignal(false);
+  const [showMarkedEvents, setShowMarkedEvents] = createSignal(true);
+  const [hiddenSeriesKeys, setHiddenSeriesKeys] = createSignal<Record<string, boolean>>({});
+
+  const markedEvents = createMemo(() => {
+    const dark = isDark();
+    const bySessionKey: Record<string, MarkedEventItem[]> = {};
+    const all: MarkedEventItem[] = [];
+
+    if (props.preview) {
+      const colors = getSessionColor(0, dark);
+      const list: MarkedEventItem[] = [];
+      let ordinal = 0;
+      props.preview.records.forEach((r, sourceIndex) => {
+        if (!isMarkedEventFlag(r.flags)) return;
+        const ms = r.time.getTime();
+        if (Number.isNaN(ms) || !Number.isFinite(r.temperature)) return;
+        ordinal += 1;
+        const item: MarkedEventItem = {
+          sessionId: 0,
+          sessionName: props.preview!.name,
+          serialNumber: '',
+          sourceIndex,
+          ordinal,
+          timestampMs: ms,
+          timestampIso: r.time.toISOString(),
+          temperature: r.temperature,
+          humidity: r.humidity,
+          flags: r.flags,
+          color: colors.stroke,
+        };
+        list.push(item);
+        all.push(item);
+      });
+      bySessionKey.preview = list;
+    } else if (props.sessions && props.recordsBySession) {
+      props.sessions.forEach((session, idx) => {
+        const key = String(session.id);
+        const recs = props.recordsBySession?.[key] ?? [];
+        const style = props.layerStyles?.[session.id];
+        const colors = getSessionColor(idx, dark, style?.opacity, style?.color);
+        const list: MarkedEventItem[] = [];
+        let ordinal = 0;
+        recs.forEach((r, sourceIndex) => {
+          if (!isMarkedEventFlag(r.flags)) return;
+          const ms = new Date(r.timestamp).getTime();
+          if (Number.isNaN(ms) || !Number.isFinite(r.temperature)) return;
+          ordinal += 1;
+          const item: MarkedEventItem = {
+            sessionId: session.id,
+            sessionName: session.name,
+            serialNumber: session.serial_number || '',
+            sourceIndex,
+            ordinal,
+            timestampMs: ms,
+            timestampIso: r.timestamp,
+            temperature: r.temperature,
+            humidity: r.humidity ?? null,
+            flags: r.flags,
+            color: colors.stroke,
+          };
+          list.push(item);
+          all.push(item);
+        });
+        bySessionKey[key] = list;
+      });
+    }
+
+    all.sort((a, b) => {
+      if (a.timestampMs !== b.timestampMs) return a.timestampMs - b.timestampMs;
+      if (a.sessionId !== b.sessionId) return a.sessionId - b.sessionId;
+      return a.sourceIndex - b.sourceIndex;
+    });
+
+    return { bySessionKey, all };
+  });
 
   // Compute global data bounds & total plotted points across all active datasets
   const dataExtents = createMemo(() => {
@@ -368,12 +475,17 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
 
   const buildDatasets = () => {
     const dark = isDark();
+    const palette = readPalette(dark);
     const isScatter = props.chartType === 'scatter';
-    const datasets: ChartData<'line', Point[]>['datasets'] = [];
+    const marksVisible = showMarkedEvents();
+    const hiddenMap = hiddenSeriesKeys();
+    const marksByKey = markedEvents().bySessionKey;
+    const datasets: TaggedDataset[] = [];
 
     if (props.preview) {
       const colors = getSessionColor(0, dark);
       const recs = props.preview.records;
+      const seriesHidden = Boolean(hiddenMap.preview);
       datasets.push({
         label: `${props.preview.name} (°C)`,
         data: recs.map((r) => ({ x: r.time.getTime(), y: r.temperature })),
@@ -385,7 +497,35 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
         showLine: !isScatter,
         tension: 0.15,
         yAxisID: 'y',
+        hidden: seriesHidden,
+        seriesKey: 'preview',
+        seriesKind: 'temperature',
       });
+
+      const previewMarks = marksByKey.preview ?? [];
+      if (previewMarks.length > 0) {
+        datasets.push({
+          label: `${props.preview.name} (Marked Events)`,
+          data: previewMarks.map((m) => ({ x: m.timestampMs, y: m.temperature, mark: m })),
+          borderColor: palette.card,
+          backgroundColor: colors.stroke,
+          pointBackgroundColor: colors.stroke,
+          pointBorderColor: palette.card,
+          pointBorderWidth: 2,
+          borderWidth: 2,
+          pointStyle: 'triangle',
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          showLine: false,
+          yAxisID: 'y',
+          order: -1,
+          hidden: !marksVisible || seriesHidden,
+          isMarkedEventDataset: true,
+          seriesKey: 'preview',
+          seriesKind: 'mark',
+        });
+      }
+
       if (props.showHumidity && recs.some((r) => r.humidity !== null)) {
         datasets.push({
           label: `${props.preview.name} (%RH)`,
@@ -400,6 +540,8 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
           showLine: !isScatter,
           tension: 0.15,
           yAxisID: 'y1',
+          seriesKey: 'preview',
+          seriesKind: 'humidity',
         });
       }
       return { datasets };
@@ -408,9 +550,11 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
     const sessions = props.sessions ?? [];
     const map = props.recordsBySession ?? {};
     sessions.forEach((session, idx) => {
-      const records = map[String(session.id)] ?? [];
+      const key = String(session.id);
+      const records = map[key] ?? [];
       const style = props.layerStyles?.[session.id];
       const colors = getSessionColor(idx, dark, style?.opacity, style?.color);
+      const seriesHidden = Boolean(hiddenMap[key]);
 
       datasets.push({
         label: `${session.name} (°C)`,
@@ -423,7 +567,34 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
         showLine: !isScatter,
         tension: 0.15,
         yAxisID: 'y',
+        hidden: seriesHidden,
+        seriesKey: key,
+        seriesKind: 'temperature',
       });
+
+      const sessionMarks = marksByKey[key] ?? [];
+      if (sessionMarks.length > 0) {
+        datasets.push({
+          label: `${session.name} (Marked Events)`,
+          data: sessionMarks.map((m) => ({ x: m.timestampMs, y: m.temperature, mark: m })),
+          borderColor: palette.card,
+          backgroundColor: colors.stroke,
+          pointBackgroundColor: colors.stroke,
+          pointBorderColor: palette.card,
+          pointBorderWidth: 2,
+          borderWidth: 2,
+          pointStyle: 'triangle',
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          showLine: false,
+          yAxisID: 'y',
+          order: -1,
+          hidden: !marksVisible || seriesHidden,
+          isMarkedEventDataset: true,
+          seriesKey: key,
+          seriesKind: 'mark',
+        });
+      }
 
       if (props.showHumidity && records.some((r) => r.humidity !== null && r.humidity !== undefined)) {
         datasets.push({
@@ -439,6 +610,8 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
           showLine: !isScatter,
           tension: 0.15,
           yAxisID: 'y1',
+          seriesKey: key,
+          seriesKind: 'humidity',
         });
       }
     });
@@ -458,7 +631,7 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
       responsive: true,
       maintainAspectRatio: false,
       animation: false as const,
-      interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
+      interaction: { mode: 'nearest' as const, axis: 'xy' as const, intersect: false },
       plugins: {
         legend: {
           position: 'top' as const,
@@ -470,6 +643,52 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
             boxHeight: 8,
             padding: 12,
             font: { size: 12 },
+            filter: (legendItem: { datasetIndex?: number }, data: ChartData) => {
+              const ds = data.datasets[legendItem.datasetIndex ?? -1] as TaggedDataset | undefined;
+              return !ds?.isMarkedEventDataset;
+            },
+          },
+          onClick: (
+            _e: unknown,
+            legendItem: { datasetIndex?: number; hidden?: boolean },
+            legend: {
+              chart: {
+                data: ChartData;
+                isDatasetVisible: (idx: number) => boolean;
+                setDatasetVisibility: (idx: number, visible: boolean) => void;
+                hide: (idx: number) => void;
+                show: (idx: number) => void;
+                update: () => void;
+              };
+            },
+          ) => {
+            const index = legendItem.datasetIndex;
+            if (index === undefined) return;
+            const chart = legend.chart;
+            const clickedDs = chart.data.datasets[index] as TaggedDataset | undefined;
+            if (clickedDs?.seriesKind === 'temperature' && clickedDs.seriesKey) {
+              const key = clickedDs.seriesKey;
+              const nextHidden = chart.isDatasetVisible(index);
+              setHiddenSeriesKeys((prev) => ({ ...prev, [key]: nextHidden }));
+              chart.data.datasets.forEach((ds, dsIdx) => {
+                const typed = ds as TaggedDataset;
+                if (typed.seriesKey === key && (typed.seriesKind === 'temperature' || typed.isMarkedEventDataset)) {
+                  const shouldHide = typed.isMarkedEventDataset
+                    ? nextHidden || !showMarkedEvents()
+                    : nextHidden;
+                  chart.setDatasetVisibility(dsIdx, !shouldHide);
+                }
+              });
+              chart.update();
+              return;
+            }
+            if (chart.isDatasetVisible(index)) {
+              chart.hide(index);
+              legendItem.hidden = true;
+            } else {
+              chart.show(index);
+              legendItem.hidden = false;
+            }
           },
         },
         tooltip: {
@@ -479,6 +698,35 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
           borderColor: palette.border,
           borderWidth: 1,
           padding: 10,
+          callbacks: {
+            title: (items: Array<{ label?: string; raw?: unknown }>) => {
+              const first = items[0];
+              if (!first) return '';
+              const raw = first.raw as Point | undefined;
+              if (raw?.mark) {
+                return t('dataloggerConfig.markedEventTooltipLabel', {
+                  ordinal: String(raw.mark.ordinal),
+                });
+              }
+              return first.label || (raw?.x ? formatDateTimeFull(new Date(raw.x)) : '');
+            },
+            label: (ctx: {
+              dataset: { label?: string };
+              parsed?: { y?: number | null };
+              raw?: unknown;
+            }) => {
+              const raw = ctx.raw as Point | undefined;
+              if (raw?.mark) {
+                const m = raw.mark;
+                const serialPart = m.serialNumber ? ` (${m.serialNumber})` : '';
+                const humPart = m.humidity !== null ? ` · ${m.humidity.toFixed(1)}%RH` : '';
+                return `${m.sessionName}${serialPart} · ${formatDateTimeFull(new Date(m.timestampMs))} · ${m.temperature.toFixed(1)}°C${humPart} · Flags: ${m.flags}`;
+              }
+              const dsLabel = ctx.dataset.label || '';
+              const val = typeof ctx.parsed?.y === 'number' ? ctx.parsed.y.toFixed(1) : '';
+              return `${dsLabel}: ${val}`;
+            },
+          },
         },
       },
       scales: {
@@ -649,6 +897,21 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
               {dataExtents().totalPoints.toLocaleString()} pts
             </span>
 
+            <Button
+              size="sm"
+              variant={showMarkedEvents() ? 'default' : 'outline'}
+              class="h-6 gap-1 px-2 text-[11px]"
+              aria-pressed={showMarkedEvents()}
+              onClick={() => setShowMarkedEvents((v) => !v)}
+            >
+              <IconFlag class="size-3" />
+              <span>
+                {t('dataloggerConfig.markedEventsToggle', {
+                  count: String(markedEvents().all.length),
+                })}
+              </span>
+            </Button>
+
             <Show when={dataExtents().totalPoints > 200}>
               <Button
                 size="sm"
@@ -724,7 +987,7 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
                 setScrollProgY((p) => clamp(p - 0.1, 0, 1));
               }}
             >
-              ▲
+              <IconChevronUp class="size-3" />
             </button>
 
             {/* Draggable vertical thumb */}
@@ -751,7 +1014,7 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
                 setScrollProgY((p) => clamp(p + 0.1, 0, 1));
               }}
             >
-              ▼
+              <IconChevronDown class="size-3" />
             </button>
           </div>
         </div>
@@ -774,7 +1037,7 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
                 setScrollProgX((p) => clamp(p - 0.1, 0, 1));
               }}
             >
-              ◄
+              <IconChevronLeft class="size-3" />
             </button>
 
             {/* Draggable horizontal thumb */}
@@ -801,10 +1064,98 @@ export function ZoomableTimeChart(props: ZoomableTimeChartProps) {
                 setScrollProgX((p) => clamp(p + 0.1, 0, 1));
               }}
             >
-              ►
+              <IconChevronRight class="size-3" />
             </button>
           </div>
         </div>
+
+        {/* Accessible Collapsed-by-Default Marked Events List */}
+        <details class="rounded-md border bg-card text-xs" data-testid="marked-events-details">
+          <summary class="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2.5 font-medium text-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <span class="inline-flex items-center gap-2">
+              <IconFlag class="size-3.5 text-muted-foreground" />
+              <span>
+                {t('dataloggerConfig.markedEventsListSummary', {
+                  count: String(markedEvents().all.length),
+                })}
+              </span>
+            </span>
+            <Badge variant="secondary" class="font-mono text-[10px] tabular-nums">
+              {markedEvents().all.length}
+            </Badge>
+          </summary>
+          <div class="space-y-2 border-t px-3 py-2.5">
+            <p class="text-[11px] text-muted-foreground">
+              {t('dataloggerConfig.markedEventsWindowHelper')}
+            </p>
+            <Show
+              when={markedEvents().all.length > 0}
+              fallback={
+                <div class="rounded border border-dashed py-4 text-center text-xs text-muted-foreground">
+                  {t('dataloggerConfig.markedEventsEmpty')}
+                </div>
+              }
+            >
+              <div class="max-h-60 overflow-y-auto">
+                <DataTable>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead class="w-12">
+                        {t('dataloggerConfig.markedEventOrdinalCol')}
+                      </TableHead>
+                      <TableHead>{t('dataloggerConfig.markedEventSessionCol')}</TableHead>
+                      <TableHead>{t('dataloggerConfig.markedEventTimestampCol')}</TableHead>
+                      <TableHead class="text-right">
+                        {t('dataloggerConfig.markedEventTempCol')}
+                      </TableHead>
+                      <TableHead class="text-right">
+                        {t('dataloggerConfig.markedEventHumidityCol')}
+                      </TableHead>
+                      <TableHead>{t('dataloggerConfig.markedEventFlagsCol')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <For each={markedEvents().all}>
+                      {(ev) => (
+                        <TableRow>
+                          <TableCell class="font-mono text-xs text-muted-foreground tabular-nums">
+                            #{ev.ordinal}
+                          </TableCell>
+                          <TableCell class="text-xs">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                              <span
+                                class="inline-block size-2 shrink-0 rounded-full"
+                                style={{ 'background-color': ev.color }}
+                              />
+                              <span class="font-medium">{ev.sessionName}</span>
+                              <Show when={ev.serialNumber}>
+                                <span class="font-mono text-muted-foreground">
+                                  ({ev.serialNumber})
+                                </span>
+                              </Show>
+                            </div>
+                          </TableCell>
+                          <TableCell class="font-mono text-xs whitespace-nowrap">
+                            {formatDateTimeFull(new Date(ev.timestampMs))}
+                          </TableCell>
+                          <TableCell class="text-right font-mono text-xs tabular-nums">
+                            {ev.temperature.toFixed(1)}°C
+                          </TableCell>
+                          <TableCell class="text-right font-mono text-xs tabular-nums">
+                            {ev.humidity !== null ? `${ev.humidity.toFixed(1)}%` : '—'}
+                          </TableCell>
+                          <TableCell class="font-mono text-xs font-semibold">
+                            {ev.flags}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </For>
+                  </TableBody>
+                </DataTable>
+              </div>
+            </Show>
+          </div>
+        </details>
       </Show>
     </div>
   );

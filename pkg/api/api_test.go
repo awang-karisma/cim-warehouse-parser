@@ -3766,7 +3766,7 @@ func TestDataloggerEndpoints(t *testing.T) {
 		t.Fatalf("decode create response 1: %v", err)
 	}
 	s1 := createOut1.Session
-	if s1.ID <= 0 || s1.RecordCount != 3 || !s1.HasHumidity || s1.TempMin != 3.9 || s1.TempMax != 4.6 {
+	if s1.ID <= 0 || s1.SerialNumber != "SN-001" || s1.RecordCount != 3 || !s1.HasHumidity || s1.TempMin != 3.9 || s1.TempMax != 4.6 {
 		t.Fatalf("unexpected created session 1: %+v", s1)
 	}
 
@@ -3812,6 +3812,18 @@ func TestDataloggerEndpoints(t *testing.T) {
 	if len(listOut.Sessions) != 2 {
 		t.Fatalf("expected 2 sessions, got %d", len(listOut.Sessions))
 	}
+	foundS1 := false
+	for _, listed := range listOut.Sessions {
+		if listed.ID == s1.ID {
+			foundS1 = true
+			if listed.SerialNumber != "SN-001" {
+				t.Errorf("expected listed s1 SerialNumber=SN-001, got %q", listed.SerialNumber)
+			}
+		}
+	}
+	if !foundS1 {
+		t.Fatalf("s1 not found in listed sessions: %+v", listOut.Sessions)
+	}
 
 	// 3. GET /api/v1/datalogger/sessions/{id}/records
 	reqRecs := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/datalogger/sessions/%d/records", s1.ID), nil)
@@ -3832,6 +3844,9 @@ func TestDataloggerEndpoints(t *testing.T) {
 	if len(recsOut.Records) != 3 {
 		t.Fatalf("expected 3 records, got %d", len(recsOut.Records))
 	}
+	if recsOut.Records[2].Flags != "M" {
+		t.Errorf("expected record[2] Flags='M', got %q", recsOut.Records[2].Flags)
+	}
 
 	// 4. POST /api/v1/datalogger/records/batch
 	batchBody := fmt.Sprintf(`{"session_ids": [%d, %d]}`, s1.ID, s2.ID)
@@ -3851,8 +3866,12 @@ func TestDataloggerEndpoints(t *testing.T) {
 	if err := json.NewDecoder(respBatch.Body).Decode(&batchOut); err != nil {
 		t.Fatalf("decode batch response: %v", err)
 	}
-	if len(batchOut.Records[fmt.Sprintf("%d", s1.ID)]) != 3 || len(batchOut.Records[fmt.Sprintf("%d", s2.ID)]) != 1 {
+	s1Batch := batchOut.Records[fmt.Sprintf("%d", s1.ID)]
+	if len(s1Batch) != 3 || len(batchOut.Records[fmt.Sprintf("%d", s2.ID)]) != 1 {
 		t.Fatalf("unexpected batch records map: %+v", batchOut.Records)
+	}
+	if s1Batch[2].Flags != "M" {
+		t.Errorf("expected batch record[2] Flags='M', got %q", s1Batch[2].Flags)
 	}
 
 	// 5. PUT /api/v1/datalogger/sessions/{id}/name
@@ -3879,8 +3898,8 @@ func TestDataloggerEndpoints(t *testing.T) {
 	if err := json.NewDecoder(respGet1.Body).Decode(&getOut1); err != nil {
 		t.Fatalf("decode get session 1: %v", err)
 	}
-	if getOut1.Session.Name != "Vaccine Fridge #1 (Verified)" {
-		t.Errorf("expected renamed session, got %q", getOut1.Session.Name)
+	if getOut1.Session.Name != "Vaccine Fridge #1 (Verified)" || getOut1.Session.SerialNumber != "SN-001" {
+		t.Errorf("expected renamed session with SerialNumber=SN-001, got %+v", getOut1.Session)
 	}
 
 	// 6. DELETE /api/v1/datalogger/sessions/{id}
@@ -3966,4 +3985,384 @@ func TestDataloggerFilterAndPaginationEndpoints(t *testing.T) {
 	if respBad.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for inverted date range, got %d", respBad.StatusCode)
 	}
+}
+
+func TestDataloggerProfileEndpoints(t *testing.T) {
+	// 1. Auth-disabled CRUD, complete-field round-trip, and validation
+	srv, store, _ := setupTestServer(t)
+
+	desc100 := strings.Repeat("X", 100)
+	validManual := fmt.Sprintf(`{
+		"name": "Cold Chain Standard",
+		"config": {
+			"interval_seconds": 60,
+			"duration_seconds": null,
+			"start_mode": "manual",
+			"start_delay_seconds": 90,
+			"scheduled_start_local": "2026-11-24T12:00:00",
+			"trip_number": "TRIP-001",
+			"trip_description": %q
+		}
+	}`, desc100)
+
+	postProfile := func(server *api.Server, body string, cookie *http.Cookie) *http.Response {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/datalogger/profiles", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		resp, err := server.App().Test(req)
+		if err != nil {
+			t.Fatalf("POST profile request failed: %v", err)
+		}
+		return resp
+	}
+
+	respCreate := postProfile(srv, validManual, nil)
+	if respCreate.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(respCreate.Body)
+		respCreate.Body.Close()
+		t.Fatalf("expected 200 creating profile, got %d: %s", respCreate.StatusCode, string(b))
+	}
+	var created1 struct {
+		Status string `json:"status"`
+		ID     int64  `json:"id"`
+	}
+	if err := json.NewDecoder(respCreate.Body).Decode(&created1); err != nil {
+		respCreate.Body.Close()
+		t.Fatalf("decode create profile response: %v", err)
+	}
+	respCreate.Body.Close()
+	if created1.Status != "ok" || created1.ID <= 0 {
+		t.Fatalf("unexpected create profile output: %+v", created1)
+	}
+
+	validTimer := `{
+		"name": "Airport Timed Run",
+		"config": {
+			"interval_seconds": 120,
+			"duration_seconds": 86400,
+			"start_mode": "timer",
+			"start_delay_seconds": 90,
+			"scheduled_start_local": "2020-01-15T09:30:00",
+			"trip_number": "TIMED-01",
+			"trip_description": "Timed departure"
+		}
+	}`
+	respCreate2 := postProfile(srv, validTimer, nil)
+	if respCreate2.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(respCreate2.Body)
+		respCreate2.Body.Close()
+		t.Fatalf("expected 200 creating timer profile, got %d: %s", respCreate2.StatusCode, string(b))
+	}
+	var created2 struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.NewDecoder(respCreate2.Body).Decode(&created2)
+	respCreate2.Body.Close()
+
+	// List profiles and verify canonicalization + exact JSON object shape
+	respList, err := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/datalogger/profiles", nil))
+	if err != nil || respList.StatusCode != http.StatusOK {
+		t.Fatalf("GET profiles failed: resp=%v err=%v", respList, err)
+	}
+	var listOut struct {
+		Profiles []model.DataloggerProfile `json:"profiles"`
+	}
+	if err := json.NewDecoder(respList.Body).Decode(&listOut); err != nil {
+		respList.Body.Close()
+		t.Fatalf("decode profiles list: %v", err)
+	}
+	respList.Body.Close()
+	if len(listOut.Profiles) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(listOut.Profiles))
+	}
+	// Ordered by name: Airport Timed Run, then Cold Chain Standard
+	if listOut.Profiles[0].Name != "Airport Timed Run" || listOut.Profiles[0].Config.StartDelaySeconds != 0 || listOut.Profiles[0].Config.DurationSeconds == nil || *listOut.Profiles[0].Config.DurationSeconds != 86400 || listOut.Profiles[0].Config.ScheduledStartLocal == nil || *listOut.Profiles[0].Config.ScheduledStartLocal != "2020-01-15T09:30:00" {
+		t.Fatalf("unexpected timer profile round-trip: %+v", listOut.Profiles[0])
+	}
+	if listOut.Profiles[1].Name != "Cold Chain Standard" || listOut.Profiles[1].Config.StartDelaySeconds != 90 || listOut.Profiles[1].Config.DurationSeconds != nil || listOut.Profiles[1].Config.ScheduledStartLocal != nil || listOut.Profiles[1].Config.TripDescription != desc100 {
+		t.Fatalf("unexpected manual profile round-trip: %+v", listOut.Profiles[1])
+	}
+
+	// Validation & duplicate rejections (HTTP 400)
+	badPayloads := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "case-insensitive duplicate name",
+			body: strings.Replace(validManual, `"Cold Chain Standard"`, `"cold chain standard"`, 1),
+		},
+		{
+			name: "delay 91 rejected",
+			body: `{
+				"name": "Bad Delay 91",
+				"config": {
+					"interval_seconds": 60,
+					"duration_seconds": null,
+					"start_mode": "manual",
+					"start_delay_seconds": 91,
+					"scheduled_start_local": null,
+					"trip_number": "T1",
+					"trip_description": ""
+				}
+			}`,
+		},
+		{
+			name: "delay 655360 rejected",
+			body: `{
+				"name": "Bad Delay Max",
+				"config": {
+					"interval_seconds": 60,
+					"duration_seconds": null,
+					"start_mode": "manual",
+					"start_delay_seconds": 655360,
+					"scheduled_start_local": null,
+					"trip_number": "T1",
+					"trip_description": ""
+				}
+			}`,
+		},
+		{
+			name: "description 101 rejected",
+			body: fmt.Sprintf(`{
+				"name": "Long Desc",
+				"config": {
+					"interval_seconds": 60,
+					"duration_seconds": null,
+					"start_mode": "immediate",
+					"start_delay_seconds": 0,
+					"scheduled_start_local": null,
+					"trip_number": "T1",
+					"trip_description": %q
+				}
+			}`, desc100+"Y"),
+		},
+		{
+			name: "invalid calendar 2026-02-30 rejected",
+			body: `{
+				"name": "Bad Calendar",
+				"config": {
+					"interval_seconds": 60,
+					"duration_seconds": null,
+					"start_mode": "timer",
+					"start_delay_seconds": 0,
+					"scheduled_start_local": "2026-02-30T10:00:00",
+					"trip_number": "T1",
+					"trip_description": ""
+				}
+			}`,
+		},
+		{
+			name: "missing Timer schedule rejected",
+			body: `{
+				"name": "Missing Schedule",
+				"config": {
+					"interval_seconds": 60,
+					"duration_seconds": null,
+					"start_mode": "timer",
+					"start_delay_seconds": 0,
+					"scheduled_start_local": null,
+					"trip_number": "T1",
+					"trip_description": ""
+				}
+			}`,
+		},
+		{
+			name: "partial config missing field rejected",
+			body: `{
+				"name": "Partial Config",
+				"config": {
+					"interval_seconds": 60,
+					"start_mode": "immediate"
+				}
+			}`,
+		},
+		{
+			name: "unsupported config field rejected",
+			body: `{
+				"name": "Unsupported LCD Field",
+				"config": {
+					"interval_seconds": 60,
+					"duration_seconds": null,
+					"start_mode": "immediate",
+					"start_delay_seconds": 0,
+					"scheduled_start_local": null,
+					"trip_number": "T1",
+					"trip_description": "",
+					"lcd_timeout": 15
+				}
+			}`,
+		},
+	}
+	for _, tc := range badPayloads {
+		resp := postProfile(srv, tc.body, nil)
+		if resp.StatusCode != http.StatusBadRequest {
+			b, _ := io.ReadAll(resp.Body)
+			t.Errorf("case %q: expected 400, got %d: %s", tc.name, resp.StatusCode, string(b))
+		}
+		resp.Body.Close()
+	}
+
+	// Update existing and missing
+	updateBody := `{
+		"name": "Cold Chain Standard Updated",
+		"config": {
+			"interval_seconds": 300,
+			"duration_seconds": null,
+			"start_mode": "immediate",
+			"start_delay_seconds": 0,
+			"scheduled_start_local": null,
+			"trip_number": "TRIP-009",
+			"trip_description": "Updated"
+		}
+	}`
+	reqUpdate := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/datalogger/profiles/%d", created1.ID), strings.NewReader(updateBody))
+	reqUpdate.Header.Set("Content-Type", "application/json")
+	respUpdate, err := srv.App().Test(reqUpdate)
+	if err != nil || respUpdate.StatusCode != http.StatusOK {
+		t.Fatalf("PUT profile failed: resp=%v err=%v", respUpdate, err)
+	}
+	respUpdate.Body.Close()
+
+	reqUpdateMissing := httptest.NewRequest(http.MethodPut, "/api/v1/datalogger/profiles/99999", strings.NewReader(updateBody))
+	reqUpdateMissing.Header.Set("Content-Type", "application/json")
+	respUpdateMissing, _ := srv.App().Test(reqUpdateMissing)
+	if respUpdateMissing.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 updating missing profile, got %d", respUpdateMissing.StatusCode)
+	}
+	respUpdateMissing.Body.Close()
+
+	// Delete existing and missing
+	reqDel := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/datalogger/profiles/%d", created2.ID), nil)
+	respDel, err := srv.App().Test(reqDel)
+	if err != nil || respDel.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE profile failed: resp=%v err=%v", respDel, err)
+	}
+	respDel.Body.Close()
+
+	reqDelMissing := httptest.NewRequest(http.MethodDelete, "/api/v1/datalogger/profiles/99999", nil)
+	respDelMissing, _ := srv.App().Test(reqDelMissing)
+	if respDelMissing.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 deleting missing profile, got %d", respDelMissing.StatusCode)
+	}
+	respDelMissing.Body.Close()
+
+	// Survival across ClearData
+	if err := store.ClearData(context.Background()); err != nil {
+		t.Fatalf("ClearData failed: %v", err)
+	}
+	respAfterClear, _ := srv.App().Test(httptest.NewRequest(http.MethodGet, "/api/v1/datalogger/profiles", nil))
+	var listAfterClear struct {
+		Profiles []model.DataloggerProfile `json:"profiles"`
+	}
+	_ = json.NewDecoder(respAfterClear.Body).Decode(&listAfterClear)
+	respAfterClear.Body.Close()
+	if len(listAfterClear.Profiles) != 1 || listAfterClear.Profiles[0].Name != "Cold Chain Standard Updated" {
+		t.Fatalf("expected profile to survive ClearData, got %+v", listAfterClear.Profiles)
+	}
+
+	// 2. RBAC checks: guest denied, user list allowed / mutation denied, admin mutation allowed
+	jwtSecret := "test-jwt-secret-key-32-chars-long!"
+	authCfg := &config.Config{
+		GoogleClientID: "test-client-id.apps.googleusercontent.com",
+		JWTSecret:      jwtSecret,
+	}
+	authSrv, authStore, _ := setupTestServer(t, authCfg)
+	ctx := context.Background()
+
+	guestUser, _ := authStore.UpsertUser(ctx, "guest@example.com", "Guest", "")
+	normalUser, _ := authStore.UpsertUser(ctx, "user@example.com", "User", "")
+	_ = authStore.SetUserRole(ctx, "user@example.com", "user")
+	normalUser.Role = "user"
+	adminUser, _ := authStore.UpsertUser(ctx, "admin@example.com", "Admin", "")
+	_ = authStore.SetUserRole(ctx, "admin@example.com", "admin")
+	adminUser.Role = "admin"
+
+	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)
+	userToken, _ := auth.GenerateToken(jwtSecret, normalUser, nil)
+	adminToken, _ := auth.GenerateToken(jwtSecret, adminUser, nil)
+
+	guestCookie := &http.Cookie{Name: "warehouse_session", Value: guestToken}
+	userCookie := &http.Cookie{Name: "warehouse_session", Value: userToken}
+	adminCookie := &http.Cookie{Name: "warehouse_session", Value: adminToken}
+
+	// Guest denied on GET and POST
+	reqGuestGet := httptest.NewRequest(http.MethodGet, "/api/v1/datalogger/profiles", nil)
+	reqGuestGet.AddCookie(guestCookie)
+	respGuestGet, _ := authSrv.App().Test(reqGuestGet)
+	if respGuestGet.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for guest GET profiles, got %d", respGuestGet.StatusCode)
+	}
+	respGuestGet.Body.Close()
+
+	respGuestPost := postProfile(authSrv, validManual, guestCookie)
+	if respGuestPost.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for guest POST profiles, got %d", respGuestPost.StatusCode)
+	}
+	respGuestPost.Body.Close()
+
+	// User allowed on GET, denied on POST/PUT/DELETE
+	reqUserGet := httptest.NewRequest(http.MethodGet, "/api/v1/datalogger/profiles", nil)
+	reqUserGet.AddCookie(userCookie)
+	respUserGet, _ := authSrv.App().Test(reqUserGet)
+	if respUserGet.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for user GET profiles, got %d", respUserGet.StatusCode)
+	}
+	respUserGet.Body.Close()
+
+	respUserPost := postProfile(authSrv, validManual, userCookie)
+	if respUserPost.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for user POST profiles, got %d", respUserPost.StatusCode)
+	}
+	respUserPost.Body.Close()
+
+	// Admin allowed on POST/PUT/DELETE
+	respAdminPost := postProfile(authSrv, validManual, adminCookie)
+	if respAdminPost.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(respAdminPost.Body)
+		respAdminPost.Body.Close()
+		t.Fatalf("expected 200 for admin POST profiles, got %d: %s", respAdminPost.StatusCode, string(b))
+	}
+	var adminCreated struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.NewDecoder(respAdminPost.Body).Decode(&adminCreated)
+	respAdminPost.Body.Close()
+
+	reqUserPut := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/datalogger/profiles/%d", adminCreated.ID), strings.NewReader(updateBody))
+	reqUserPut.Header.Set("Content-Type", "application/json")
+	reqUserPut.AddCookie(userCookie)
+	respUserPut, _ := authSrv.App().Test(reqUserPut)
+	if respUserPut.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for user PUT profile, got %d", respUserPut.StatusCode)
+	}
+	respUserPut.Body.Close()
+
+	reqAdminPut := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/datalogger/profiles/%d", adminCreated.ID), strings.NewReader(updateBody))
+	reqAdminPut.Header.Set("Content-Type", "application/json")
+	reqAdminPut.AddCookie(adminCookie)
+	respAdminPut, _ := authSrv.App().Test(reqAdminPut)
+	if respAdminPut.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for admin PUT profile, got %d", respAdminPut.StatusCode)
+	}
+	respAdminPut.Body.Close()
+
+	reqUserDel := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/datalogger/profiles/%d", adminCreated.ID), nil)
+	reqUserDel.AddCookie(userCookie)
+	respUserDel, _ := authSrv.App().Test(reqUserDel)
+	if respUserDel.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for user DELETE profile, got %d", respUserDel.StatusCode)
+	}
+	respUserDel.Body.Close()
+
+	reqAdminDel := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/datalogger/profiles/%d", adminCreated.ID), nil)
+	reqAdminDel.AddCookie(adminCookie)
+	respAdminDel, _ := authSrv.App().Test(reqAdminDel)
+	if respAdminDel.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for admin DELETE profile, got %d", respAdminDel.StatusCode)
+	}
+	respAdminDel.Body.Close()
 }

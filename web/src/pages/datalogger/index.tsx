@@ -1,20 +1,31 @@
 import { createMemo, createResource, createSignal, Show } from 'solid-js';
 import { useSearchParams } from '@solidjs/router';
-import { IconChartLine, IconDatabase, IconPlus, IconRefresh } from '@tabler/icons-solidjs';
+import {
+  IconChartLine,
+  IconDatabase,
+  IconPlus,
+  IconRefresh,
+  IconSettings,
+} from '@tabler/icons-solidjs';
 import { getDataloggerRecordsBatch, getDataloggerSessions } from '~/api';
+import { createDataloggerDeviceSession } from '~/components/datalogger/device-session';
 import { PageTransition } from '~/components/PageTransition';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs';
+import { useI18n } from '~/i18n';
+import { cn } from '~/lib/utils';
 import type { DataloggerRecord, DataloggerSession } from '~/types';
+import { ConfigurationTab } from './ConfigurationTab';
 import { GraphTab } from './GraphTab';
 import { ImportTab } from './ImportTab';
 import { KpiCards } from './KpiCards';
 import { SessionsTab } from './SessionsTab';
-
 export default function Datalogger() {
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [sessionsData, { refetch }] = createResource(() => getDataloggerSessions());
+  const device = createDataloggerDeviceSession();
 
   const [selectedIds, setSelectedIds] = createSignal<number[]>([]);
   const [loadedIds, setLoadedIds] = createSignal<number[]>([]);
@@ -22,8 +33,8 @@ export default function Datalogger() {
   const [loadingBatch, setLoadingBatch] = createSignal(false);
 
   const activeTab = () => {
-    const t = searchParams.tab;
-    return t === 'graph' || t === 'import' ? t : 'sessions';
+    const tab = searchParams.tab;
+    return tab === 'graph' || tab === 'import' || tab === 'config' ? tab : 'sessions';
   };
 
   const setTab = (value: string) => {
@@ -112,6 +123,10 @@ export default function Datalogger() {
                 <IconPlus class="size-4" />
                 <span>Import</span>
               </TabsTrigger>
+              <TabsTrigger value="config" class="gap-1.5 text-xs sm:text-sm">
+                <IconSettings class="size-4" />
+                <span>{t('dataloggerConfig.tabTitle')}</span>
+              </TabsTrigger>
             </TabsList>
 
             {/* Refresh button inline with the tabs */}
@@ -152,8 +167,24 @@ export default function Datalogger() {
             />
           </TabsContent>
 
-          <TabsContent value="import" class="mt-3">
-            <ImportTab onSessionSaved={handleSessionSaved} />
+          <TabsContent
+            value="import"
+            forceMount
+            class={cn('mt-3', activeTab() !== 'import' && 'hidden')}
+          >
+            <ImportTab device={device} onSessionSaved={handleSessionSaved} />
+          </TabsContent>
+
+          <TabsContent
+            value="config"
+            forceMount
+            class={cn('mt-3', activeTab() !== 'config' && 'hidden')}
+          >
+            <ConfigurationTab
+              device={device}
+              active={activeTab() === 'config'}
+              onSwitchToImport={() => setTab('import')}
+            />
           </TabsContent>
         </Tabs>
       </div>

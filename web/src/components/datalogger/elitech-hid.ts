@@ -1,7 +1,7 @@
 // WebHID Transport Layer for Elitech Data Loggers
 // Ported from ../datalogger-elitech/index.html
 
-interface HIDInputReportEventLike extends Event {
+export interface HIDInputReportEventLike {
   reportId: number;
   data: DataView;
 }
@@ -37,14 +37,16 @@ export class ElitechHID {
   static readonly OP_GET_PARAMETER = 0x0003;
   static readonly OP_SET_PARAMETER = 0x0004;
   static readonly OP_GET_TRIP = 0x0005;
+  static readonly OP_FORMAT_MEMORY = 0x02c0;
   static readonly MAGIC = [0x33, 0xcc, 0x00] as const;
   static readonly REPORT_SIZE = 64;
   static readonly TIMEOUT_MS = 2000;
 
   device: HIDDeviceLike | null = null;
   private _lock: Promise<unknown> = Promise.resolve();
-
+  private _generation = 0;
   async connect(): Promise<HIDDeviceLike | null> {
+    this._generation += 1;
     this._lock = Promise.resolve();
     const nav = navigator as NavigatorWithHID;
     if (!nav.hid) {
@@ -76,11 +78,13 @@ export class ElitechHID {
       }
     }
 
+    this._generation += 1;
     this.device = device;
     return device;
   }
 
   async disconnect(): Promise<void> {
+    this._generation += 1;
     this._lock = Promise.resolve();
     if (this.device) {
       const dev = this.device;
@@ -102,6 +106,7 @@ export class ElitechHID {
 
     const handler = (event: { device: unknown }) => {
       if (event.device && this.device && event.device === this.device) {
+        this._generation += 1;
         listener();
       }
     };
@@ -150,88 +155,103 @@ export class ElitechHID {
   }
 
   _transact(frame: Uint8Array, timeoutMs = ElitechHID.TIMEOUT_MS): Promise<Uint8Array> {
+    const expectedDevice = this.device;
+    const expectedGen = this._generation;
+
     const run = async (): Promise<Uint8Array> => {
-      if (!this.device || !this.device.opened) {
+      if (
+        !expectedDevice ||
+        !expectedDevice.opened ||
+        this.device !== expectedDevice ||
+        this._generation !== expectedGen
+      ) {
         throw new Error('HID device is not connected.');
       }
 
-      const device = this.device;
       const expectedOpLow = frame[4];
+      const expectedOpHigh = frame[5];
 
-      const responsePromise = new Promise<Uint8Array>((resolve, reject) => {
-        let settled = false;
-        let timerId: number | null = null;
+      const { promise: responsePromise, resolve, reject } = Promise.withResolvers<Uint8Array>();
+      let settled = false;
+      let timerId: number | NodeJS.Timeout | null = null;
 
-        const cleanup = () => {
-          device.removeEventListener('inputreport', onReport);
-          if (timerId !== null) {
-            window.clearTimeout(timerId);
-            timerId = null;
-          }
-        };
+      const cleanup = () => {
+        expectedDevice.removeEventListener('inputreport', onReport);
+        if (timerId !== null) {
+          clearTimeout(timerId);
+          timerId = null;
+        }
+      };
 
-        const onReport = (event: HIDInputReportEventLike) => {
-          if (settled) return;
-          if (event.reportId !== 0) return;
+      const onReport = (event: HIDInputReportEventLike) => {
+        if (settled) return;
+        if (event.reportId !== 0) return;
 
-          const view = event.data;
-          const rx = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+        const view = event.data;
+        const rx = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
 
-          if (
-            rx.length < 12 ||
-            rx[0] !== ElitechHID.MAGIC[0] ||
-            rx[1] !== ElitechHID.MAGIC[1] ||
-            rx[2] !== ElitechHID.MAGIC[2]
-          ) {
-            settled = true;
-            cleanup();
-            reject(new Error('Invalid HID response magic header.'));
-            return;
-          }
-
-          const rxLen = rx[3];
-          if (rxLen < 12 || rxLen > rx.length) {
-            settled = true;
-            cleanup();
-            reject(new Error(`Invalid HID response frame length (${rxLen}).`));
-            return;
-          }
-
-          if (rx[4] !== expectedOpLow) {
-            settled = true;
-            cleanup();
-            reject(new Error(`Unexpected response opcode 0x${rx[4].toString(16).padStart(2, '0')}.`));
-            return;
-          }
-
-          let sum = 0;
-          for (let i = 0; i < rxLen - 1; i++) {
-            sum = (sum + rx[i]) & 0xff;
-          }
-          if (sum !== rx[rxLen - 1]) {
-            settled = true;
-            cleanup();
-            reject(new Error('HID response checksum mismatch.'));
-            return;
-          }
-
+        if (
+          rx.length < 12 ||
+          rx[0] !== ElitechHID.MAGIC[0] ||
+          rx[1] !== ElitechHID.MAGIC[1] ||
+          rx[2] !== ElitechHID.MAGIC[2]
+        ) {
           settled = true;
           cleanup();
-          resolve(rx);
-        };
+          reject(new Error('Invalid HID response magic header.'));
+          return;
+        }
 
-        timerId = window.setTimeout(() => {
-          if (settled) return;
+        const rxLen = rx[3];
+        if (rxLen < 12 || rxLen > rx.length) {
           settled = true;
           cleanup();
-          reject(new Error('Device communication timeout. Reconnect the logger.'));
-        }, timeoutMs);
+          reject(new Error(`Invalid HID response frame length (${rxLen}).`));
+          return;
+        }
 
-        device.addEventListener('inputreport', onReport);
-      });
+        if (rx[4] !== expectedOpLow || rx[5] !== expectedOpHigh) {
+          settled = true;
+          cleanup();
+          const gotOp = ((rx[5] << 8) | rx[4]).toString(16).padStart(4, '0');
+          reject(new Error(`Unexpected response opcode 0x${gotOp}.`));
+          return;
+        }
 
-      await device.sendReport(0, frame as BufferSource);
-      return await responsePromise;
+        let sum = 0;
+        for (let i = 0; i < rxLen - 1; i++) {
+          sum = (sum + rx[i]) & 0xff;
+        }
+        if (sum !== rx[rxLen - 1]) {
+          settled = true;
+          cleanup();
+          reject(new Error('HID response checksum mismatch.'));
+          return;
+        }
+
+        settled = true;
+        cleanup();
+        resolve(rx);
+      };
+
+      timerId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Device communication timeout. Reconnect the logger.'));
+      }, timeoutMs);
+
+      expectedDevice.addEventListener('inputreport', onReport);
+
+      try {
+        await expectedDevice.sendReport(0, frame as BufferSource);
+        return await responsePromise;
+      } catch (err) {
+        settled = true;
+        cleanup();
+        responsePromise.catch(() => {});
+        throw err;
+      }
     };
 
     const next = this._lock.then(run, run);
@@ -249,14 +269,24 @@ export class ElitechHID {
       const actualLen = 2;
       const frame = this._buildFrame(ElitechHID.OP_GET_PARAMETER, actualOffset, actualLen);
       const rx = await this._transact(frame);
+      if (rx[3] < 12 + actualLen || rx[10] < actualLen) {
+        throw new Error(
+          `Short GetParameter response at offset 0x${actualOffset.toString(16)} (expected ${actualLen} bytes, got ${Math.max(0, rx[3] - 12)}).`,
+        );
+      }
       const targetIdx = 11 + (offset - actualOffset);
       return rx.slice(targetIdx, targetIdx + 1);
     }
 
     const frame = this._buildFrame(ElitechHID.OP_GET_PARAMETER, offset, length);
     const rx = await this._transact(frame);
+    if (rx[3] < 12 + length || rx[10] < length) {
+      throw new Error(
+        `Short GetParameter response at offset 0x${offset.toString(16)} (expected ${length} bytes, got ${Math.max(0, rx[3] - 12)}).`,
+      );
+    }
     return rx.slice(11, 11 + length);
-  }
+}
 
   async getRecord(index: number, count: number): Promise<Uint8Array> {
     if (count < 1 || count > 6) {
@@ -270,5 +300,61 @@ export class ElitechHID {
       throw new Error(`Invalid GetRecord response length (${rx[3]} < ${minFrameLen}).`);
     }
     return rx.slice(11, 11 + actualCount * 8);
+  }
+  async setParameter(offset: number, data: Uint8Array): Promise<void> {
+    if (!Number.isInteger(offset) || offset < 0 || offset > 0xffffff) {
+      throw new Error(`Parameter write offset ${offset} out of range.`);
+    }
+    if (!(data instanceof Uint8Array) || data.length < 1 || data.length > 52) {
+      throw new Error(`Parameter write length ${data?.length ?? 0} out of range (1..52).`);
+    }
+
+    const frame = this._buildFrame(ElitechHID.OP_SET_PARAMETER, offset, data);
+    // Verified Packet 3 exception: offset 0x60 with 47-byte payload has active length 59
+    // but declared count byte 48, with checksum recomputed at byte 58 (frame[3] - 1).
+    if (offset === 0x60 && data.length === 47) {
+      frame[10] = 48;
+      const checksumIndex = frame[3] - 1;
+      let sum = 0;
+      for (let i = 0; i < checksumIndex; i++) {
+        sum = (sum + frame[i]) & 0xff;
+      }
+      frame[checksumIndex] = sum;
+    }
+
+    const rx = await this._transact(frame);
+    const expectedMid = (offset >> 8) & 0xff;
+    const expectedLow = offset & 0xff;
+    const expectedHigh = (offset >> 16) & 0xff;
+    if (rx[7] !== expectedMid || rx[8] !== expectedLow || rx[9] !== expectedHigh) {
+      throw new Error(`SetParameter ACK offset mismatch for 0x${offset.toString(16)}.`);
+    }
+    if (rx[3] !== 13 || rx[10] !== 1 || rx[11] !== 0x01) {
+      throw new Error(
+        `SetParameter rejected at offset 0x${offset.toString(16)} (status=0x${(rx[11] ?? 0).toString(16).padStart(2, '0')}).`,
+      );
+    }
+  }
+
+  formatMemory(): Promise<void> {
+    const expectedDevice = this.device;
+    const expectedGen = this._generation;
+    const frame = this._buildFrame(ElitechHID.OP_FORMAT_MEMORY, 0, new Uint8Array([0]));
+
+    const run = async (): Promise<void> => {
+      if (
+        !expectedDevice ||
+        !expectedDevice.opened ||
+        this.device !== expectedDevice ||
+        this._generation !== expectedGen
+      ) {
+        throw new Error('HID device is not connected.');
+      }
+      await expectedDevice.sendReport(0, frame as BufferSource);
+    };
+
+    const next = this._lock.then(run, run);
+    this._lock = next.catch(() => {});
+    return next;
   }
 }

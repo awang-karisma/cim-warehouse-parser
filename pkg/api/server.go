@@ -861,6 +861,46 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"datalogger"},
 		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleRenameDataloggerSession)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-datalogger-profiles",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/datalogger/profiles",
+		Summary:     "List datalogger configuration profiles",
+		Description: "List saved reusable Elitech data logger configuration profiles",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleGetDataloggerProfiles)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "create-datalogger-profile",
+		Method:      http.MethodPost,
+		Path:        "/api/v1/datalogger/profiles",
+		Summary:     "Create datalogger configuration profile",
+		Description: "Create a reusable Elitech data logger configuration profile",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleCreateDataloggerProfile)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "update-datalogger-profile",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/datalogger/profiles/{id}",
+		Summary:     "Update datalogger configuration profile",
+		Description: "Update an existing Elitech data logger configuration profile",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleUpdateDataloggerProfile)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "delete-datalogger-profile",
+		Method:      http.MethodDelete,
+		Path:        "/api/v1/datalogger/profiles/{id}",
+		Summary:     "Delete datalogger configuration profile",
+		Description: "Delete an existing Elitech data logger configuration profile",
+		Tags:        []string{"datalogger"},
+		Metadata:    map[string]any{"minRole": "admin"},
+	}, s.handleDeleteDataloggerProfile)
 }
 
 // clearSessionCookie expires the warehouse_session cookie.

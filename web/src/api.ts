@@ -40,6 +40,9 @@ import type {
   DeliveryRunStatus,
   DataloggerSession,
   DataloggerRecord,
+  DataloggerConfiguration,
+  DataloggerProfile,
+  DataloggerProfilesResponse,
 } from './types';
 
 export class ApiError extends Error {
@@ -481,4 +484,35 @@ export const renameDataloggerSession = (id: number, name: string) =>
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
+  });
+
+export const getDataloggerProfiles = () =>
+  apiFetch<DataloggerProfilesResponse>('/api/v1/datalogger/profiles');
+
+export const createDataloggerProfile = (payload: {
+  name: string;
+  config: DataloggerConfiguration;
+}) =>
+  apiFetch<{ status: string; id: number }>('/api/v1/datalogger/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+export const updateDataloggerProfile = (
+  id: number,
+  payload: {
+    name: string;
+    config: DataloggerConfiguration;
+  },
+) =>
+  apiFetch<{ status: string }>(`/api/v1/datalogger/profiles/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+export const deleteDataloggerProfile = (id: number) =>
+  apiFetch<{ status: string }>(`/api/v1/datalogger/profiles/${id}`, {
+    method: 'DELETE',
   });

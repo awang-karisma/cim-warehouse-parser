@@ -110,3 +110,11 @@ const (
 	BarcodeQuantitySingle   BarcodeQuantityMode = "single"
 	BarcodeQuantityMultiply BarcodeQuantityMode = "multiply"
 )
+
+type DataloggerStartMode string
+
+const (
+	DataloggerStartModeImmediate DataloggerStartMode = "immediate"
+	DataloggerStartModeManual    DataloggerStartMode = "manual"
+	DataloggerStartModeTimer     DataloggerStartMode = "timer"
+)

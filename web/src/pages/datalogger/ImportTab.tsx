@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { createMemo, createSignal, For, Show } from 'solid-js';
 import {
   IconAlertCircle,
   IconCheck,
@@ -8,44 +8,49 @@ import {
   IconFileSpreadsheet,
   IconPlugConnected,
   IconPlugConnectedX,
+  IconTrash,
   IconUpload,
 } from '@tabler/icons-solidjs';
 import { createDataloggerSession } from '~/api';
 import { DataTable } from '~/components/DataTable';
 import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from '~/components/ui/alert-dialog';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { Progress } from '~/components/ui/progress';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
+import { useI18n } from '~/i18n';
 import type { DataloggerSession } from '~/types';
 import { inspectCsv, parseCsvWithMapping } from '~/components/datalogger/csv-parser';
-import { ElitechHID, isWebHidSupported } from '~/components/datalogger/elitech-hid';
-import {
-  fetchAllRecords,
-  rawRecordsToApiPayload,
-  readDeviceInfo,
-} from '~/components/datalogger/elitech-protocol';
+import type { DataloggerDeviceSession } from '~/components/datalogger/device-session';
+import { isWebHidSupported } from '~/components/datalogger/elitech-hid';
+import { rawRecordsToApiPayload } from '~/components/datalogger/elitech-protocol';
 import { formatDateTimeFull } from '~/components/datalogger/format';
-import type { CsvColumnMapping, CsvParsePreview, DeviceInfo, RawRecord } from '~/components/datalogger/types';
+import type { CsvColumnMapping, CsvParsePreview, RawRecord } from '~/components/datalogger/types';
 
-interface ImportTabProps {
+export interface ImportTabProps {
+  device: DataloggerDeviceSession;
   onSessionSaved: (session: DataloggerSession) => void;
 }
 
 export function ImportTab(props: ImportTabProps) {
+  const { t } = useI18n();
   const hidSupported = isWebHidSupported();
-  const hid = new ElitechHID();
 
-  // WebHID device state
-  const [connected, setConnected] = createSignal(false);
-  const [deviceInfo, setDeviceInfo] = createSignal<DeviceInfo | null>(null);
-  const [deviceRecords, setDeviceRecords] = createSignal<RawRecord[]>([]);
-  const [deviceBusy, setDeviceBusy] = createSignal(false);
-  const [deviceProgress, setDeviceProgress] = createSignal<{ fetched: number; total: number } | null>(null);
+  // USB save form state
   const [deviceSessionName, setDeviceSessionName] = createSignal('');
-  const [deviceError, setDeviceError] = createSignal<string | null>(null);
+  const [localSaveError, setLocalSaveError] = createSignal<string | null>(null);
   const [deviceSaving, setDeviceSaving] = createSignal(false);
+  const [zeroRecordsNotice, setZeroRecordsNotice] = createSignal(false);
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = createSignal(false);
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = createSignal(false);
 
   // CSV import state
   const [csvText, setCsvText] = createSignal('');
@@ -59,22 +64,6 @@ export function ImportTab(props: ImportTabProps) {
   const [csvSaving, setCsvSaving] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
 
-  onMount(() => {
-    const unsub = hid.onDisconnect(() => {
-      void hid.disconnect();
-      setConnected(false);
-      setDeviceInfo(null);
-      setDeviceBusy(false);
-      setDeviceProgress(null);
-      setDeviceError('Logger was disconnected. Reconnect device to continue.');
-    });
-    onCleanup(unsub);
-  });
-
-  onCleanup(() => {
-    void hid.disconnect();
-  });
-
   const parsedCsv = createMemo(() => {
     const text = csvText();
     const mapping = csvMapping();
@@ -83,85 +72,75 @@ export function ImportTab(props: ImportTabProps) {
   });
 
   const handleConnect = async () => {
-    setDeviceError(null);
-    setDeviceBusy(true);
-    try {
-      const dev = await hid.connect();
-      if (!dev) {
-        setDeviceBusy(false);
-        return;
-      }
-      setConnected(true);
-      const info = await readDeviceInfo(hid);
-      setDeviceInfo(info);
-      setDeviceRecords([]);
-      setDeviceProgress(null);
-      if (!deviceSessionName().trim()) {
-        const stamp = new Date().toISOString().slice(0, 10);
-        setDeviceSessionName(`${info.modelName} ${info.serialNumber !== '—' ? info.serialNumber : ''} (${stamp})`.trim());
-      }
-    } catch (err) {
-      setDeviceError(err instanceof Error ? err.message : String(err));
-      setConnected(false);
-      setDeviceInfo(null);
-    } finally {
-      setDeviceBusy(false);
-    }
+    setLocalSaveError(null);
+    setZeroRecordsNotice(false);
+    await props.device.connect();
   };
 
   const handleDisconnect = async () => {
-    setDeviceError(null);
-    await hid.disconnect();
-    setConnected(false);
-    setDeviceInfo(null);
-    setDeviceRecords([]);
-    setDeviceProgress(null);
+    setLocalSaveError(null);
+    setZeroRecordsNotice(false);
+    await props.device.disconnect();
   };
 
-  const handleFetchRecords = async () => {
-    const info = deviceInfo();
-    if (!info) return;
-    setDeviceError(null);
-    setDeviceBusy(true);
-    setDeviceProgress({ fetched: 0, total: info.recordNumber });
-    try {
-      const recs = await fetchAllRecords(hid, info.recordNumber, info.protocolVersion, (fetched, total) => {
-        setDeviceProgress({ fetched, total });
-      });
-      setDeviceRecords(recs);
-    } catch (err) {
-      setDeviceError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDeviceBusy(false);
+  const executeFetchRecords = async () => {
+    setLocalSaveError(null);
+    setZeroRecordsNotice(false);
+    const snap = await props.device.fetchRecords();
+    if (snap) {
+      const stamp = snap.pulledAt.toISOString().slice(0, 10);
+      const serialPart = snap.serialNumber ? ` ${snap.serialNumber}` : '';
+      setDeviceSessionName(`${snap.deviceModel}${serialPart} (${stamp})`.trim());
+    } else if (props.device.deviceInfo()?.recordNumber === 0 && !props.device.deviceError()) {
+      setZeroRecordsNotice(true);
     }
+  };
+
+  const handleRequestFetchRecords = () => {
+    if (props.device.snapshot()) {
+      setConfirmReplaceOpen(true);
+      return;
+    }
+    void executeFetchRecords();
+  };
+
+  const handleConfirmReplaceFetch = () => {
+    setConfirmReplaceOpen(false);
+    void executeFetchRecords();
+  };
+
+  const handleConfirmDiscardSnapshot = () => {
+    setConfirmDiscardOpen(false);
+    props.device.discardSnapshot();
+    setDeviceSessionName('');
+    setLocalSaveError(null);
   };
 
   const handleSaveDeviceSession = async () => {
-    const info = deviceInfo();
+    const snap = props.device.snapshot();
     const name = deviceSessionName().trim();
-    const recs = deviceRecords();
+    if (!snap || snap.records.length === 0) {
+      setLocalSaveError('Fetch records from the logger before saving.');
+      return;
+    }
     if (!name) {
-      setDeviceError('Enter a session name before saving.');
+      setLocalSaveError('Enter a session name before saving.');
       return;
     }
-    if (recs.length === 0) {
-      setDeviceError('Fetch records from the logger before saving.');
-      return;
-    }
-    setDeviceError(null);
+    setLocalSaveError(null);
     setDeviceSaving(true);
     try {
       const res = await createDataloggerSession({
         name,
-        device_model: info?.modelName ?? 'Elitech Logger',
-        serial_number: info?.serialNumber === '—' ? '' : (info?.serialNumber ?? ''),
-        records: rawRecordsToApiPayload(recs),
+        device_model: snap.deviceModel,
+        serial_number: snap.serialNumber,
+        records: rawRecordsToApiPayload([...snap.records]),
       });
-      setDeviceRecords([]);
+      props.device.discardSnapshot();
       setDeviceSessionName('');
       props.onSessionSaved(res.session);
     } catch (err) {
-      setDeviceError(err instanceof Error ? err.message : String(err));
+      setLocalSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeviceSaving(false);
     }
@@ -230,9 +209,17 @@ export function ImportTab(props: ImportTabProps) {
   };
 
   const progressPercent = createMemo(() => {
-    const prog = deviceProgress();
+    const prog = props.device.deviceProgress();
     if (!prog || prog.total <= 0) return 0;
     return Math.min(100, Math.round((prog.fetched / prog.total) * 100));
+  });
+
+  const liveSerialDiffersFromSnapshot = createMemo(() => {
+    const snap = props.device.snapshot();
+    const live = props.device.deviceInfo();
+    if (!snap || !live) return false;
+    const liveSerial = live.serialNumber === '—' ? '' : live.serialNumber;
+    return liveSerial !== snap.serialNumber;
   });
 
   return (
@@ -250,8 +237,10 @@ export function ImportTab(props: ImportTabProps) {
                 Read temperature and humidity readings directly from an Elitech USB logger in Chrome, Edge, or Brave.
               </CardDescription>
             </div>
-            <Badge variant={connected() ? 'success' : 'secondary'}>
-              {connected() ? 'Connected' : 'Disconnected'}
+            <Badge variant={props.device.connected() ? 'success' : 'secondary'}>
+              {props.device.connected()
+                ? t('dataloggerConfig.connected')
+                : t('dataloggerConfig.disconnected')}
             </Badge>
           </div>
         </CardHeader>
@@ -259,122 +248,205 @@ export function ImportTab(props: ImportTabProps) {
           <Show when={!hidSupported}>
             <Alert>
               <IconAlertCircle class="size-4" />
-              <AlertTitle>WebHID Unavailable</AlertTitle>
+              <AlertTitle>{t('dataloggerConfig.webHidUnavailableTitle')}</AlertTitle>
               <AlertDescription>
                 Your browser does not expose <code class="font-mono text-xs">navigator.hid</code> (requires a Chromium browser over HTTPS or localhost). Use CSV import below instead.
               </AlertDescription>
             </Alert>
           </Show>
 
-          <Show when={deviceError()}>
+          <Show when={props.device.deviceError() || localSaveError()}>
             <Alert variant="destructive">
               <IconAlertCircle class="size-4" />
-              <AlertTitle>Device Error</AlertTitle>
-              <AlertDescription>{deviceError()}</AlertDescription>
+              <AlertTitle>{t('dataloggerConfig.deviceErrorTitle')}</AlertTitle>
+              <AlertDescription>{localSaveError() ?? props.device.deviceError()}</AlertDescription>
+            </Alert>
+          </Show>
+
+          <Show when={zeroRecordsNotice()}>
+            <Alert>
+              <IconAlertCircle class="size-4" />
+              <AlertTitle>No Stored Readings</AlertTitle>
+              <AlertDescription>{t('dataloggerConfig.zeroRecordsOnDevice')}</AlertDescription>
             </Alert>
           </Show>
 
           <div class="flex flex-wrap items-center gap-2">
             <Show
-              when={!connected()}
+              when={!props.device.connected()}
               fallback={
-                <Button variant="outline" onClick={handleDisconnect} disabled={deviceBusy()}>
+                <Button
+                  variant="outline"
+                  onClick={handleDisconnect}
+                  disabled={props.device.deviceBusy()}
+                >
                   <IconPlugConnectedX class="size-4" />
-                  Disconnect
+                  {t('dataloggerConfig.disconnect')}
                 </Button>
               }
             >
-              <Button onClick={handleConnect} disabled={!hidSupported || deviceBusy()}>
+              <Button
+                onClick={handleConnect}
+                disabled={!hidSupported || props.device.deviceBusy()}
+              >
                 <IconPlugConnected class="size-4" />
-                {deviceBusy() ? 'Connecting…' : 'Connect Device'}
+                {props.device.deviceBusy()
+                  ? t('dataloggerConfig.connecting')
+                  : t('dataloggerConfig.connectDevice')}
               </Button>
             </Show>
 
-            <Show when={deviceInfo()}>
-              <Button variant="secondary" onClick={handleFetchRecords} disabled={deviceBusy()}>
-                <IconDownload class="size-4" />
-                {deviceBusy() ? 'Reading Records…' : `Fetch ${deviceInfo()!.recordNumber.toLocaleString()} Records`}
-              </Button>
+            <Show when={props.device.deviceInfo()}>
+              {(info) => (
+                <Button
+                  variant="secondary"
+                  onClick={handleRequestFetchRecords}
+                  disabled={props.device.deviceBusy()}
+                >
+                  <IconDownload class="size-4" />
+                  {props.device.deviceBusy()
+                    ? 'Reading Records…'
+                    : `Fetch ${info().recordNumber.toLocaleString()} Records`}
+                </Button>
+              )}
             </Show>
           </div>
 
-          <Show when={deviceInfo()}>
+          <Show when={props.device.deviceInfo()}>
             {(info) => (
               <div class="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-4 sm:grid-cols-3 lg:grid-cols-5">
                 <div>
-                  <div class="text-xs text-muted-foreground">Model</div>
+                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.modelLabel')}</div>
                   <div class="text-sm font-medium">{info().modelName}</div>
                 </div>
                 <div>
-                  <div class="text-xs text-muted-foreground">Serial Number</div>
+                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.serialLabel')}</div>
                   <div class="font-mono text-sm font-medium">{info().serialNumber}</div>
                 </div>
                 <div>
-                  <div class="text-xs text-muted-foreground">Stored Records</div>
+                  <div class="text-xs text-muted-foreground">
+                    {t('dataloggerConfig.storedRecordsLabel')}
+                  </div>
                   <div class="font-mono text-sm font-medium tabular-nums">
                     {info().recordNumber.toLocaleString()} / {info().deviceCapacity.toLocaleString()}
                   </div>
                 </div>
                 <div>
-                  <div class="text-xs text-muted-foreground">Log Interval</div>
+                  <div class="text-xs text-muted-foreground">
+                    {t('dataloggerConfig.currentIntervalLabel')}
+                  </div>
                   <div class="font-mono text-sm font-medium">{info().intervalFormatted}</div>
                 </div>
                 <div>
-                  <div class="text-xs text-muted-foreground">Firmware / Protocol</div>
+                  <div class="text-xs text-muted-foreground">
+                    {t('dataloggerConfig.firmwareProtocolLabel')}
+                  </div>
                   <div class="font-mono text-sm font-medium">
                     v{info().firmwareVersion} / 0x{info().protocolVersion.toString(16).toUpperCase()}
                   </div>
                 </div>
                 <div>
-                  <div class="text-xs text-muted-foreground">Battery Level</div>
+                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.batteryLabel')}</div>
                   <div class="font-mono text-sm font-medium">{info().batteryLevel}</div>
                 </div>
                 <div>
-                  <div class="text-xs text-muted-foreground">Unit</div>
+                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.unitLabel')}</div>
                   <div class="font-mono text-sm font-medium">{info().temperatureUnit}</div>
                 </div>
                 <div class="col-span-2 sm:col-span-2 lg:col-span-3">
-                  <div class="text-xs text-muted-foreground">Device Clock</div>
-                  <div class="font-mono text-sm font-medium">{formatDateTimeFull(info().deviceTime)}</div>
+                  <div class="text-xs text-muted-foreground">
+                    {t('dataloggerConfig.deviceClockLabel')}
+                  </div>
+                  <div class="font-mono text-sm font-medium">
+                    {formatDateTimeFull(info().deviceTime)}
+                  </div>
                 </div>
               </div>
             )}
           </Show>
 
-          <Show when={deviceProgress()}>
-            {(prog) => (
-              <div class="space-y-1.5">
-                <div class="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Reading logger memory</span>
-                  <span class="font-mono tabular-nums">
-                    {prog().fetched.toLocaleString()} / {prog().total.toLocaleString()} ({progressPercent()}%)
-                  </span>
-                </div>
-                <Progress value={progressPercent()} />
+          <Show when={props.device.deviceProgress() && props.device.deviceProgress()!.total > 0}>
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Reading logger memory</span>
+                <span class="font-mono tabular-nums">
+                  {props.device.deviceProgress()!.fetched.toLocaleString()} /{' '}
+                  {props.device.deviceProgress()!.total.toLocaleString()} ({progressPercent()}%)
+                </span>
               </div>
-            )}
-          </Show>
-
-          <Show when={deviceRecords().length > 0}>
-            <div class="flex flex-col gap-3 rounded-md border bg-card p-4 sm:flex-row sm:items-end">
-              <div class="flex-1 space-y-1.5">
-                <label class="text-xs font-medium text-muted-foreground" for="dl-device-session-name">
-                  Session Name ({deviceRecords().length.toLocaleString()} records ready)
-                </label>
-                <input
-                  id="dl-device-session-name"
-                  type="text"
-                  value={deviceSessionName()}
-                  onInput={(e) => setDeviceSessionName(e.currentTarget.value)}
-                  placeholder="e.g. Cold Room A - May Shipment"
-                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                />
-              </div>
-              <Button onClick={handleSaveDeviceSession} disabled={deviceSaving()}>
-                <IconDeviceFloppy class="size-4" />
-                {deviceSaving() ? 'Saving…' : 'Save Session'}
-              </Button>
+              <Progress value={progressPercent()} />
             </div>
+          </Show>
+
+          <Show when={props.device.snapshot()}>
+            {(snap) => (
+              <div class="space-y-3 rounded-md border bg-card p-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="space-y-0.5">
+                    <div class="text-sm font-semibold">
+                      {t('dataloggerConfig.snapshotReadyTitle')}
+                    </div>
+                    <div class="text-xs text-muted-foreground">
+                      {t('dataloggerConfig.snapshotCapturedFrom', {
+                        model: snap().deviceModel,
+                        serial: snap().serialNumber || t('dataloggerConfig.snapshotNoSerial'),
+                        count: snap().records.length.toLocaleString(),
+                      })}
+                    </div>
+                  </div>
+                  <Badge variant="outline" class="font-mono text-xs">
+                    {snap().deviceModel} ·{' '}
+                    {snap().serialNumber || t('dataloggerConfig.snapshotNoSerial')}
+                  </Badge>
+                </div>
+
+                <Show when={liveSerialDiffersFromSnapshot()}>
+                  <Alert>
+                    <IconAlertCircle class="size-4" />
+                    <AlertDescription class="text-xs">
+                      {t('dataloggerConfig.snapshotDifferentDeviceNotice', {
+                        snapshotSerial:
+                          snap().serialNumber || t('dataloggerConfig.snapshotNoSerial'),
+                        liveSerial: props.device.deviceInfo()?.serialNumber ?? '—',
+                      })}
+                    </AlertDescription>
+                  </Alert>
+                </Show>
+
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div class="flex-1 space-y-1.5">
+                    <label
+                      class="text-xs font-medium text-muted-foreground"
+                      for="dl-device-session-name"
+                    >
+                      Session Name ({snap().records.length.toLocaleString()} records ready)
+                    </label>
+                    <input
+                      id="dl-device-session-name"
+                      type="text"
+                      value={deviceSessionName()}
+                      onInput={(e) => setDeviceSessionName(e.currentTarget.value)}
+                      placeholder="e.g. Cold Room A - May Shipment"
+                      class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    />
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setConfirmDiscardOpen(true)}
+                      disabled={deviceSaving()}
+                    >
+                      <IconTrash class="size-4" />
+                      {t('dataloggerConfig.discardSnapshotBtn')}
+                    </Button>
+                    <Button onClick={handleSaveDeviceSession} disabled={deviceSaving()}>
+                      <IconDeviceFloppy class="size-4" />
+                      {deviceSaving() ? 'Saving…' : 'Save Session'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </Show>
         </CardContent>
       </Card>
@@ -600,6 +672,58 @@ export function ImportTab(props: ImportTabProps) {
           </Show>
         </CardContent>
       </Card>
+
+      {/* Confirmation: Replace unsaved pulled snapshot */}
+      <AlertDialog open={confirmReplaceOpen()} onOpenChange={setConfirmReplaceOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle>
+            {t('dataloggerConfig.replaceSnapshotConfirmTitle')}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('dataloggerConfig.replaceSnapshotConfirmDesc', {
+              count: (props.device.snapshot()?.records.length ?? 0).toLocaleString(),
+              model: props.device.snapshot()?.deviceModel ?? '',
+              serial:
+                props.device.snapshot()?.serialNumber ||
+                t('dataloggerConfig.snapshotNoSerial'),
+            })}
+          </AlertDialogDescription>
+          <AlertDialogFooter class="gap-2">
+            <Button variant="outline" onClick={() => setConfirmReplaceOpen(false)}>
+              {t('dataloggerConfig.cancelBtn')}
+            </Button>
+            <Button onClick={handleConfirmReplaceFetch}>
+              {t('dataloggerConfig.replaceSnapshotConfirmBtn')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmation: Discard unsaved pulled snapshot */}
+      <AlertDialog open={confirmDiscardOpen()} onOpenChange={setConfirmDiscardOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle>
+            {t('dataloggerConfig.discardSnapshotConfirmTitle')}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('dataloggerConfig.discardSnapshotConfirmDesc', {
+              count: (props.device.snapshot()?.records.length ?? 0).toLocaleString(),
+              model: props.device.snapshot()?.deviceModel ?? '',
+              serial:
+                props.device.snapshot()?.serialNumber ||
+                t('dataloggerConfig.snapshotNoSerial'),
+            })}
+          </AlertDialogDescription>
+          <AlertDialogFooter class="gap-2">
+            <Button variant="outline" onClick={() => setConfirmDiscardOpen(false)}>
+              {t('dataloggerConfig.cancelBtn')}
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDiscardSnapshot}>
+              {t('dataloggerConfig.discardSnapshotBtn')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

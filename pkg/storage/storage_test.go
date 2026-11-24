@@ -4332,3 +4332,317 @@ func TestDataloggerDateOverlapFilterAndPagination(t *testing.T) {
 		t.Fatalf("unexpected pagination result: total=%d p1=%d p2=%d", totalAll, len(page1), len(page2))
 	}
 }
+
+func TestDataloggerProfiles(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "profiles.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer func() {
+		if store != nil {
+			_ = store.Close()
+		}
+	}()
+	ctx := context.Background()
+
+	// Empty list returns non-nil empty slice
+	initial, err := store.GetDataloggerProfiles(ctx)
+	if err != nil {
+		t.Fatalf("GetDataloggerProfiles failed on empty DB: %v", err)
+	}
+	if initial == nil || len(initial) != 0 {
+		t.Fatalf("expected non-nil empty profile slice, got %#v", initial)
+	}
+
+	// 1. Complete-field round-trip (null duration, manual delay 90, 100-char description)
+	desc100 := strings.Repeat("A", 52) + strings.Repeat("B", 48)
+	manualSched := "2026-12-01T10:00:00"
+	p1 := model.DataloggerProfile{
+		Name: "  Vaccine Cold Box  ",
+		Config: model.DataloggerConfiguration{
+			IntervalSeconds:     60,
+			DurationSeconds:     nil,
+			StartMode:           string(model.DataloggerStartModeManual),
+			StartDelaySeconds:   90,
+			ScheduledStartLocal: &manualSched, // inactive in manual mode -> canonicalized to nil
+			TripNumber:          "TRIP-001",
+			TripDescription:     desc100,
+		},
+	}
+	id1, err := store.CreateDataloggerProfile(ctx, p1)
+	if err != nil {
+		t.Fatalf("CreateDataloggerProfile p1 failed: %v", err)
+	}
+	if id1 <= 0 {
+		t.Fatalf("expected positive id1, got %d", id1)
+	}
+
+	// 2. Complete-field round-trip with non-null duration and expired-but-valid Timer schedule
+	dur := int64(86400)
+	expiredSched := "2020-05-10T14:30:00"
+	p2 := model.DataloggerProfile{
+		Name: "Airport Transfer",
+		Config: model.DataloggerConfiguration{
+			IntervalSeconds:     120,
+			DurationSeconds:     &dur,
+			StartMode:           string(model.DataloggerStartModeTimer),
+			StartDelaySeconds:   90, // inactive in timer mode -> canonicalized to 0
+			ScheduledStartLocal: &expiredSched,
+			TripNumber:          "AIR-2026-9999",
+			TripDescription:     "Cold-chain delivery",
+		},
+	}
+	id2, err := store.CreateDataloggerProfile(ctx, p2)
+	if err != nil {
+		t.Fatalf("CreateDataloggerProfile p2 (expired timer) failed: %v", err)
+	}
+
+	// Verify case-insensitive alphabetical order and canonicalized fields
+	listed, err := store.GetDataloggerProfiles(ctx)
+	if err != nil {
+		t.Fatalf("GetDataloggerProfiles failed: %v", err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(listed))
+	}
+	if listed[0].ID != id2 || listed[0].Name != "Airport Transfer" {
+		t.Fatalf("expected Airport Transfer first, got %+v", listed[0])
+	}
+	if listed[0].Config.DurationSeconds == nil || *listed[0].Config.DurationSeconds != 86400 {
+		t.Errorf("expected DurationSeconds=86400, got %v", listed[0].Config.DurationSeconds)
+	}
+	if listed[0].Config.StartDelaySeconds != 0 {
+		t.Errorf("expected timer profile StartDelaySeconds canonicalized to 0, got %d", listed[0].Config.StartDelaySeconds)
+	}
+	if listed[0].Config.ScheduledStartLocal == nil || *listed[0].Config.ScheduledStartLocal != expiredSched {
+		t.Errorf("expected ScheduledStartLocal=%s, got %v", expiredSched, listed[0].Config.ScheduledStartLocal)
+	}
+
+	if listed[1].ID != id1 || listed[1].Name != "Vaccine Cold Box" {
+		t.Fatalf("expected trimmed Vaccine Cold Box second, got %+v", listed[1])
+	}
+	if listed[1].Config.DurationSeconds != nil {
+		t.Errorf("expected nil DurationSeconds on p1, got %v", *listed[1].Config.DurationSeconds)
+	}
+	if listed[1].Config.StartDelaySeconds != 90 {
+		t.Errorf("expected StartDelaySeconds=90, got %d", listed[1].Config.StartDelaySeconds)
+	}
+	if listed[1].Config.ScheduledStartLocal != nil {
+		t.Errorf("expected manual profile ScheduledStartLocal canonicalized to nil, got %v", *listed[1].Config.ScheduledStartLocal)
+	}
+	if listed[1].Config.TripDescription != desc100 {
+		t.Errorf("expected 100-char description preserved, got len=%d", len(listed[1].Config.TripDescription))
+	}
+
+	// 3. Case-insensitive duplicate name on create and update
+	_, dupErr := store.CreateDataloggerProfile(ctx, model.DataloggerProfile{
+		Name:   "vaccine cold box",
+		Config: p1.Config,
+	})
+	if !errors.Is(dupErr, storage.ErrValidation) {
+		t.Fatalf("expected ErrValidation on duplicate create, got %v", dupErr)
+	}
+	var valErr *storage.ValidationError
+	if !errors.As(dupErr, &valErr) || valErr.Message != "profile name already exists" {
+		t.Fatalf("expected ValidationError 'profile name already exists', got %#v (%v)", valErr, dupErr)
+	}
+
+	dupUpdateErr := store.UpdateDataloggerProfile(ctx, id2, model.DataloggerProfile{
+		Name:   "VACCINE COLD BOX",
+		Config: p2.Config,
+	})
+	if !errors.Is(dupUpdateErr, storage.ErrValidation) {
+		t.Fatalf("expected ErrValidation on duplicate update, got %v", dupUpdateErr)
+	}
+
+	// 4. Validation error cases
+	desc101 := desc100 + "C"
+	badCal := "2026-02-30T10:00:00"
+	year2100 := "2100-01-01T00:00:00"
+	zeroDur := int64(0)
+	invalidCases := []struct {
+		label   string
+		profile model.DataloggerProfile
+	}{
+		{
+			label:   "empty name",
+			profile: model.DataloggerProfile{Name: "   ", Config: p1.Config},
+		},
+		{
+			label: "delay 91 rejected",
+			profile: model.DataloggerProfile{
+				Name: "Bad Delay 91",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds:   60,
+					StartMode:         "manual",
+					StartDelaySeconds: 91,
+				},
+			},
+		},
+		{
+			label: "delay 655360 rejected",
+			profile: model.DataloggerProfile{
+				Name: "Bad Delay Max",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds:   60,
+					StartMode:         "manual",
+					StartDelaySeconds: 655360,
+				},
+			},
+		},
+		{
+			label: "interval not divisible by 10",
+			profile: model.DataloggerProfile{
+				Name: "Bad Interval",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds: 15,
+					StartMode:       "immediate",
+				},
+			},
+		},
+		{
+			label: "non-positive duration",
+			profile: model.DataloggerProfile{
+				Name: "Zero Duration",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds: 60,
+					DurationSeconds: &zeroDur,
+					StartMode:       "immediate",
+				},
+			},
+		},
+		{
+			label: "description 101 rejected",
+			profile: model.DataloggerProfile{
+				Name: "Long Description",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds: 60,
+					StartMode:       "immediate",
+					TripDescription: desc101,
+				},
+			},
+		},
+		{
+			label: "trip number > 13 rejected",
+			profile: model.DataloggerProfile{
+				Name: "Long Trip",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds: 60,
+					StartMode:       "immediate",
+					TripNumber:      "12345678901234",
+				},
+			},
+		},
+		{
+			label: "non-ASCII description rejected",
+			profile: model.DataloggerProfile{
+				Name: "Unicode Desc",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds: 60,
+					StartMode:       "immediate",
+					TripDescription: "Cold-chain — NTB",
+				},
+			},
+		},
+		{
+			label: "invalid calendar 2026-02-30 rejected",
+			profile: model.DataloggerProfile{
+				Name: "Invalid Calendar",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds:     60,
+					StartMode:           "timer",
+					ScheduledStartLocal: &badCal,
+				},
+			},
+		},
+		{
+			label: "year 2100 rejected",
+			profile: model.DataloggerProfile{
+				Name: "Year 2100",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds:     60,
+					StartMode:           "timer",
+					ScheduledStartLocal: &year2100,
+				},
+			},
+		},
+		{
+			label: "missing Timer schedule rejected",
+			profile: model.DataloggerProfile{
+				Name: "Missing Timer Schedule",
+				Config: model.DataloggerConfiguration{
+					IntervalSeconds:     60,
+					StartMode:           "timer",
+					ScheduledStartLocal: nil,
+				},
+			},
+		},
+	}
+	for _, tc := range invalidCases {
+		if _, err := store.CreateDataloggerProfile(ctx, tc.profile); !errors.Is(err, storage.ErrValidation) {
+			t.Errorf("case %q: expected ErrValidation, got %v", tc.label, err)
+		}
+	}
+
+	// 5. Update and missing update/delete
+	updatedP1 := model.DataloggerProfile{
+		Name: "Vaccine Cold Box v2",
+		Config: model.DataloggerConfiguration{
+			IntervalSeconds:   300,
+			DurationSeconds:   nil,
+			StartMode:         "immediate",
+			StartDelaySeconds: 120, // canonicalized to 0
+			TripNumber:        "TRIP-002",
+			TripDescription:   "Updated trip",
+		},
+	}
+	if err := store.UpdateDataloggerProfile(ctx, id1, updatedP1); err != nil {
+		t.Fatalf("UpdateDataloggerProfile failed: %v", err)
+	}
+	if err := store.UpdateDataloggerProfile(ctx, 99999, updatedP1); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("expected ErrNotFound updating missing profile, got %v", err)
+	}
+	if err := store.DeleteDataloggerProfile(ctx, 99999); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("expected ErrNotFound deleting missing profile, got %v", err)
+	}
+
+	// 6. Survival across SyncMirror, ClearData, and database reopen
+	if err := store.SyncMirror(ctx, nil, nil); err != nil {
+		t.Fatalf("SyncMirror failed: %v", err)
+	}
+	if err := store.ClearData(ctx); err != nil {
+		t.Fatalf("ClearData failed: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	store, err = storage.New(dbPath)
+	if err != nil {
+		t.Fatalf("reopen storage failed: %v", err)
+	}
+	afterReopen, err := store.GetDataloggerProfiles(ctx)
+	if err != nil {
+		t.Fatalf("GetDataloggerProfiles after reopen failed: %v", err)
+	}
+	if len(afterReopen) != 2 || afterReopen[1].Name != "Vaccine Cold Box v2" || afterReopen[1].Config.StartDelaySeconds != 0 {
+		t.Fatalf("unexpected profiles after SyncMirror/ClearData/reopen: %+v", afterReopen)
+	}
+
+	// Delete profile 2
+	if err := store.DeleteDataloggerProfile(ctx, id2); err != nil {
+		t.Fatalf("DeleteDataloggerProfile failed: %v", err)
+	}
+	afterDelete, err := store.GetDataloggerProfiles(ctx)
+	if err != nil || len(afterDelete) != 1 || afterDelete[0].ID != id1 {
+		t.Fatalf("unexpected profiles after delete: %+v, err=%v", afterDelete, err)
+	}
+
+	// Corrupt stored JSON returns error, never defaults
+	if _, err := store.DB().Exec(`UPDATE datalogger_profiles SET config_json = '{"interval_seconds":60}' WHERE id = ?`, id1); err != nil {
+		t.Fatalf("failed to corrupt stored config_json: %v", err)
+	}
+	if _, err := store.GetDataloggerProfiles(ctx); err == nil {
+		t.Fatalf("expected error reading incomplete/corrupt stored profile JSON, got nil")
+	}
+}

@@ -359,3 +359,23 @@ type DataloggerImportPayload struct {
 	SerialNumber string             `json:"serial_number,omitempty"`
 	Records      []DataloggerRecord `json:"records"`
 }
+
+// DataloggerConfiguration represents the device configuration parameters for an Elitech data logger.
+type DataloggerConfiguration struct {
+	IntervalSeconds     int     `json:"interval_seconds"`
+	DurationSeconds     *int64  `json:"duration_seconds"`
+	StartMode           string  `json:"start_mode"`
+	StartDelaySeconds   int     `json:"start_delay_seconds"`
+	ScheduledStartLocal *string `json:"scheduled_start_local"`
+	TripNumber          string  `json:"trip_number"`
+	TripDescription     string  `json:"trip_description"`
+}
+
+// DataloggerProfile represents a saved, reusable data logger configuration profile.
+type DataloggerProfile struct {
+	ID        int64                   `json:"id"`
+	Name      string                  `json:"name"`
+	Config    DataloggerConfiguration `json:"config"`
+	CreatedAt string                  `json:"created_at"`
+	UpdatedAt string                  `json:"updated_at"`
+}
