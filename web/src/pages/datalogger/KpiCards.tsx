@@ -6,6 +6,7 @@ import {
   IconTemperature,
 } from '@tabler/icons-solidjs';
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card';
+import { useI18n } from '~/i18n';
 import type { DataloggerSession } from '~/types';
 import { formatRelativeAgo } from '~/components/datalogger/format';
 
@@ -14,6 +15,7 @@ interface KpiCardsProps {
 }
 
 export function KpiCards(props: KpiCardsProps) {
+  const { t } = useI18n();
   const totalRecords = createMemo(() =>
     props.sessions.reduce((sum, s) => sum + s.record_count, 0),
   );
@@ -41,7 +43,7 @@ export function KpiCards(props: KpiCardsProps) {
       <Card class="p-0">
         <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-3.5 sm:px-5">
           <CardTitle class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Total Sessions
+            {t('datalogger.kpis.totalSessions')}
           </CardTitle>
           <IconDatabase class="size-4 text-muted-foreground" />
         </CardHeader>
@@ -50,7 +52,7 @@ export function KpiCards(props: KpiCardsProps) {
             {props.sessions.length.toLocaleString()}
           </div>
           <p class="mt-0.5 text-[11px] text-muted-foreground truncate">
-            {humidityCount()} with humidity
+            {t('datalogger.kpis.withHumidity', { count: humidityCount() })}
           </p>
         </CardContent>
       </Card>
@@ -58,7 +60,7 @@ export function KpiCards(props: KpiCardsProps) {
       <Card class="p-0">
         <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-3.5 sm:px-5">
           <CardTitle class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Total Records
+            {t('datalogger.kpis.totalRecords')}
           </CardTitle>
           <IconFileAnalytics class="size-4 text-muted-foreground" />
         </CardHeader>
@@ -67,7 +69,7 @@ export function KpiCards(props: KpiCardsProps) {
             {totalRecords().toLocaleString()}
           </div>
           <p class="mt-0.5 text-[11px] text-muted-foreground truncate">
-            Stored readings
+            {t('datalogger.kpis.storedReadings')}
           </p>
         </CardContent>
       </Card>
@@ -75,7 +77,7 @@ export function KpiCards(props: KpiCardsProps) {
       <Card class="p-0">
         <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-3.5 sm:px-5">
           <CardTitle class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Temp Range
+            {t('datalogger.kpis.tempRange')}
           </CardTitle>
           <IconTemperature class="size-4 text-muted-foreground" />
         </CardHeader>
@@ -86,7 +88,7 @@ export function KpiCards(props: KpiCardsProps) {
               : '—'}
           </div>
           <p class="mt-0.5 text-[11px] text-muted-foreground truncate">
-            Global min to max
+            {t('datalogger.kpis.globalMinMax')}
           </p>
         </CardContent>
       </Card>
@@ -94,7 +96,7 @@ export function KpiCards(props: KpiCardsProps) {
       <Card class="p-0">
         <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-3.5 sm:px-5">
           <CardTitle class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Latest Import
+            {t('datalogger.kpis.latestImport')}
           </CardTitle>
           <IconClock class="size-4 text-muted-foreground" />
         </CardHeader>
@@ -103,7 +105,7 @@ export function KpiCards(props: KpiCardsProps) {
             {latestSession() ? formatRelativeAgo(latestSession()!.created_at) : '—'}
           </div>
           <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
-            {latestSession() ? latestSession()!.name : 'No imports'}
+            {latestSession() ? latestSession()!.name : t('datalogger.kpis.noImports')}
           </p>
         </CardContent>
       </Card>

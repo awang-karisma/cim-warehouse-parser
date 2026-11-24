@@ -3,10 +3,7 @@ import {
   IconAlertCircle,
   IconCheck,
   IconClock,
-  IconCpu,
   IconDeviceFloppy,
-  IconPlugConnected,
-  IconPlugConnectedX,
   IconRefresh,
   IconRotateClockwise,
   IconSettings,
@@ -34,7 +31,7 @@ import { DATALOGGER_START_MODE, type DataloggerStartMode, USER_ROLE } from '~/do
 import { useI18n } from '~/i18n';
 import type { DataloggerConfiguration, DataloggerProfile } from '~/types';
 import type { DataloggerDeviceSession } from '~/components/datalogger/device-session';
-import { isWebHidSupported } from '~/components/datalogger/elitech-hid';
+import { DeviceConnectSection } from '~/components/datalogger/DeviceConnectSection';
 import {
   calculateLoggingInterval,
   encodeTimezoneOffset,
@@ -106,7 +103,6 @@ function formatHostTimezoneLabel(now: Date = new Date()): string {
 export function ConfigurationTab(props: ConfigurationTabProps) {
   const { t } = useI18n();
   const auth = useAuth();
-  const hidSupported = isWebHidSupported();
 
   const isAdmin = () => {
     const role = auth.user()?.role;
@@ -156,7 +152,6 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     hostTimeText: string;
     hostTzText: string;
   } | null>(null);
-  const [confirmDismissPendingOpen, setConfirmDismissPendingOpen] = createSignal(false);
 
   let lastAutoReadKey: string | null = null;
 
@@ -675,206 +670,27 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
 
   return (
     <div class="space-y-6">
-      {/* 1. Shared USB Connection & Post-Format Verification Card */}
-      <Card>
-        <CardHeader>
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="space-y-1">
-              <CardTitle class="flex items-center gap-2">
-                <IconCpu class="size-5 text-muted-foreground" />
-                {t('dataloggerConfig.connectionTitle')}
-              </CardTitle>
-              <CardDescription>{t('dataloggerConfig.connectionDesc')}</CardDescription>
-            </div>
-            <Badge variant={props.device.connected() ? 'success' : 'secondary'}>
-              {props.device.connected()
-                ? t('dataloggerConfig.connected')
-                : t('dataloggerConfig.disconnected')}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <Show when={!hidSupported}>
-            <Alert>
-              <IconAlertCircle class="size-4" />
-              <AlertTitle>{t('dataloggerConfig.webHidUnavailableTitle')}</AlertTitle>
-              <AlertDescription>{t('dataloggerConfig.webHidUnavailableDesc')}</AlertDescription>
-            </Alert>
-          </Show>
-
-          <Show when={props.device.pendingVerification()}>
-            {(pending) => (
-              <Alert variant="destructive">
-                <IconAlertCircle class="size-4" />
-                <AlertTitle>{t('dataloggerConfig.pendingVerificationTitle')}</AlertTitle>
-                <AlertDescription class="space-y-3">
-                  <div class="text-sm font-medium">{pending().statusMessage}</div>
-                  <div class="font-mono text-xs">
-                    {t('dataloggerConfig.targetSerialLabel')}: {pending().receipt.serialNumber}
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2 pt-1">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void props.device.verifyPendingOperation()}
-                      disabled={props.device.deviceBusy()}
-                    >
-                      <IconRefresh class="size-3.5" />
-                      {props.device.deviceBusy()
-                        ? t('dataloggerConfig.verifyingBtn')
-                        : t('dataloggerConfig.verifyNowBtn')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setConfirmDismissPendingOpen(true)}
-                      disabled={props.device.deviceBusy()}
-                    >
-                      {t('dataloggerConfig.dismissUnverifiedBtn')}
-                    </Button>
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
-          </Show>
-
-          <Show
-            when={
-              !props.device.pendingVerification() &&
-              props.device.lastVerifiedOperation() &&
-              props.device.deviceInfo()
-            }
-          >
-            <Alert>
-              <IconCheck class="size-4 text-status-selesai" />
-              <AlertDescription class="text-sm font-medium">
-                {props.device.lastVerifiedOperation() === 'apply'
-                  ? t('dataloggerConfig.verifiedApplySuccess', {
-                      serial: props.device.deviceInfo()?.serialNumber ?? '',
-                    })
-                  : t('dataloggerConfig.verifiedQuickResetSuccess', {
-                      serial: props.device.deviceInfo()?.serialNumber ?? '',
-                    })}
-              </AlertDescription>
-            </Alert>
-          </Show>
-
-          <Show
-            when={
-              (configError() || props.device.deviceError()) &&
-              !props.device.pendingVerification()
-            }
-          >
-            <Alert variant="destructive">
-              <IconAlertCircle class="size-4" />
-              <AlertTitle>{t('dataloggerConfig.deviceErrorTitle')}</AlertTitle>
-              <AlertDescription>{configError() ?? props.device.deviceError()}</AlertDescription>
-            </Alert>
-          </Show>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <Show
-              when={!props.device.connected()}
-              fallback={
-                <Button
-                  variant="outline"
-                  onClick={() => void props.device.disconnect()}
-                  disabled={props.device.deviceBusy() || readingConfig()}
-                >
-                  <IconPlugConnectedX class="size-4" />
-                  {t('dataloggerConfig.disconnect')}
-                </Button>
-              }
+      {/* 1. Shared USB Connection & Post-Format Verification Card (Extracted & Reusable) */}
+      <DeviceConnectSection
+        device={props.device}
+        externalError={configError()}
+        busy={readingConfig()}
+        displayTimeoutCode={displayTimeoutCode()}
+        actions={
+          <Show when={props.device.connected()}>
+            <Button
+              variant="secondary"
+              onClick={handleRequestReadFromDevice}
+              disabled={props.device.deviceBusy() || readingConfig()}
             >
-              <Button
-                onClick={() => void props.device.connect()}
-                disabled={!hidSupported || props.device.deviceBusy() || readingConfig()}
-              >
-                <IconPlugConnected class="size-4" />
-                {props.device.deviceBusy()
-                  ? t('dataloggerConfig.connecting')
-                  : t('dataloggerConfig.connectDevice')}
-              </Button>
-            </Show>
-
-            <Show when={props.device.connected()}>
-              <Button
-                variant="secondary"
-                onClick={handleRequestReadFromDevice}
-                disabled={props.device.deviceBusy() || readingConfig()}
-              >
-                <IconRefresh class="size-4" />
-                {readingConfig()
-                  ? t('dataloggerConfig.readingDevice')
-                  : t('dataloggerConfig.readFromDevice')}
-              </Button>
-            </Show>
-          </div>
-
-          <Show when={props.device.deviceInfo()}>
-            {(info) => (
-              <div class="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-4 sm:grid-cols-3 lg:grid-cols-5">
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.modelLabel')}</div>
-                  <div class="text-sm font-medium">{info().modelName}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.serialLabel')}</div>
-                  <div class="font-mono text-sm font-medium">{info().serialNumber}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.storedRecordsLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium tabular-nums">
-                    {info().recordNumber.toLocaleString()} / {info().deviceCapacity.toLocaleString()}
-                  </div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.currentIntervalLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">{info().intervalFormatted}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.firmwareProtocolLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">
-                    v{info().firmwareVersion} / 0x{info().protocolVersion.toString(16).toUpperCase()}
-                  </div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.batteryLabel')}</div>
-                  <div class="font-mono text-sm font-medium">{info().batteryLevel}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.unitLabel')}</div>
-                  <div class="font-mono text-sm font-medium">{info().temperatureUnit}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.lcdRawCodeLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">
-                    {displayTimeoutCode() !== null
-                      ? `0x${displayTimeoutCode()!.toString(16).toUpperCase()}`
-                      : '—'}
-                  </div>
-                </div>
-                <div class="col-span-2">
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.deviceClockLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">
-                    {formatDateTimeFull(info().deviceTime)}
-                  </div>
-                </div>
-              </div>
-            )}
+              <IconRefresh class="size-4" />
+              {readingConfig()
+                ? t('dataloggerConfig.readingDevice')
+                : t('dataloggerConfig.readFromDevice')}
+            </Button>
           </Show>
-        </CardContent>
-      </Card>
+        }
+      />
 
       {/* 2. Reusable Configuration Profiles Card */}
       <Card>
@@ -1437,31 +1253,6 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* AlertDialog: Dismiss Unverified Operation */}
-      <AlertDialog open={confirmDismissPendingOpen()} onOpenChange={setConfirmDismissPendingOpen}>
-        <AlertDialogContent>
-          <AlertDialogTitle>{t('dataloggerConfig.dismissConfirmTitle')}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('dataloggerConfig.dismissConfirmDesc', {
-              serial: props.device.pendingVerification()?.receipt.serialNumber ?? '—',
-            })}
-          </AlertDialogDescription>
-          <AlertDialogFooter class="gap-2">
-            <Button variant="outline" onClick={() => setConfirmDismissPendingOpen(false)}>
-              {t('dataloggerConfig.cancelBtn')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setConfirmDismissPendingOpen(false);
-                props.device.dismissPendingVerification();
-              }}
-            >
-              {t('dataloggerConfig.dismissUnverifiedBtn')}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* AlertDialog: Apply Configuration / Quick Reset Destructive Confirmation */}
       <AlertDialog

@@ -1,6 +1,7 @@
 import { Show } from 'solid-js';
 import { IconCalendar, IconSearch, IconX } from '@tabler/icons-solidjs';
 import { Button } from '~/components/ui/button';
+import { useI18n } from '~/i18n';
 import {
   createEmptyDateFilter,
   hasActiveSessionFilter,
@@ -17,6 +18,7 @@ interface SessionFilterBarProps {
 }
 
 export function SessionFilterBar(props: SessionFilterBarProps) {
+  const { t } = useI18n();
   const active = () => hasActiveSessionFilter(props.value);
 
   const update = (patch: Partial<SessionDateFilterState>) => {
@@ -31,10 +33,10 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
             <IconSearch class="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
             <input
               type="text"
-              aria-label="Search sessions"
+              aria-label={t('datalogger.filter.searchSessionsAria')}
               value={props.value.query}
               onInput={(e) => update({ query: e.currentTarget.value })}
-              placeholder="Search name, model, serial…"
+              placeholder={t('datalogger.filter.searchPlaceholder')}
               class="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
@@ -43,7 +45,7 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
         {/* Single-Day vs Date-Range toggle */}
         <div
           role="group"
-          aria-label="Date filter mode"
+          aria-label={t('datalogger.filter.dateFilterModeAria')}
           class="inline-flex h-8 items-center rounded-md border bg-muted/50 p-0.5 text-[11px]"
         >
           <button
@@ -56,7 +58,7 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            Day
+            {t('datalogger.filter.modeDay')}
           </button>
           <button
             type="button"
@@ -68,7 +70,7 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            Range
+            {t('datalogger.filter.modeRange')}
           </button>
         </div>
 
@@ -80,7 +82,7 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
               <div class="relative flex items-center">
                 <input
                   type="date"
-                  aria-label="Filter from date (inclusive)"
+                  aria-label={t('datalogger.filter.filterFromDateAria')}
                   value={props.value.fromDate}
                   onInput={(e) => update({ fromDate: e.currentTarget.value })}
                   class="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -92,7 +94,7 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
               <div class="relative flex items-center">
                 <input
                   type="date"
-                  aria-label="Filter to date (inclusive)"
+                  aria-label={t('datalogger.filter.filterToDateAria')}
                   value={props.value.toDate}
                   onInput={(e) => update({ toDate: e.currentTarget.value })}
                   class="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -105,7 +107,7 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
             <IconCalendar class="size-3.5 shrink-0 text-muted-foreground" />
             <input
               type="date"
-              aria-label="Filter overlapping date (inclusive)"
+              aria-label={t('datalogger.filter.filterSingleDateAria')}
               value={props.value.singleDate}
               onInput={(e) => update({ singleDate: e.currentTarget.value })}
               class="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -121,7 +123,7 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
             onClick={() => props.onChange(createEmptyDateFilter())}
           >
             <IconX class="size-3.5" />
-            Clear
+            {t('datalogger.filter.clear')}
           </Button>
         </Show>
       </div>
@@ -132,13 +134,16 @@ export function SessionFilterBar(props: SessionFilterBarProps) {
             when={active()}
             fallback={
               <span>
-                <strong class="font-mono text-foreground tabular-nums">{props.totalCount}</strong> sessions
+                <strong class="font-mono text-foreground tabular-nums">{props.totalCount}</strong>{' '}
+                {t('datalogger.filter.totalSessions', { count: props.totalCount }).replace(String(props.totalCount), '').trim()}
               </span>
             }
           >
             <span>
-              <strong class="font-mono text-foreground tabular-nums">{props.filteredCount}</strong> of{' '}
-              <span class="font-mono tabular-nums">{props.totalCount}</span> overlapping
+              {t('datalogger.filter.overlappingSessions', {
+                filtered: props.filteredCount,
+                total: props.totalCount,
+              })}
             </span>
           </Show>
         </span>

@@ -2,12 +2,9 @@ import { createMemo, createSignal, For, Show } from 'solid-js';
 import {
   IconAlertCircle,
   IconCheck,
-  IconCpu,
   IconDeviceFloppy,
   IconDownload,
   IconFileSpreadsheet,
-  IconPlugConnected,
-  IconPlugConnectedX,
   IconTrash,
   IconUpload,
 } from '@tabler/icons-solidjs';
@@ -24,17 +21,15 @@ import {
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
-import { Progress } from '~/components/ui/progress';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 import { useI18n } from '~/i18n';
 import type { DataloggerSession } from '~/types';
 import { inspectCsv, parseCsvWithMapping } from '~/components/datalogger/csv-parser';
 import type { DataloggerDeviceSession } from '~/components/datalogger/device-session';
-import { isWebHidSupported } from '~/components/datalogger/elitech-hid';
+import { DeviceConnectSection } from '~/components/datalogger/DeviceConnectSection';
 import { rawRecordsToApiPayload } from '~/components/datalogger/elitech-protocol';
 import { formatDateTimeFull } from '~/components/datalogger/format';
 import type { CsvColumnMapping, CsvParsePreview, RawRecord } from '~/components/datalogger/types';
-
 export interface ImportTabProps {
   device: DataloggerDeviceSession;
   onSessionSaved: (session: DataloggerSession) => void;
@@ -42,8 +37,6 @@ export interface ImportTabProps {
 
 export function ImportTab(props: ImportTabProps) {
   const { t } = useI18n();
-  const hidSupported = isWebHidSupported();
-
   // USB save form state
   const [deviceSessionName, setDeviceSessionName] = createSignal('');
   const [localSaveError, setLocalSaveError] = createSignal<string | null>(null);
@@ -70,18 +63,6 @@ export function ImportTab(props: ImportTabProps) {
     if (!text || !mapping) return { records: [] as RawRecord[], skippedRows: 0 };
     return parseCsvWithMapping(text, mapping);
   });
-
-  const handleConnect = async () => {
-    setLocalSaveError(null);
-    setZeroRecordsNotice(false);
-    await props.device.connect();
-  };
-
-  const handleDisconnect = async () => {
-    setLocalSaveError(null);
-    setZeroRecordsNotice(false);
-    await props.device.disconnect();
-  };
 
   const executeFetchRecords = async () => {
     setLocalSaveError(null);
@@ -120,11 +101,11 @@ export function ImportTab(props: ImportTabProps) {
     const snap = props.device.snapshot();
     const name = deviceSessionName().trim();
     if (!snap || snap.records.length === 0) {
-      setLocalSaveError('Fetch records from the logger before saving.');
+      setLocalSaveError(t('datalogger.import.fetchBeforeSave'));
       return;
     }
     if (!name) {
-      setLocalSaveError('Enter a session name before saving.');
+      setLocalSaveError(t('datalogger.import.nameBeforeSave'));
       return;
     }
     setLocalSaveError(null);
@@ -152,7 +133,7 @@ export function ImportTab(props: ImportTabProps) {
       const text = await file.text();
       const preview = inspectCsv(text);
       if (preview.headers.length === 0) {
-        setCsvError('The selected file appears to be empty.');
+        setCsvError(t('datalogger.import.csvEmptyError'));
         return;
       }
       setCsvText(text);
@@ -163,7 +144,7 @@ export function ImportTab(props: ImportTabProps) {
         setCsvSessionName(file.name.replace(/\.[^.]+$/, ''));
       }
     } catch (err) {
-      setCsvError(err instanceof Error ? err.message : 'Failed to read CSV file.');
+      setCsvError(err instanceof Error ? err.message : t('datalogger.import.csvReadError'));
     }
   };
 
@@ -171,11 +152,11 @@ export function ImportTab(props: ImportTabProps) {
     const name = csvSessionName().trim();
     const recs = parsedCsv().records;
     if (!name) {
-      setCsvError('Enter a session name before saving.');
+      setCsvError(t('datalogger.import.nameBeforeSave'));
       return;
     }
     if (recs.length === 0) {
-      setCsvError('No valid timestamp + temperature rows could be parsed. Check column mapping.');
+      setCsvError(t('datalogger.import.csvNoValidRowsError'));
       return;
     }
     setCsvError(null);
@@ -208,11 +189,6 @@ export function ImportTab(props: ImportTabProps) {
     setCsvMapping({ ...current, ...patch });
   };
 
-  const progressPercent = createMemo(() => {
-    const prog = props.device.deviceProgress();
-    if (!prog || prog.total <= 0) return 0;
-    return Math.min(100, Math.round((prog.fetched / prog.total) * 100));
-  });
 
   const liveSerialDiffersFromSnapshot = createMemo(() => {
     const snap = props.device.snapshot();
@@ -224,249 +200,140 @@ export function ImportTab(props: ImportTabProps) {
 
   return (
     <div class="space-y-6">
-      {/* Card 1: WebHID Device Import */}
-      <Card>
-        <CardHeader>
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="space-y-1">
-              <CardTitle class="flex items-center gap-2">
-                <IconCpu class="size-5 text-muted-foreground" />
-                Connect USB Logger (WebHID)
-              </CardTitle>
-              <CardDescription>
-                Read temperature and humidity readings directly from an Elitech USB logger in Chrome, Edge, or Brave.
-              </CardDescription>
-            </div>
-            <Badge variant={props.device.connected() ? 'success' : 'secondary'}>
-              {props.device.connected()
-                ? t('dataloggerConfig.connected')
-                : t('dataloggerConfig.disconnected')}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <Show when={!hidSupported}>
-            <Alert>
-              <IconAlertCircle class="size-4" />
-              <AlertTitle>{t('dataloggerConfig.webHidUnavailableTitle')}</AlertTitle>
-              <AlertDescription>
-                Your browser does not expose <code class="font-mono text-xs">navigator.hid</code> (requires a Chromium browser over HTTPS or localhost). Use CSV import below instead.
-              </AlertDescription>
-            </Alert>
-          </Show>
-
-          <Show when={props.device.deviceError() || localSaveError()}>
-            <Alert variant="destructive">
-              <IconAlertCircle class="size-4" />
-              <AlertTitle>{t('dataloggerConfig.deviceErrorTitle')}</AlertTitle>
-              <AlertDescription>{localSaveError() ?? props.device.deviceError()}</AlertDescription>
-            </Alert>
-          </Show>
-
+      {/* Card 1: WebHID Device Import (Extracted & Reusable) */}
+      <DeviceConnectSection
+        device={props.device}
+        title={t('datalogger.import.usbCardTitle')}
+        description={t('datalogger.import.usbCardDesc')}
+        externalError={localSaveError()}
+        onBeforeConnect={() => {
+          setLocalSaveError(null);
+          setZeroRecordsNotice(false);
+        }}
+        onBeforeDisconnect={() => {
+          setLocalSaveError(null);
+          setZeroRecordsNotice(false);
+        }}
+        alerts={
           <Show when={zeroRecordsNotice()}>
             <Alert>
               <IconAlertCircle class="size-4" />
-              <AlertTitle>No Stored Readings</AlertTitle>
+              <AlertTitle>{t('datalogger.import.noStoredReadingsTitle')}</AlertTitle>
               <AlertDescription>{t('dataloggerConfig.zeroRecordsOnDevice')}</AlertDescription>
             </Alert>
           </Show>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <Show
-              when={!props.device.connected()}
-              fallback={
-                <Button
-                  variant="outline"
-                  onClick={handleDisconnect}
-                  disabled={props.device.deviceBusy()}
-                >
-                  <IconPlugConnectedX class="size-4" />
-                  {t('dataloggerConfig.disconnect')}
-                </Button>
-              }
-            >
-              <Button
-                onClick={handleConnect}
-                disabled={!hidSupported || props.device.deviceBusy()}
-              >
-                <IconPlugConnected class="size-4" />
-                {props.device.deviceBusy()
-                  ? t('dataloggerConfig.connecting')
-                  : t('dataloggerConfig.connectDevice')}
-              </Button>
-            </Show>
-
-            <Show when={props.device.deviceInfo()}>
-              {(info) => (
-                <Button
-                  variant="secondary"
-                  onClick={handleRequestFetchRecords}
-                  disabled={props.device.deviceBusy()}
-                >
-                  <IconDownload class="size-4" />
-                  {props.device.deviceBusy()
-                    ? 'Reading Records…'
-                    : `Fetch ${info().recordNumber.toLocaleString()} Records`}
-                </Button>
-              )}
-            </Show>
-          </div>
-
+        }
+        actions={
           <Show when={props.device.deviceInfo()}>
             {(info) => (
-              <div class="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-4 sm:grid-cols-3 lg:grid-cols-5">
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.modelLabel')}</div>
-                  <div class="text-sm font-medium">{info().modelName}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.serialLabel')}</div>
-                  <div class="font-mono text-sm font-medium">{info().serialNumber}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.storedRecordsLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium tabular-nums">
-                    {info().recordNumber.toLocaleString()} / {info().deviceCapacity.toLocaleString()}
-                  </div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.currentIntervalLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">{info().intervalFormatted}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.firmwareProtocolLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">
-                    v{info().firmwareVersion} / 0x{info().protocolVersion.toString(16).toUpperCase()}
-                  </div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.batteryLabel')}</div>
-                  <div class="font-mono text-sm font-medium">{info().batteryLevel}</div>
-                </div>
-                <div>
-                  <div class="text-xs text-muted-foreground">{t('dataloggerConfig.unitLabel')}</div>
-                  <div class="font-mono text-sm font-medium">{info().temperatureUnit}</div>
-                </div>
-                <div class="col-span-2 sm:col-span-2 lg:col-span-3">
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.deviceClockLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">
-                    {formatDateTimeFull(info().deviceTime)}
-                  </div>
-                </div>
-              </div>
+              <Button
+                variant="secondary"
+                onClick={handleRequestFetchRecords}
+                disabled={props.device.deviceBusy()}
+              >
+                <IconDownload class="size-4" />
+                {props.device.deviceBusy()
+                  ? t('datalogger.import.readingRecords')
+                  : t('datalogger.import.fetchRecordsBtn', {
+                      count: info().recordNumber.toLocaleString(),
+                    })}
+              </Button>
             )}
           </Show>
-
-          <Show when={props.device.deviceProgress() && props.device.deviceProgress()!.total > 0}>
-            <div class="space-y-1.5">
-              <div class="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Reading logger memory</span>
-                <span class="font-mono tabular-nums">
-                  {props.device.deviceProgress()!.fetched.toLocaleString()} /{' '}
-                  {props.device.deviceProgress()!.total.toLocaleString()} ({progressPercent()}%)
-                </span>
+        }
+      >
+        <Show when={props.device.snapshot()}>
+          {(snap) => (
+            <div class="space-y-3 rounded-md border bg-card p-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="space-y-0.5">
+                  <div class="text-sm font-semibold">
+                    {t('dataloggerConfig.snapshotReadyTitle')}
+                  </div>
+                  <div class="text-xs text-muted-foreground">
+                    {t('dataloggerConfig.snapshotCapturedFrom', {
+                      model: snap().deviceModel,
+                      serial: snap().serialNumber || t('dataloggerConfig.snapshotNoSerial'),
+                      count: snap().records.length.toLocaleString(),
+                    })}
+                  </div>
+                </div>
+                <Badge variant="outline" class="font-mono text-xs">
+                  {snap().deviceModel} ·{' '}
+                  {snap().serialNumber || t('dataloggerConfig.snapshotNoSerial')}
+                </Badge>
               </div>
-              <Progress value={progressPercent()} />
+
+              <Show when={liveSerialDiffersFromSnapshot()}>
+                <Alert>
+                  <IconAlertCircle class="size-4" />
+                  <AlertDescription class="text-xs">
+                    {t('dataloggerConfig.snapshotDifferentDeviceNotice', {
+                      snapshotSerial:
+                        snap().serialNumber || t('dataloggerConfig.snapshotNoSerial'),
+                      liveSerial: props.device.deviceInfo()?.serialNumber ?? '—',
+                    })}
+                  </AlertDescription>
+                </Alert>
+              </Show>
+
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div class="flex-1 space-y-1.5">
+                  <label
+                    class="text-xs font-medium text-muted-foreground"
+                    for="dl-device-session-name"
+                  >
+                    {t('datalogger.import.sessionNameWithCount', {
+                      count: snap().records.length.toLocaleString(),
+                    })}
+                  </label>
+                  <input
+                    id="dl-device-session-name"
+                    type="text"
+                    value={deviceSessionName()}
+                    onInput={(e) => setDeviceSessionName(e.currentTarget.value)}
+                    placeholder={t('datalogger.import.sessionNamePlaceholder')}
+                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfirmDiscardOpen(true)}
+                    disabled={deviceSaving()}
+                  >
+                    <IconTrash class="size-4" />
+                    {t('dataloggerConfig.discardSnapshotBtn')}
+                  </Button>
+                  <Button onClick={handleSaveDeviceSession} disabled={deviceSaving()}>
+                    <IconDeviceFloppy class="size-4" />
+                    {deviceSaving()
+                      ? t('datalogger.import.savingSessionBtn')
+                      : t('datalogger.import.saveSessionBtn')}
+                  </Button>
+                </div>
+              </div>
             </div>
-          </Show>
-
-          <Show when={props.device.snapshot()}>
-            {(snap) => (
-              <div class="space-y-3 rounded-md border bg-card p-4">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div class="space-y-0.5">
-                    <div class="text-sm font-semibold">
-                      {t('dataloggerConfig.snapshotReadyTitle')}
-                    </div>
-                    <div class="text-xs text-muted-foreground">
-                      {t('dataloggerConfig.snapshotCapturedFrom', {
-                        model: snap().deviceModel,
-                        serial: snap().serialNumber || t('dataloggerConfig.snapshotNoSerial'),
-                        count: snap().records.length.toLocaleString(),
-                      })}
-                    </div>
-                  </div>
-                  <Badge variant="outline" class="font-mono text-xs">
-                    {snap().deviceModel} ·{' '}
-                    {snap().serialNumber || t('dataloggerConfig.snapshotNoSerial')}
-                  </Badge>
-                </div>
-
-                <Show when={liveSerialDiffersFromSnapshot()}>
-                  <Alert>
-                    <IconAlertCircle class="size-4" />
-                    <AlertDescription class="text-xs">
-                      {t('dataloggerConfig.snapshotDifferentDeviceNotice', {
-                        snapshotSerial:
-                          snap().serialNumber || t('dataloggerConfig.snapshotNoSerial'),
-                        liveSerial: props.device.deviceInfo()?.serialNumber ?? '—',
-                      })}
-                    </AlertDescription>
-                  </Alert>
-                </Show>
-
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <div class="flex-1 space-y-1.5">
-                    <label
-                      class="text-xs font-medium text-muted-foreground"
-                      for="dl-device-session-name"
-                    >
-                      Session Name ({snap().records.length.toLocaleString()} records ready)
-                    </label>
-                    <input
-                      id="dl-device-session-name"
-                      type="text"
-                      value={deviceSessionName()}
-                      onInput={(e) => setDeviceSessionName(e.currentTarget.value)}
-                      placeholder="e.g. Cold Room A - May Shipment"
-                      class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    />
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setConfirmDiscardOpen(true)}
-                      disabled={deviceSaving()}
-                    >
-                      <IconTrash class="size-4" />
-                      {t('dataloggerConfig.discardSnapshotBtn')}
-                    </Button>
-                    <Button onClick={handleSaveDeviceSession} disabled={deviceSaving()}>
-                      <IconDeviceFloppy class="size-4" />
-                      {deviceSaving() ? 'Saving…' : 'Save Session'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </Show>
-        </CardContent>
-      </Card>
+          )}
+        </Show>
+      </DeviceConnectSection>
 
       {/* Card 2: CSV File Import */}
       <Card>
         <CardHeader>
           <CardTitle class="flex items-center gap-2">
             <IconFileSpreadsheet class="size-5 text-muted-foreground" />
-            Import CSV File
+            {t('datalogger.import.csvCardTitle')}
           </CardTitle>
           <CardDescription>
-            Upload Elitech CSV exports (<code class="font-mono text-xs">#,DateTime,Temperature,Humidity,Flags</code>) or any timestamped CSV file.
+            {t('datalogger.import.csvCardDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent class="space-y-4">
           <Show when={csvError()}>
             <Alert variant="destructive">
               <IconAlertCircle class="size-4" />
-              <AlertTitle>Import Error</AlertTitle>
+              <AlertTitle>{t('datalogger.import.csvErrorTitle')}</AlertTitle>
               <AlertDescription>{csvError()}</AlertDescription>
             </Alert>
           </Show>
@@ -489,10 +356,12 @@ export function ImportTab(props: ImportTabProps) {
           >
             <IconUpload class="size-6 text-muted-foreground" />
             <div class="text-sm font-medium">
-              {csvFileName() ? `Loaded: ${csvFileName()}` : 'Drop a CSV file here or click to browse'}
+              {csvFileName()
+                ? t('datalogger.import.csvFileLoaded', { fileName: csvFileName() })
+                : t('datalogger.import.csvDropOrBrowse')}
             </div>
             <div class="text-xs text-muted-foreground">
-              Supports comma, semicolon, or tab delimited files
+              {t('datalogger.import.csvDelimitersSupported')}
             </div>
             <input
               type="file"
@@ -510,7 +379,7 @@ export function ImportTab(props: ImportTabProps) {
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div class="space-y-1">
                   <label class="text-xs font-medium text-muted-foreground" for="dl-csv-name">
-                    Session Name *
+                    {t('datalogger.import.csvSessionNameLabel')}
                   </label>
                   <input
                     id="dl-csv-name"
@@ -523,7 +392,7 @@ export function ImportTab(props: ImportTabProps) {
                 </div>
                 <div class="space-y-1">
                   <label class="text-xs font-medium text-muted-foreground" for="dl-csv-model">
-                    Device Model (optional)
+                    {t('datalogger.import.csvDeviceModelLabel')}
                   </label>
                   <input
                     id="dl-csv-model"
@@ -536,7 +405,7 @@ export function ImportTab(props: ImportTabProps) {
                 </div>
                 <div class="space-y-1">
                   <label class="text-xs font-medium text-muted-foreground" for="dl-csv-serial">
-                    Serial Number (optional)
+                    {t('datalogger.import.csvSerialLabel')}
                   </label>
                   <input
                     id="dl-csv-serial"
@@ -552,31 +421,45 @@ export function ImportTab(props: ImportTabProps) {
               {/* Column mapping controls */}
               <div class="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-3 sm:grid-cols-5">
                 <div class="space-y-1">
-                  <label class="text-xs font-medium text-muted-foreground">Timestamp Col</label>
+                  <label class="text-xs font-medium text-muted-foreground">
+                    {t('datalogger.import.csvTimestampCol')}
+                  </label>
                   <select
                     value={csvMapping()!.timestampCol}
                     onChange={(e) => updateMapping({ timestampCol: Number(e.currentTarget.value) })}
                     class="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
                   >
                     <For each={csvPreview()!.headers}>
-                      {(h, i) => <option value={i()}>{h || `Col ${i() + 1}`}</option>}
+                      {(h, i) => (
+                        <option value={i()}>
+                          {h || t('datalogger.import.csvColFallback', { num: i() + 1 })}
+                        </option>
+                      )}
                     </For>
                   </select>
                 </div>
                 <div class="space-y-1">
-                  <label class="text-xs font-medium text-muted-foreground">Temperature Col</label>
+                  <label class="text-xs font-medium text-muted-foreground">
+                    {t('datalogger.import.csvTemperatureCol')}
+                  </label>
                   <select
                     value={csvMapping()!.temperatureCol}
                     onChange={(e) => updateMapping({ temperatureCol: Number(e.currentTarget.value) })}
                     class="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
                   >
                     <For each={csvPreview()!.headers}>
-                      {(h, i) => <option value={i()}>{h || `Col ${i() + 1}`}</option>}
+                      {(h, i) => (
+                        <option value={i()}>
+                          {h || t('datalogger.import.csvColFallback', { num: i() + 1 })}
+                        </option>
+                      )}
                     </For>
                   </select>
                 </div>
                 <div class="space-y-1">
-                  <label class="text-xs font-medium text-muted-foreground">Humidity Col</label>
+                  <label class="text-xs font-medium text-muted-foreground">
+                    {t('datalogger.import.csvHumidityCol')}
+                  </label>
                   <select
                     value={csvMapping()!.humidityCol ?? -1}
                     onChange={(e) => {
@@ -585,14 +468,20 @@ export function ImportTab(props: ImportTabProps) {
                     }}
                     class="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
                   >
-                    <option value={-1}>None</option>
+                    <option value={-1}>{t('datalogger.import.csvNone')}</option>
                     <For each={csvPreview()!.headers}>
-                      {(h, i) => <option value={i()}>{h || `Col ${i() + 1}`}</option>}
+                      {(h, i) => (
+                        <option value={i()}>
+                          {h || t('datalogger.import.csvColFallback', { num: i() + 1 })}
+                        </option>
+                      )}
                     </For>
                   </select>
                 </div>
                 <div class="space-y-1">
-                  <label class="text-xs font-medium text-muted-foreground">Flags Col</label>
+                  <label class="text-xs font-medium text-muted-foreground">
+                    {t('datalogger.import.csvFlagsCol')}
+                  </label>
                   <select
                     value={csvMapping()!.flagsCol ?? -1}
                     onChange={(e) => {
@@ -601,9 +490,13 @@ export function ImportTab(props: ImportTabProps) {
                     }}
                     class="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
                   >
-                    <option value={-1}>None</option>
+                    <option value={-1}>{t('datalogger.import.csvNone')}</option>
                     <For each={csvPreview()!.headers}>
-                      {(h, i) => <option value={i()}>{h || `Col ${i() + 1}`}</option>}
+                      {(h, i) => (
+                        <option value={i()}>
+                          {h || t('datalogger.import.csvColFallback', { num: i() + 1 })}
+                        </option>
+                      )}
                     </For>
                   </select>
                 </div>
@@ -614,7 +507,7 @@ export function ImportTab(props: ImportTabProps) {
                     onChange={(e) => updateMapping({ hasHeader: e.currentTarget.checked })}
                     class="size-4 rounded border-input"
                   />
-                  First row is header
+                  {t('datalogger.import.csvFirstRowHeader')}
                 </label>
               </div>
 
@@ -622,15 +515,22 @@ export function ImportTab(props: ImportTabProps) {
                 <div class="flex items-center gap-2 text-xs text-muted-foreground">
                   <IconCheck class="size-4 text-status-selesai" />
                   <span>
-                    Parsed <strong class="font-mono text-foreground">{parsedCsv().records.length.toLocaleString()}</strong> valid records
+                    {t('datalogger.import.csvParsedCount', {
+                      count: parsedCsv().records.length.toLocaleString(),
+                    })}
                     <Show when={parsedCsv().skippedRows > 0}>
-                      {' '}({parsedCsv().skippedRows} skipped)
+                      {' '}
+                      {t('datalogger.import.csvSkippedCount', {
+                        count: parsedCsv().skippedRows,
+                      })}
                     </Show>
                   </span>
                 </div>
                 <Button onClick={handleSaveCsvSession} disabled={csvSaving() || parsedCsv().records.length === 0}>
                   <IconDeviceFloppy class="size-4" />
-                  {csvSaving() ? 'Saving…' : 'Save CSV Session'}
+                  {csvSaving()
+                    ? t('datalogger.import.savingSessionBtn')
+                    : t('datalogger.import.saveCsvBtn')}
                 </Button>
               </div>
 
@@ -638,16 +538,22 @@ export function ImportTab(props: ImportTabProps) {
               <Show when={parsedCsv().records.length > 0}>
                 <div class="space-y-1.5">
                   <div class="text-xs font-medium text-muted-foreground">
-                    Preview (first {Math.min(10, parsedCsv().records.length)} records)
+                    {t('datalogger.import.csvPreviewTitle', {
+                      count: Math.min(10, parsedCsv().records.length),
+                    })}
                   </div>
                   <DataTable>
                     <TableHeader>
                       <TableRow>
                         <TableHead class="w-12">#</TableHead>
-                        <TableHead>Timestamp</TableHead>
-                        <TableHead class="text-right">Temperature</TableHead>
-                        <TableHead class="text-right">Humidity</TableHead>
-                        <TableHead>Flags</TableHead>
+                        <TableHead>{t('dataloggerConfig.markedEventTimestampCol')}</TableHead>
+                        <TableHead class="text-right">
+                          {t('dataloggerConfig.markedEventTempCol')}
+                        </TableHead>
+                        <TableHead class="text-right">
+                          {t('dataloggerConfig.markedEventHumidityCol')}
+                        </TableHead>
+                        <TableHead>{t('dataloggerConfig.markedEventFlagsCol')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

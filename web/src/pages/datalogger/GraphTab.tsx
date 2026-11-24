@@ -15,6 +15,7 @@ import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 import { dataloggerRecordsPath } from '~/routes';
+import { useI18n } from '~/i18n';
 import type { DataloggerRecord, DataloggerSession } from '~/types';
 import { getSessionColor } from '~/components/datalogger/colors';
 import {
@@ -34,6 +35,7 @@ interface GraphTabProps {
 }
 
 export function GraphTab(props: GraphTabProps) {
+  const { t } = useI18n();
   const isDark = useThemeSignal();
   const [fromDate, setFromDate] = createSignal('');
   const [toDate, setToDate] = createSignal('');
@@ -69,14 +71,14 @@ export function GraphTab(props: GraphTabProps) {
                 <IconChartLine class="size-6 text-muted-foreground" />
               </div>
               <div class="space-y-1">
-                <h3 class="text-base font-semibold">No Sessions Loaded on Graph</h3>
+                <h3 class="text-base font-semibold">{t('datalogger.graph.noSessionsLoadedTitle')}</h3>
                 <p class="max-w-md text-xs text-muted-foreground">
-                  Switch to the Sessions Directory tab, select loggers you want to compare, and click "Load Selected" to render synchronized curves here.
+                  {t('datalogger.graph.noSessionsLoadedDesc')}
                 </p>
               </div>
               <Button size="sm" onClick={props.onGoToSessions} class="mt-2">
                 <IconArrowLeft class="size-4" />
-                Go to Sessions Table
+                {t('datalogger.graph.goToSessionsBtn')}
               </Button>
             </CardContent>
           </Card>
@@ -88,19 +90,25 @@ export function GraphTab(props: GraphTabProps) {
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle class="text-base">
-                  Active Comparison ({props.loadedSessions.length} {props.loadedSessions.length === 1 ? 'session' : 'sessions'})
+                  {t('datalogger.graph.activeComparisonTitle', {
+                    count: props.loadedSessions.length,
+                    unit:
+                      props.loadedSessions.length === 1
+                        ? t('datalogger.graph.sessionUnit')
+                        : t('datalogger.graph.sessionsUnit'),
+                  })}
                 </CardTitle>
                 <CardDescription>
-                  Synchronized thermal curves. Use Time & Vertical zoom or canvas drag to inspect excursions.
+                  {t('datalogger.graph.activeComparisonDesc')}
                 </CardDescription>
               </div>
               <div class="flex items-center gap-2">
                 <Button size="sm" variant="outline" class="h-8 text-xs" onClick={props.onGoToSessions}>
                   <IconPlus class="size-3.5" />
-                  Select More
+                  {t('datalogger.graph.selectMoreBtn')}
                 </Button>
                 <Button size="sm" variant="ghost" class="h-8 text-xs text-muted-foreground" onClick={props.onClearAllLoaded}>
-                  Clear All
+                  {t('datalogger.graph.clearAllBtn')}
                 </Button>
               </div>
             </div>
@@ -119,7 +127,7 @@ export function GraphTab(props: GraphTabProps) {
                       <span class="max-w-[200px] truncate">{session.name}</span>
                       <button
                         type="button"
-                        aria-label={`Remove ${session.name} from comparison`}
+                        aria-label={t('datalogger.graph.removeSessionAria', { name: session.name })}
                         onClick={() => props.onRemoveSession(session.id)}
                         class="rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
                       >
@@ -133,10 +141,10 @@ export function GraphTab(props: GraphTabProps) {
 
             {/* Date Window Inputs */}
             <div class="flex flex-wrap items-center gap-2 border-t pt-3">
-              <span class="text-xs font-medium text-muted-foreground">Filter Window:</span>
+              <span class="text-xs font-medium text-muted-foreground">{t('datalogger.graph.filterWindowLabel')}</span>
               <input
                 type="datetime-local"
-                aria-label="Filter from date"
+                aria-label={t('datalogger.graph.filterFromDate')}
                 value={fromDate()}
                 onInput={(e) => setFromDate(e.currentTarget.value)}
                 class="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs"
@@ -144,7 +152,7 @@ export function GraphTab(props: GraphTabProps) {
               <span class="text-xs text-muted-foreground">→</span>
               <input
                 type="datetime-local"
-                aria-label="Filter to date"
+                aria-label={t('datalogger.graph.filterToDate')}
                 value={toDate()}
                 onInput={(e) => setToDate(e.currentTarget.value)}
                 class="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs"
@@ -160,7 +168,7 @@ export function GraphTab(props: GraphTabProps) {
                   }}
                 >
                   <IconRefresh class="size-3.5" />
-                  Reset
+                  {t('datalogger.graph.resetFilter')}
                 </Button>
               </Show>
               <Show when={anyHumidity()}>
@@ -172,7 +180,7 @@ export function GraphTab(props: GraphTabProps) {
                   onClick={() => setShowHumidity((v) => !v)}
                 >
                   <IconDroplet class="size-3.5" />
-                  Humidity
+                  {t('datalogger.graph.humidityBtn')}
                 </Button>
               </Show>
             </div>
@@ -191,25 +199,25 @@ export function GraphTab(props: GraphTabProps) {
         {/* Per-Session Summary Statistics Table with Direct Raw Data links */}
         <Card>
           <CardHeader class="pb-3">
-            <CardTitle class="text-base">Loaded Sessions Statistics</CardTitle>
+            <CardTitle class="text-base">{t('datalogger.graph.statsTableTitle')}</CardTitle>
             <CardDescription>
-              Telemetry metrics computed across the active filter window. Click "View Raw" to inspect unaggregated readings.
+              {t('datalogger.graph.statsTableDesc')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <DataTable>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Session</TableHead>
-                  <TableHead>Device Model</TableHead>
-                  <TableHead class="text-right">Plotted Points</TableHead>
-                  <TableHead class="text-right">Min Temp</TableHead>
-                  <TableHead class="text-right">Avg Temp</TableHead>
-                  <TableHead class="text-right">Max Temp</TableHead>
-                  <TableHead class="text-right">Humidity (Avg)</TableHead>
-                  <TableHead>Recording Window</TableHead>
-                  <TableHead class="text-right">Duration</TableHead>
-                  <TableHead class="w-32 text-right">Raw Data</TableHead>
+                  <TableHead>{t('datalogger.graph.colSession')}</TableHead>
+                  <TableHead>{t('datalogger.sessions.colDeviceModel')}</TableHead>
+                  <TableHead class="text-right">{t('datalogger.graph.colPlottedPoints')}</TableHead>
+                  <TableHead class="text-right">{t('datalogger.graph.colMinTemp')}</TableHead>
+                  <TableHead class="text-right">{t('datalogger.graph.colAvgTemp')}</TableHead>
+                  <TableHead class="text-right">{t('datalogger.graph.colMaxTemp')}</TableHead>
+                  <TableHead class="text-right">{t('datalogger.graph.colHumidityAvg')}</TableHead>
+                  <TableHead>{t('datalogger.graph.colRecordingWindow')}</TableHead>
+                  <TableHead class="text-right">{t('datalogger.graph.colDuration')}</TableHead>
+                  <TableHead class="w-32 text-right">{t('datalogger.graph.colRawData')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -255,7 +263,7 @@ export function GraphTab(props: GraphTabProps) {
                           class="inline-flex h-7 items-center gap-1 rounded border border-input bg-background px-2.5 text-xs font-medium text-foreground hover:bg-muted hover:text-foreground"
                         >
                           <IconDatabase class="size-3" />
-                          View Raw
+                          {t('datalogger.graph.viewRawBtn')}
                         </A>
                       </TableCell>
                     </TableRow>

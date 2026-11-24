@@ -18,6 +18,7 @@ import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table';
 import { dataloggerRecordsPath } from '~/routes';
+import { useI18n } from '~/i18n';
 import type { DataloggerSession } from '~/types';
 import {
   formatDateTimeShort,
@@ -45,6 +46,7 @@ interface SessionsTabProps {
 }
 
 export function SessionsTab(props: SessionsTabProps) {
+  const { t } = useI18n();
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
 
   // Filter & Pagination state
@@ -102,7 +104,14 @@ export function SessionsTab(props: SessionsTabProps) {
   };
 
   const handleDelete = async (session: DataloggerSession) => {
-    if (!window.confirm(`Delete session "${session.name}" and all ${session.record_count} readings?`)) {
+    if (
+      !window.confirm(
+        t('datalogger.sessions.deleteConfirm', {
+          name: session.name,
+          count: session.record_count.toLocaleString(),
+        }),
+      )
+    ) {
       return;
     }
     setErrorMsg(null);
@@ -122,7 +131,7 @@ export function SessionsTab(props: SessionsTabProps) {
       <Show when={errorMsg()}>
         <Alert variant="destructive">
           <IconAlertCircle class="size-4" />
-          <AlertTitle>Action Failed</AlertTitle>
+          <AlertTitle>{t('datalogger.sessions.actionFailed')}</AlertTitle>
           <AlertDescription>{errorMsg()}</AlertDescription>
         </Alert>
       </Show>
@@ -131,15 +140,15 @@ export function SessionsTab(props: SessionsTabProps) {
         <CardHeader class="space-y-4 pb-3">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div class="space-y-1">
-              <CardTitle>Sessions Directory</CardTitle>
+              <CardTitle>{t('datalogger.sessions.title')}</CardTitle>
               <CardDescription>
-                Filter by inclusive date overlap, select entries, and click "Load Selected" to switch directly to the Graph view.
+                {t('datalogger.sessions.description')}
               </CardDescription>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <Show when={props.selectedIds.length > 0}>
                 <Button variant="outline" size="sm" onClick={props.onClearSelection} class="h-8 text-xs">
-                  Clear ({props.selectedIds.length})
+                  {t('datalogger.sessions.clearSelection', { count: props.selectedIds.length })}
                 </Button>
               </Show>
               <Button
@@ -151,7 +160,7 @@ export function SessionsTab(props: SessionsTabProps) {
                 <Show when={props.loadingBatch} fallback={<IconChartLine class="size-4" />}>
                   <IconLoader2 class="size-4 animate-spin" />
                 </Show>
-                Load Selected ({props.selectedIds.length}) & View Graph →
+                {t('datalogger.sessions.loadSelectedBtn', { count: props.selectedIds.length })}
               </Button>
             </div>
           </div>
@@ -176,12 +185,12 @@ export function SessionsTab(props: SessionsTabProps) {
                   <div class="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed py-14 text-center">
                     <div class="text-sm font-medium">
                       {props.sessions.length === 0
-                        ? 'No datalogger sessions stored yet'
-                        : 'No sessions overlap the active filter'}
+                        ? t('datalogger.sessions.noSessionsStored')
+                        : t('datalogger.sessions.noSessionsOverlap')}
                     </div>
                     <Show when={props.sessions.length === 0}>
                       <Button size="sm" onClick={props.onGoToImport}>
-                        Import New Session
+                        {t('datalogger.sessions.importNewSession')}
                       </Button>
                     </Show>
                   </div>
@@ -189,7 +198,7 @@ export function SessionsTab(props: SessionsTabProps) {
               >
                 <div class="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
                   <IconLoader2 class="size-4 animate-spin" />
-                  Loading stored sessions…
+                  {t('datalogger.sessions.loadingStored')}
                 </div>
               </Show>
             }
@@ -202,20 +211,20 @@ export function SessionsTab(props: SessionsTabProps) {
                     <TableHead class="w-10">
                       <input
                         type="checkbox"
-                        aria-label="Select all sessions on page"
+                        aria-label={t('datalogger.sessions.selectAllOnPage')}
                         checked={allOnPageSelected()}
                         onChange={(e) => handleToggleAllOnPage(e.currentTarget.checked)}
                         class="size-4 rounded border-input"
                       />
                     </TableHead>
-                    <TableHead>Session Name</TableHead>
-                    <TableHead>Device Model</TableHead>
-                    <TableHead>Serial Number</TableHead>
-                    <TableHead class="text-right">Readings</TableHead>
-                    <TableHead>Time Range</TableHead>
-                    <TableHead class="text-right">Temp Range</TableHead>
-                    <TableHead>Imported</TableHead>
-                    <TableHead class="w-28 text-right">Actions</TableHead>
+                    <TableHead>{t('datalogger.sessions.colSessionName')}</TableHead>
+                    <TableHead>{t('datalogger.sessions.colDeviceModel')}</TableHead>
+                    <TableHead>{t('datalogger.sessions.colSerial')}</TableHead>
+                    <TableHead class="text-right">{t('datalogger.sessions.colReadings')}</TableHead>
+                    <TableHead>{t('datalogger.sessions.colTimeRange')}</TableHead>
+                    <TableHead class="text-right">{t('datalogger.sessions.colTempRange')}</TableHead>
+                    <TableHead>{t('datalogger.sessions.colImported')}</TableHead>
+                    <TableHead class="w-28 text-right">{t('datalogger.sessions.colActions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -229,7 +238,7 @@ export function SessionsTab(props: SessionsTabProps) {
                           <TableCell>
                             <input
                               type="checkbox"
-                              aria-label={`Select ${session.name}`}
+                              aria-label={t('datalogger.sessions.selectSession', { name: session.name })}
                               checked={isChecked()}
                               onChange={() => props.onToggleSelect(session.id)}
                               class="size-4 rounded border-input"
@@ -307,7 +316,7 @@ export function SessionsTab(props: SessionsTabProps) {
                               <A
                                 href={dataloggerRecordsPath(session.id)}
                                 class="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                                title="View Raw Data Readings"
+                                title={t('datalogger.sessions.viewRawDataTooltip')}
                               >
                                 <IconDatabase class="size-3.5" />
                               </A>
@@ -315,7 +324,7 @@ export function SessionsTab(props: SessionsTabProps) {
                                 size="icon"
                                 variant="ghost"
                                 class="size-8"
-                                title="Rename session"
+                                title={t('datalogger.sessions.renameTooltip')}
                                 onClick={() => {
                                   setRenamingId(session.id);
                                   setRenameDraft(session.name);
@@ -327,7 +336,7 @@ export function SessionsTab(props: SessionsTabProps) {
                                 size="icon"
                                 variant="ghost"
                                 class="size-8 text-destructive hover:text-destructive"
-                                title="Delete session"
+                                title={t('datalogger.sessions.deleteTooltip')}
                                 disabled={busyId() === session.id}
                                 onClick={() => handleDelete(session)}
                               >
@@ -354,15 +363,15 @@ export function SessionsTab(props: SessionsTabProps) {
                     onChange={(e) => handleToggleAllOnPage(e.currentTarget.checked)}
                     class="size-4 rounded border-input"
                   />
-                  <span>Select page ({paginatedSessions().length})</span>
+                  <span>{t('datalogger.sessions.selectPageCount', { count: paginatedSessions().length })}</span>
                 </label>
                 <div class="flex items-center gap-1.5">
                   <Badge variant={props.selectedIds.length > 0 ? 'default' : 'secondary'} class="font-mono text-xs">
-                    {props.selectedIds.length} selected
+                    {t('datalogger.sessions.countSelected', { count: props.selectedIds.length })}
                   </Badge>
                   <Show when={props.selectedIds.length > 0}>
                     <Button variant="ghost" size="sm" class="h-6 px-1.5 text-xs" onClick={props.onClearSelection}>
-                      Clear
+                      {t('datalogger.sessions.clearSelectionShort')}
                     </Button>
                   </Show>
                 </div>
@@ -398,7 +407,7 @@ export function SessionsTab(props: SessionsTabProps) {
                         <div class="flex items-start gap-2.5 min-w-0">
                           <input
                             type="checkbox"
-                            aria-label={`Select ${session.name}`}
+                            aria-label={t('datalogger.sessions.selectSession', { name: session.name })}
                             checked={isChecked()}
                             onClick={(e) => e.stopPropagation()}
                             onChange={() => props.onToggleSelect(session.id)}
@@ -462,7 +471,7 @@ export function SessionsTab(props: SessionsTabProps) {
                           <A
                             href={dataloggerRecordsPath(session.id)}
                             class="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                            title="View Raw Data Readings"
+                            title={t('datalogger.sessions.viewRawDataTooltip')}
                           >
                             <IconDatabase class="size-3.5" />
                           </A>
@@ -470,7 +479,7 @@ export function SessionsTab(props: SessionsTabProps) {
                             size="icon"
                             variant="ghost"
                             class="size-7"
-                            title="Rename session"
+                            title={t('datalogger.sessions.renameTooltip')}
                             onClick={() => {
                               setRenamingId(session.id);
                               setRenameDraft(session.name);
@@ -482,7 +491,7 @@ export function SessionsTab(props: SessionsTabProps) {
                             size="icon"
                             variant="ghost"
                             class="size-7 text-destructive hover:text-destructive"
-                            title="Delete session"
+                            title={t('datalogger.sessions.deleteTooltip')}
                             disabled={busyId() === session.id}
                             onClick={() => handleDelete(session)}
                           >
@@ -494,11 +503,11 @@ export function SessionsTab(props: SessionsTabProps) {
                       {/* Card Micro-Grid */}
                       <div class="grid grid-cols-2 gap-2 text-xs pt-1.5 border-t">
                         <div>
-                          <span class="text-muted-foreground text-[11px]">Readings:</span>{' '}
+                          <span class="text-muted-foreground text-[11px]">{t('datalogger.sessions.cardReadings')}</span>{' '}
                           <strong class="font-mono tabular-nums">{session.record_count.toLocaleString()}</strong>
                         </div>
                         <div>
-                          <span class="text-muted-foreground text-[11px]">Temp Range:</span>{' '}
+                          <span class="text-muted-foreground text-[11px]">{t('datalogger.sessions.cardTempRange')}</span>{' '}
                           <strong class="font-mono tabular-nums text-foreground">
                             {session.record_count > 0
                               ? `${session.temp_min.toFixed(1)}°–${session.temp_max.toFixed(1)}°C`
@@ -506,13 +515,13 @@ export function SessionsTab(props: SessionsTabProps) {
                           </strong>
                         </div>
                         <div class="col-span-2 font-mono text-[11px] text-muted-foreground truncate">
-                          <span class="text-muted-foreground font-sans">Window: </span>
+                          <span class="text-muted-foreground font-sans">{t('datalogger.sessions.cardWindow')}</span>
                           {session.start_time
                             ? `${formatDateTimeShort(session.start_time)} → ${formatDateTimeShort(session.end_time)}`
                             : '—'}
                         </div>
                         <div class="col-span-2 text-[11px] text-muted-foreground">
-                          Imported {formatRelativeAgo(session.created_at)}
+                          {t('datalogger.sessions.cardImported', { time: formatRelativeAgo(session.created_at) })}
                         </div>
                       </div>
                     </div>

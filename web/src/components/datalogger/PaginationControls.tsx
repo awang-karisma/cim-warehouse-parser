@@ -6,6 +6,7 @@ import {
   IconChevronsRight,
 } from '@tabler/icons-solidjs';
 import { Button } from '~/components/ui/button';
+import { useI18n } from '~/i18n';
 
 interface PaginationControlsProps {
   total: number;
@@ -21,6 +22,7 @@ interface PaginationControlsProps {
 const DEFAULT_SIZES = [10, 20, 50, 100];
 
 export function PaginationControls(props: PaginationControlsProps) {
+  const { t } = useI18n();
   const [customDraft, setCustomDraft] = createSignal('');
   const [showCustomInput, setShowCustomInput] = createSignal(false);
 
@@ -68,11 +70,11 @@ export function PaginationControls(props: PaginationControlsProps) {
       {/* Range summary + page size control */}
       <div class="flex flex-wrap items-center justify-between gap-2">
         <span class="font-mono text-[11px] text-muted-foreground tabular-nums">
-          {startItem()}–{endItem()} of {props.total.toLocaleString()} {props.itemLabel ?? ''}
+          {startItem()}–{endItem()} {t('common.of')} {props.total.toLocaleString()} {props.itemLabel ?? ''}
         </span>
 
         <div class="flex items-center gap-1.5">
-          <label class="text-[11px] text-muted-foreground whitespace-nowrap">Per page</label>
+          <label class="text-[11px] text-muted-foreground whitespace-nowrap">{t('datalogger.pagination.perPage')}</label>
           <Show
             when={!showCustomInput()}
             fallback={
@@ -81,7 +83,7 @@ export function PaginationControls(props: PaginationControlsProps) {
                   type="number"
                   min={1}
                   max={500}
-                  aria-label="Custom page size"
+                  aria-label={t('datalogger.pagination.customPageSizeAria')}
                   value={customDraft()}
                   onInput={(e) => setCustomDraft(e.currentTarget.value)}
                   onKeyDown={(e) => {
@@ -95,7 +97,7 @@ export function PaginationControls(props: PaginationControlsProps) {
             }
           >
             <select
-              aria-label="Items per page"
+              aria-label={t('datalogger.pagination.itemsPerPageAria')}
               value={isCustomSize() ? String(props.pageSize) : String(props.pageSize)}
               onChange={(e) => handleSelectChange(e.currentTarget.value)}
               class="h-7 rounded-md border border-input bg-background px-1.5 font-mono text-xs tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -104,9 +106,11 @@ export function PaginationControls(props: PaginationControlsProps) {
                 {(sz) => <option value={String(sz)}>{sz}</option>}
               </For>
               <Show when={isCustomSize()}>
-                <option value={String(props.pageSize)}>{props.pageSize} (custom)</option>
+                <option value={String(props.pageSize)}>
+                  {t('datalogger.pagination.customOption', { size: props.pageSize })}
+                </option>
               </Show>
-              <option value="custom">Custom…</option>
+              <option value="custom">{t('datalogger.pagination.custom')}</option>
             </select>
           </Show>
         </div>
@@ -122,7 +126,7 @@ export function PaginationControls(props: PaginationControlsProps) {
               class="size-7"
               disabled={safePage() <= 1}
               onClick={() => props.onPageChange(1)}
-              aria-label="First page"
+              aria-label={t('datalogger.pagination.firstPageAria')}
             >
               <IconChevronsLeft class="size-3.5" />
             </Button>
@@ -133,14 +137,14 @@ export function PaginationControls(props: PaginationControlsProps) {
             class="size-7"
             disabled={safePage() <= 1}
             onClick={() => props.onPageChange(safePage() - 1)}
-            aria-label="Previous page"
+            aria-label={t('datalogger.pagination.previousPageAria')}
           >
             <IconChevronLeft class="size-3.5" />
           </Button>
         </div>
 
         <span class="px-2 font-mono text-[11px] tabular-nums text-muted-foreground">
-          Page <strong class="text-foreground">{safePage()}</strong> / {totalPages()}
+          {t('datalogger.pagination.pageOf', { page: safePage(), total: totalPages() })}
         </span>
 
         <div class="flex items-center gap-1">
@@ -150,7 +154,7 @@ export function PaginationControls(props: PaginationControlsProps) {
             class="size-7"
             disabled={safePage() >= totalPages()}
             onClick={() => props.onPageChange(safePage() + 1)}
-            aria-label="Next page"
+            aria-label={t('datalogger.pagination.nextPageAria')}
           >
             <IconChevronRight class="size-3.5" />
           </Button>
@@ -161,7 +165,7 @@ export function PaginationControls(props: PaginationControlsProps) {
               class="size-7"
               disabled={safePage() >= totalPages()}
               onClick={() => props.onPageChange(totalPages())}
-              aria-label="Last page"
+              aria-label={t('datalogger.pagination.lastPageAria')}
             >
               <IconChevronsRight class="size-3.5" />
             </Button>

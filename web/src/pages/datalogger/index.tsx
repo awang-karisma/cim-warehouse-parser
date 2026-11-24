@@ -105,14 +105,14 @@ export default function Datalogger() {
             <TabsList class="w-full justify-start overflow-x-auto sm:w-auto">
               <TabsTrigger value="sessions" class="gap-1.5 text-xs sm:text-sm">
                 <IconDatabase class="size-4" />
-                <span>Sessions</span>
+                <span>{t('datalogger.tabs.sessions')}</span>
                 <Badge variant="secondary" class="ml-1 font-mono text-[10px] tabular-nums">
                   {sessions().length}
                 </Badge>
               </TabsTrigger>
               <TabsTrigger value="graph" class="gap-1.5 text-xs sm:text-sm">
                 <IconChartLine class="size-4" />
-                <span>Graph View</span>
+                <span>{t('datalogger.tabs.graph')}</span>
                 <Show when={loadedIds().length > 0}>
                   <Badge variant="default" class="ml-1 font-mono text-[10px] tabular-nums">
                     {loadedIds().length}
@@ -121,11 +121,11 @@ export default function Datalogger() {
               </TabsTrigger>
               <TabsTrigger value="import" class="gap-1.5 text-xs sm:text-sm">
                 <IconPlus class="size-4" />
-                <span>Import</span>
+                <span>{t('datalogger.tabs.import')}</span>
               </TabsTrigger>
               <TabsTrigger value="config" class="gap-1.5 text-xs sm:text-sm">
                 <IconSettings class="size-4" />
-                <span>{t('dataloggerConfig.tabTitle')}</span>
+                <span>{t('datalogger.tabs.config')}</span>
               </TabsTrigger>
             </TabsList>
 
@@ -135,10 +135,10 @@ export default function Datalogger() {
               size="sm"
               onClick={() => refetch()}
               class="h-9 gap-1.5 text-xs shrink-0 self-end sm:self-auto"
-              title="Refresh sessions"
+              title={t('datalogger.refreshTitle')}
             >
               <IconRefresh class="size-3.5" />
-              <span>Refresh</span>
+              <span>{t('common.refresh')}</span>
             </Button>
           </div>
 
