@@ -23,6 +23,8 @@ interface NavigatorWithHID extends Navigator {
     requestDevice(options: {
       filters: Array<{ vendorId?: number; productId?: number }>;
     }): Promise<HIDDeviceLike[]>;
+    addEventListener(type: 'disconnect', listener: (event: { device: unknown }) => void): void;
+    removeEventListener(type: 'disconnect', listener: (event: { device: unknown }) => void): void;
   };
 }
 
@@ -43,6 +45,7 @@ export class ElitechHID {
   private _lock: Promise<unknown> = Promise.resolve();
 
   async connect(): Promise<HIDDeviceLike | null> {
+    this._lock = Promise.resolve();
     const nav = navigator as NavigatorWithHID;
     if (!nav.hid) {
       throw new Error('WebHID is not supported in this browser. Use Chrome, Edge, or Brave.');
@@ -78,13 +81,35 @@ export class ElitechHID {
   }
 
   async disconnect(): Promise<void> {
+    this._lock = Promise.resolve();
     if (this.device) {
       const dev = this.device;
       this.device = null;
       if (dev.opened) {
-        await dev.close();
+        try {
+          await dev.close();
+        } catch {
+          // Ignore error on already-unplugged device
+        }
       }
     }
+  }
+
+  onDisconnect(listener: () => void): () => void {
+    if (typeof navigator === 'undefined') return () => {};
+    const nav = navigator as NavigatorWithHID;
+    if (!nav.hid) return () => {};
+
+    const handler = (event: { device: unknown }) => {
+      if (event.device && this.device && event.device === this.device) {
+        listener();
+      }
+    };
+
+    nav.hid.addEventListener('disconnect', handler);
+    return () => {
+      nav.hid?.removeEventListener('disconnect', handler);
+    };
   }
 
   _buildFrame(opCode: number, offset: number, dataOrLen: Uint8Array | number): Uint8Array {

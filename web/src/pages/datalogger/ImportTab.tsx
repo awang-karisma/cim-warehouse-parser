@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import {
   IconAlertCircle,
   IconCheck,
@@ -58,6 +58,18 @@ export function ImportTab(props: ImportTabProps) {
   const [csvError, setCsvError] = createSignal<string | null>(null);
   const [csvSaving, setCsvSaving] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
+
+  onMount(() => {
+    const unsub = hid.onDisconnect(() => {
+      void hid.disconnect();
+      setConnected(false);
+      setDeviceInfo(null);
+      setDeviceBusy(false);
+      setDeviceProgress(null);
+      setDeviceError('Logger was disconnected. Reconnect device to continue.');
+    });
+    onCleanup(unsub);
+  });
 
   onCleanup(() => {
     void hid.disconnect();
