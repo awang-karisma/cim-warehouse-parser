@@ -126,21 +126,23 @@ export async function fetchAllRecords(
   const RECORDS_PER_REQUEST = 6;
   const records: RawRecord[] = [];
 
-  for (let index = 0; index < recordNumber; index += RECORDS_PER_REQUEST) {
-    const count = Math.min(RECORDS_PER_REQUEST, recordNumber - index);
-    let rawData = await hid.getRecord(index, count);
-
-    // Protocol 0x38 loggers (e.g. RC-5+ V5.7) may return 0 records until trip summary (0x0005) is queried.
-    if (index === 0 && rawData.length === 0 && recordNumber > 0) {
-      try {
-        const tripFrame = hid._buildFrame(ElitechHID.OP_GET_TRIP, 0, 48);
-        await hid._transact(tripFrame, 500);
-        await new Promise((r) => setTimeout(r, 50));
-      } catch {
-        // Ignore if device does not support 0x0005
-      }
-      rawData = await hid.getRecord(index, count);
+  // Protocol 0x38 loggers (e.g. RC-5+ V5.7/v87) keep a stale cached record limit from the
+  // previous USB readout (e.g. 0 or 13 records) until trip summary (0x0005) is queried.
+  // Querying 0x0005 up front refreshes the logger's internal trip boundary before GetRecord.
+  if (recordNumber > 0) {
+    try {
+      const tripFrame = hid._buildFrame(ElitechHID.OP_GET_TRIP, 0, 48);
+      await hid._transact(tripFrame, 500);
+      await new Promise((r) => setTimeout(r, 50));
+    } catch {
+      // Ignore if device does not support 0x0005
     }
+  }
+
+  let index = 0;
+  while (index < recordNumber) {
+    const count = Math.min(RECORDS_PER_REQUEST, recordNumber - index);
+    const rawData = await hid.getRecord(index, count);
 
     const actualCount = Math.floor(rawData.length / 8);
     if (actualCount === 0) {
@@ -158,11 +160,12 @@ export async function fetchAllRecords(
       records.push(decodeRecord(q, protocolVersion));
     }
 
+    index += actualCount;
     if (onProgress) {
-      onProgress(Math.min(index + actualCount, recordNumber), recordNumber);
+      onProgress(Math.min(index, recordNumber), recordNumber);
     }
 
-    if (hitSentinel || actualCount < count) break;
+    if (hitSentinel) break;
   }
 
   records.sort((a, b) => a.time.getTime() - b.time.getTime());
