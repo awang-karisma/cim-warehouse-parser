@@ -36,6 +36,7 @@ import {
   calculateLoggingInterval,
   encodeTimezoneOffset,
   parseAndValidateScheduledStartLocal,
+  formatDisplayTimeout,
   RC5_PLUS_MODEL,
 } from '~/components/datalogger/elitech-protocol';
 import { formatDateTimeFull } from '~/components/datalogger/format';
@@ -130,7 +131,9 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   const [scheduledStartInput, setScheduledStartInput] = createSignal('');
   const [tripNumberInput, setTripNumberInput] = createSignal('');
   const [tripDescriptionInput, setTripDescriptionInput] = createSignal('');
-  const [displayTimeoutCode, setDisplayTimeoutCode] = createSignal<number | null>(null);
+  const [displayTimeoutCode, setDisplayTimeoutCode] = createSignal<number>(1);
+  const [settingTimeout, setSettingTimeout] = createSignal(false);
+  const [timeoutSuccessMsg, setTimeoutSuccessMsg] = createSignal<string | null>(null);
   const [isDirty, setIsDirty] = createSignal(false);
 
   // Errors & status
@@ -286,7 +289,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     setConfigError(null);
     try {
       const res = await props.device.readConfiguration();
-      setDisplayTimeoutCode(res.displayTimeoutCode);
+      setDisplayTimeoutCode(res.displayTimeoutCode || 1);
       applyDraftFromConfig(res.config, false);
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : String(err));
@@ -301,7 +304,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     const info = props.device.deviceInfo();
     if (!isConn || !info) {
       lastAutoReadKey = null;
-      setDisplayTimeoutCode(null);
+      setDisplayTimeoutCode(1);
       return;
     }
     if (!props.active || props.device.deviceBusy() || props.device.pendingVerification()) {
@@ -310,6 +313,9 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     const key = `${info.model}:${info.serialNumber}`;
     if (key !== lastAutoReadKey) {
       lastAutoReadKey = key;
+      if (info.displayTimeoutCode) {
+        setDisplayTimeoutCode(info.displayTimeoutCode);
+      }
       if (!isDirty()) {
         void executeReadFromDevice();
       }
@@ -626,6 +632,24 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     return live.serialNumber === meta.serial && live.model === meta.model;
   });
 
+  const handleSetDisplayTimeoutImmediate = async () => {
+    if (!props.device.connected()) return;
+    setSettingTimeout(true);
+    setTimeoutSuccessMsg(null);
+    setConfigError(null);
+    try {
+      await props.device.setDisplayTimeout(displayTimeoutCode());
+      const formatted = formatDisplayTimeout(displayTimeoutCode());
+      setTimeoutSuccessMsg(
+        t('dataloggerConfig.displayTimeoutUpdatedSuccess', { timeout: formatted }),
+      );
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingTimeout(false);
+    }
+  };
+
   const handleConfirmExecuteHardwareWrite = async () => {
     const op = confirmOperation();
     const meta = confirmSnapshotMeta();
@@ -638,6 +662,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     setConfirmOperation(null);
     setConfigError(null);
 
+
     try {
       if (op === 'apply') {
         const { config, error } = buildAndValidateDraftConfig(true, new Date());
@@ -645,7 +670,9 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
           setConfigError(error ?? 'Invalid configuration.');
           return;
         }
-        const verified = await props.device.applyConfiguration(config);
+        const verified = await props.device.applyConfiguration(config, {
+          displayTimeoutCode: displayTimeoutCode(),
+        });
         if (verified) {
           setIsDirty(false);
         }
@@ -1153,17 +1180,63 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
             </div>
           </div>
 
-          {/* Planned Support Notice: LCD Display Timeout */}
-          <div class="rounded-md border bg-muted/30 p-3.5 text-xs">
-            <div class="font-semibold text-foreground">{t('dataloggerConfig.lcdNoticeTitle')}</div>
-            <p class="mt-1 text-muted-foreground">
-              {t('dataloggerConfig.lcdNoticeDesc', {
-                code:
-                  displayTimeoutCode() !== null
-                    ? `0x${displayTimeoutCode()!.toString(16).toUpperCase()}`
-                    : t('dataloggerConfig.lcdCodeUnavailable'),
-              })}
-            </p>
+          {/* RC-5+ Screen Display Auto-Off Timeout */}
+          <div class="space-y-3 rounded-md border bg-card p-4">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <label
+                  class="text-xs font-semibold text-foreground"
+                  for="dl-cfg-display-timeout"
+                >
+                  {t('dataloggerConfig.displayTimeoutLabel')}
+                </label>
+                <p class="text-xs text-muted-foreground">
+                  {t('dataloggerConfig.displayTimeoutHint')}
+                </p>
+              </div>
+              <Show when={props.device.connected()}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-8 text-xs shrink-0 self-start sm:self-auto gap-1.5"
+                  onClick={handleSetDisplayTimeoutImmediate}
+                  disabled={props.device.deviceBusy() || settingTimeout()}
+                >
+                  <IconSettings class="size-3.5" />
+                  {settingTimeout()
+                    ? t('dataloggerConfig.updatingDisplayTimeoutBtn')
+                    : t('dataloggerConfig.updateDisplayTimeoutBtn')}
+                </Button>
+              </Show>
+            </div>
+
+            <Show when={timeoutSuccessMsg()}>
+              <Alert>
+                <IconCheck class="size-4 text-status-selesai" />
+                <AlertDescription class="text-xs font-medium">
+                  {timeoutSuccessMsg()}
+                </AlertDescription>
+              </Alert>
+            </Show>
+
+            <div class="max-w-xs">
+              <select
+                id="dl-cfg-display-timeout"
+                value={displayTimeoutCode()}
+                onChange={(e) => {
+                  setDisplayTimeoutCode(Number(e.currentTarget.value));
+                  setIsDirty(true);
+                  setTimeoutSuccessMsg(null);
+                }}
+                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value={1}>{t('dataloggerConfig.displayTimeout15s')}</option>
+                <option value={2}>{t('dataloggerConfig.displayTimeout30s')}</option>
+                <option value={3}>{t('dataloggerConfig.displayTimeout45s')}</option>
+                <option value={4}>{t('dataloggerConfig.displayTimeout60s')}</option>
+                <option value={15}>{t('dataloggerConfig.displayTimeoutAlwaysOn')}</option>
+              </select>
+            </div>
           </div>
 
           {/* Disclosure & Action Bar */}

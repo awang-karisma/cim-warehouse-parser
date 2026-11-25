@@ -18,6 +18,7 @@ import {
   quickResetDevice,
   readDeviceConfiguration,
   readDeviceInfo,
+  setDeviceDisplayTimeout,
   verifyConfigurationReceipt,
   writeDeviceConfiguration,
 } from './elitech-protocol';
@@ -1046,6 +1047,75 @@ test('device-session: post-Format disconnect, wrong-serial reconnect, same-seria
     assert.ok(session.pendingVerification());
     session.dismissPendingVerification();
     assert.equal(session.pendingVerification(), null);
+  } finally {
+    dispose();
+  }
+});
+
+test('RC-5+ LCD screen display timeout: standalone single-byte update and full write configuration', async () => {
+  const dev = new FakeElitechDevice({
+    serial: 'SN-RC5P-DISP',
+    intervalSeconds: 60,
+    startModeCode: 1,
+  });
+  // Initially 0x5c -> displayTimeoutCode 5, tempPdf 8
+  dev.memory[0x26] = 0x5c;
+
+  const hid = new ElitechHID();
+  hid.device = dev;
+
+  // 1. Initial readDeviceInfo captures displayTimeoutCode 5
+  const infoInitial = await readDeviceInfo(hid);
+  assert.equal(infoInitial.displayTimeoutCode, 5);
+
+  // 2. Set to 30s (code 2) via standalone single-byte update
+  await setDeviceDisplayTimeout(hid, 2);
+  assert.equal(dev.memory[0x26], (2 << 4) | 0x08); // 0x28
+  const info30s = await readDeviceInfo(hid);
+  assert.equal(info30s.displayTimeoutCode, 2);
+
+  // 3. Set to Always On (code 15)
+  await setDeviceDisplayTimeout(hid, 15);
+  assert.equal(dev.memory[0x26], (15 << 4) | 0x08); // 0xF8
+  const infoAlwaysOn = await readDeviceInfo(hid);
+  assert.equal(infoAlwaysOn.displayTimeoutCode, 15);
+
+  // 4. Invalid code rejects
+  await assert.rejects(
+    async () => setDeviceDisplayTimeout(hid, 99),
+    /Invalid display timeout code/,
+  );
+
+  // 5. writeDeviceConfiguration with options.displayTimeoutCode writes requested code
+  const cfg: DataloggerConfiguration = {
+    interval_seconds: 60,
+    duration_seconds: null,
+    start_mode: DATALOGGER_START_MODE.MANUAL,
+    start_delay_seconds: 0,
+    scheduled_start_local: null,
+    trip_number: 'DISP-TRIP',
+    trip_description: 'Display timeout test',
+  };
+  await writeDeviceConfiguration(
+    hid,
+    cfg,
+    () => {},
+    () => new Date(),
+    { displayTimeoutCode: 3 }, // 45s
+  );
+  assert.equal(dev.memory[0x26] >> 4, 3);
+
+  // 6. DataloggerDeviceSession.setDisplayTimeout updates connected device
+  const { root, dispose } = createRoot((d) => ({
+    root: createDataloggerDeviceSession(hid),
+    dispose: d,
+  }));
+  try {
+    await root.connect();
+    assert.equal(root.deviceInfo()?.displayTimeoutCode, 3);
+    await root.setDisplayTimeout(4); // 60s
+    assert.equal(root.deviceInfo()?.displayTimeoutCode, 4);
+    assert.equal(dev.memory[0x26] >> 4, 4);
   } finally {
     dispose();
   }

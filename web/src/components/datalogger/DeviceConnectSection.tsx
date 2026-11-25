@@ -18,6 +18,7 @@ import {
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
+import { formatDisplayTimeout } from './elitech-protocol';
 import { Progress } from '~/components/ui/progress';
 import { useI18n } from '~/i18n';
 import type { DataloggerDeviceSession } from './device-session';
@@ -229,25 +230,15 @@ export function DeviceConnectSection(props: DeviceConnectSectionProps) {
                 <div class="text-xs text-muted-foreground">{t('dataloggerConfig.unitLabel')}</div>
                 <div class="font-mono text-sm font-medium">{info().temperatureUnit}</div>
               </div>
-              <Show when={props.displayTimeoutCode !== undefined}>
-                <div>
-                  <div class="text-xs text-muted-foreground">
-                    {t('dataloggerConfig.lcdRawCodeLabel')}
-                  </div>
-                  <div class="font-mono text-sm font-medium">
-                    {props.displayTimeoutCode !== null
-                      ? `0x${props.displayTimeoutCode!.toString(16).toUpperCase()}`
-                      : '—'}
-                  </div>
+              <div>
+                <div class="text-xs text-muted-foreground">
+                  {t('dataloggerConfig.lcdRawCodeLabel')}
                 </div>
-              </Show>
-              <div
-                class={
-                  props.displayTimeoutCode !== undefined
-                    ? 'col-span-2'
-                    : 'col-span-2 sm:col-span-2 lg:col-span-3'
-                }
-              >
+                <div class="font-mono text-sm font-medium">
+                  {formatDisplayTimeout(props.displayTimeoutCode ?? info().displayTimeoutCode)}
+                </div>
+              </div>
+              <div class="col-span-2">
                 <div class="text-xs text-muted-foreground">
                   {t('dataloggerConfig.deviceClockLabel')}
                 </div>

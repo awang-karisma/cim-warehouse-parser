@@ -69,7 +69,7 @@ export async function readDeviceInfo(hid: ElitechHID): Promise<DeviceInfo> {
   const intervalRaw = (p[0x4c] << 8) | p[0x4d];
   const intervalSeconds = intervalRaw * 10;
   const temperatureUnit: '°C' | '°F' = p[0x21] & 0x08 ? '°F' : '°C';
-
+  const displayTimeoutCode = (p[0x26] >> 4) & 0x0f;
   return {
     model,
     modelName: KNOWN_MODELS[model] || `0x${model.toString(16).padStart(4, '0').toUpperCase()}`,
@@ -83,6 +83,7 @@ export async function readDeviceInfo(hid: ElitechHID): Promise<DeviceInfo> {
     intervalSeconds,
     intervalFormatted: formatDurationSeconds(intervalSeconds),
     temperatureUnit,
+    displayTimeoutCode,
   };
 }
 
@@ -189,6 +190,31 @@ export const RC5_PLUS_VENDOR_ID = 0x04d8;
 export const RC5_PLUS_PRODUCT_ID = 0x3005;
 export const RC5_PLUS_MODEL = 0x3005;
 
+export const DISPLAY_TIMEOUT_OPTIONS = [
+  { code: 1, label: '15s' },
+  { code: 2, label: '30s' },
+  { code: 3, label: '45s' },
+  { code: 4, label: '60s' },
+  { code: 15, label: 'Always On' },
+] as const;
+
+export function formatDisplayTimeout(code: number | null | undefined): string {
+  if (code === null || code === undefined) return '—';
+  switch (code) {
+    case 1:
+      return '15s';
+    case 2:
+      return '30s';
+    case 3:
+      return '45s';
+    case 4:
+      return '60s';
+    case 15:
+      return 'Always On';
+    default:
+      return `0x${code.toString(16).toUpperCase()}`;
+  }
+}
 export const PARAMETER_READ_RANGES = [
   { offset: 0, length: 48 },
   { offset: 48, length: 48 },
@@ -601,6 +627,7 @@ function normalizePreparedParameterImage(
   prepared: Uint8Array,
   hostTime7: Uint8Array,
   tz: { hour: number; minute: number },
+  displayTimeoutCode?: number | null,
 ): void {
   // Reserved / read-only / status slot normalization
   prepared[0x0e] = 0;
@@ -610,9 +637,13 @@ function normalizePreparedParameterImage(
   // Timezone hour in low 5 bits of 0x24; preserve upper 3 bits
   prepared[0x24] = (prepared[0x24] & 0xe0) | (tz.hour & 0x1f);
 
-  // Retain only startup bits 0xc0 at 0x25, config bits 0xf8 at 0x26, CSV bit 0x10 at 0x27
+  // Retain only startup bits 0xc0 at 0x25, CSV bit 0x10 at 0x27
   prepared[0x25] &= 0xc0;
-  prepared[0x26] &= 0xf8;
+  if (displayTimeoutCode !== undefined && displayTimeoutCode !== null) {
+    prepared[0x26] = ((displayTimeoutCode & 0x0f) << 4) | (prepared[0x26] & 0x08);
+  } else {
+    prepared[0x26] &= 0xf8;
+  }
   prepared[0x27] &= 0x10;
 
   // Host clock at 0x28..0x2e and timezone minute at 0x2f
@@ -672,6 +703,7 @@ export async function writeDeviceConfiguration(
   config: DataloggerConfiguration,
   onFormatAttempt: (receipt: ConfigurationWriteReceipt) => void,
   clock: () => Date = () => new Date(),
+  options?: { displayTimeoutCode?: number | null },
 ): Promise<ConfigurationWriteReceipt> {
   const info = await readDeviceInfo(hid);
   const rawImage = await readCompleteParameterImage(hid);
@@ -762,7 +794,7 @@ export async function writeDeviceConfiguration(
   prepared.set(descBytes.subarray(0, 52), 0x98);
   prepared.set(descBytes.subarray(52, 100), 0xcc);
 
-  normalizePreparedParameterImage(prepared, hostTime7, tz);
+  normalizePreparedParameterImage(prepared, hostTime7, tz, options?.displayTimeoutCode);
 
   const receipt: ConfigurationWriteReceipt = {
     serialNumber,
@@ -821,6 +853,21 @@ export async function quickResetDevice(
   };
 
   return executeParameterWriteSequence(hid, receipt, onFormatAttempt);
+}
+
+export async function setDeviceDisplayTimeout(
+  hid: ElitechHID,
+  displayTimeoutCode: number,
+): Promise<void> {
+  if (![1, 2, 3, 4, 15].includes(displayTimeoutCode)) {
+    throw new Error(
+      `Invalid display timeout code (${displayTimeoutCode}). Must be 1 (15s), 2 (30s), 3 (45s), 4 (60s), or 15 (Always On).`,
+    );
+  }
+  const current = await hid.getParameter(0x26, 2);
+  const tempPdfBit = current[0] & 0x08;
+  const byteVal = ((displayTimeoutCode & 0x0f) << 4) | tempPdfBit;
+  await hid.setParameter(0x26, new Uint8Array([byteVal]));
 }
 
 function shouldCompareParameterByte(offset: number, startModeCode: number): boolean {

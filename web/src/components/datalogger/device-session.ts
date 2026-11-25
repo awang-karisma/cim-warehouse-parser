@@ -8,6 +8,7 @@ import {
   quickResetDevice,
   readDeviceConfiguration,
   readDeviceInfo,
+  setDeviceDisplayTimeout,
   verifyConfigurationReceipt,
   writeDeviceConfiguration,
 } from './elitech-protocol';
@@ -46,7 +47,11 @@ export interface DataloggerDeviceSession {
   disconnect: () => Promise<void>;
   fetchRecords: () => Promise<FetchedDatasetSnapshot | null>;
   readConfiguration: () => Promise<DeviceConfigurationReadResult>;
-  applyConfiguration: (config: DataloggerConfiguration) => Promise<boolean>;
+  applyConfiguration: (
+    config: DataloggerConfiguration,
+    options?: { displayTimeoutCode?: number | null },
+  ) => Promise<boolean>;
+  setDisplayTimeout: (code: number) => Promise<void>;
   quickReset: () => Promise<boolean>;
   verifyPendingOperation: () => Promise<boolean>;
   discardSnapshot: () => void;
@@ -357,6 +362,7 @@ export function createDataloggerDeviceSession(
   const executeWriteOrReset = async (
     operation: 'apply' | 'quick-reset',
     config?: DataloggerConfiguration,
+    options?: { displayTimeoutCode?: number | null },
   ): Promise<boolean> => {
     if (disposed) {
       throw new Error('Device session is disposed.');
@@ -408,7 +414,7 @@ export function createDataloggerDeviceSession(
 
     try {
       if (operation === 'apply') {
-        await writeDeviceConfiguration(hid, config!, onFormatAttempt, clock);
+        await writeDeviceConfiguration(hid, config!, onFormatAttempt, clock, options);
       } else {
         await quickResetDevice(hid, onFormatAttempt, clock);
       }
@@ -507,10 +513,38 @@ export function createDataloggerDeviceSession(
     }
   };
 
-  const applyConfiguration = (config: DataloggerConfiguration): Promise<boolean> =>
-    executeWriteOrReset('apply', config);
-
+  const applyConfiguration = (
+    config: DataloggerConfiguration,
+    options?: { displayTimeoutCode?: number | null },
+  ): Promise<boolean> => executeWriteOrReset('apply', config, options);
   const quickReset = (): Promise<boolean> => executeWriteOrReset('quick-reset');
+  const setDisplayTimeout = async (code: number): Promise<void> => {
+    if (disposed) {
+      throw new Error('Device session is disposed.');
+    }
+    if (deviceBusy()) {
+      throw new Error('Device is busy with another operation.');
+    }
+    if (!connected() || !hid.device || !hid.device.opened) {
+      throw new Error('HID device is not connected.');
+    }
+
+    setDeviceError(null);
+    setDeviceBusy(true);
+
+    try {
+      await setDeviceDisplayTimeout(hid, code);
+      const info = await readDeviceInfo(hid);
+      setDeviceInfo(info);
+    } catch (err) {
+      setDeviceError(err instanceof Error ? err.message : String(err));
+      throw err;
+    } finally {
+      if (!disposed) {
+        setDeviceBusy(false);
+      }
+    }
+  };
 
   const verifyPendingOperation = async (): Promise<boolean> => {
     if (disposed) return false;
@@ -580,6 +614,7 @@ export function createDataloggerDeviceSession(
     fetchRecords,
     readConfiguration,
     applyConfiguration,
+    setDisplayTimeout,
     quickReset,
     verifyPendingOperation,
     discardSnapshot,

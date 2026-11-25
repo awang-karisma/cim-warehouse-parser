@@ -11,6 +11,7 @@ export interface DeviceInfo {
   intervalSeconds: number;
   intervalFormatted: string;
   temperatureUnit: '°C' | '°F';
+  displayTimeoutCode: number;
 }
 
 export interface RawRecord {
