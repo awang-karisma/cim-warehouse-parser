@@ -90,6 +90,35 @@ function decomposeDurationSeconds(totalSeconds: number): {
   const seconds = safe % 60;
   return { days, hours, minutes, seconds };
 }
+function decomposeIntervalSeconds(totalSeconds: number): {
+  hours: number;
+  minutes: number;
+  seconds: number;
+} {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
+  return { hours, minutes, seconds };
+}
+
+function computeIntervalTotalSeconds(h: string, m: string, s: string): number {
+  const hours = Number(h.trim() || '0');
+  const minutes = Number(m.trim() || '0');
+  const seconds = Number(s.trim() || '0');
+  if (
+    !Number.isInteger(hours) ||
+    hours < 0 ||
+    !Number.isInteger(minutes) ||
+    minutes < 0 ||
+    !Number.isInteger(seconds) ||
+    seconds < 0
+  ) {
+    return -1;
+  }
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
 
 function formatHostTimezoneLabel(now: Date = new Date()): string {
   const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
@@ -120,7 +149,16 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   const [confirmDeleteProfileOpen, setConfirmDeleteProfileOpen] = createSignal(false);
 
   // Configuration form draft state (inputs stay mounted so focus is preserved)
-  const [intervalInput, setIntervalInput] = createSignal('60');
+  const [intervalHoursInput, setIntervalHoursInput] = createSignal('0');
+  const [intervalMinutesInput, setIntervalMinutesInput] = createSignal('1');
+  const [intervalSecondsInput, setIntervalSecondsInput] = createSignal('0');
+  const effectiveIntervalSec = createMemo(() => {
+    return computeIntervalTotalSeconds(
+      intervalHoursInput(),
+      intervalMinutesInput(),
+      intervalSecondsInput(),
+    );
+  });
   const [useDuration, setUseDuration] = createSignal(false);
   const [durationDaysInput, setDurationDaysInput] = createSignal('0');
   const [durationHoursInput, setDurationHoursInput] = createSignal('0');
@@ -234,7 +272,10 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     if (!info || info.deviceCapacity <= 0 || totalSec <= 0) return;
     try {
       const calculated = calculateLoggingInterval(totalSec, info.deviceCapacity);
-      setIntervalInput(String(calculated));
+      const parts = decomposeIntervalSeconds(calculated);
+      setIntervalHoursInput(String(parts.hours));
+      setIntervalMinutesInput(String(parts.minutes));
+      setIntervalSecondsInput(String(parts.seconds));
     } catch {
       // Keep current input; durationCalculation() surfaces the out-of-range error without clamping.
     }
@@ -253,6 +294,11 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     setTripNumberInput(cfg.trip_number);
     setTripDescriptionInput(cfg.trip_description);
 
+    const intParts = decomposeIntervalSeconds(cfg.interval_seconds);
+    setIntervalHoursInput(String(intParts.hours));
+    setIntervalMinutesInput(String(intParts.minutes));
+    setIntervalSecondsInput(String(intParts.seconds));
+
     if (cfg.duration_seconds !== null && cfg.duration_seconds > 0) {
       const parts = decomposeDurationSeconds(cfg.duration_seconds);
       setUseDuration(true);
@@ -264,12 +310,13 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
       if (info && info.deviceCapacity > 0) {
         try {
           const recomputed = calculateLoggingInterval(cfg.duration_seconds, info.deviceCapacity);
-          setIntervalInput(String(recomputed));
+          const recomputedParts = decomposeIntervalSeconds(recomputed);
+          setIntervalHoursInput(String(recomputedParts.hours));
+          setIntervalMinutesInput(String(recomputedParts.minutes));
+          setIntervalSecondsInput(String(recomputedParts.seconds));
         } catch {
-          setIntervalInput(String(cfg.interval_seconds));
+          // Keep intParts
         }
-      } else {
-        setIntervalInput(String(cfg.interval_seconds));
       }
     } else {
       setUseDuration(false);
@@ -277,7 +324,6 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
       setDurationHoursInput('0');
       setDurationMinutesInput('0');
       setDurationSecondsInput('0');
-      setIntervalInput(String(cfg.interval_seconds));
     }
 
     setIsDirty(nextDirty);
@@ -366,7 +412,11 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     forHardwareWrite: boolean,
     referenceNow: Date = new Date(),
   ): { config?: DataloggerConfiguration; error?: string } => {
-    let intervalSec = Number(intervalInput().trim());
+    let intervalSec = computeIntervalTotalSeconds(
+      intervalHoursInput(),
+      intervalMinutesInput(),
+      intervalSecondsInput(),
+    );
     let durationSec: number | null = null;
 
     if (useDuration()) {
@@ -876,173 +926,253 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
           {/* Interval & Optional Duration Calculator */}
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div class="space-y-1.5">
-              <label class="text-xs font-medium text-muted-foreground" for="dl-cfg-interval">
-                {t('dataloggerConfig.intervalLabel')}
-              </label>
-              <input
-                id="dl-cfg-interval"
-                type="number"
-                min={10}
-                max={655350}
-                step={10}
-                value={intervalInput()}
-                onInput={(e) => {
-                  setIntervalInput(e.currentTarget.value);
-                  // Editing interval clears duration mode/target
-                  setUseDuration(false);
-                  setDurationDaysInput('0');
-                  setDurationHoursInput('0');
-                  setDurationMinutesInput('0');
-                  setDurationSecondsInput('0');
-                  setIsDirty(true);
-                }}
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              />
+              <div class="flex items-center justify-between gap-2">
+                <label
+                  class="text-xs font-medium text-muted-foreground"
+                  for="dl-cfg-interval-hours"
+                >
+                  {t('dataloggerConfig.intervalLabel')}
+                </label>
+                <Show when={effectiveIntervalSec() > 0}>
+                  <span class="font-mono text-[11px] text-muted-foreground">
+                    {t('dataloggerConfig.intervalTotalCalculated', {
+                      seconds: effectiveIntervalSec().toLocaleString(),
+                    })}
+                  </span>
+                </Show>
+              </div>
+              <div class="grid grid-cols-3 gap-2">
+                <div class="space-y-1">
+                  <label
+                    class="text-[11px] text-muted-foreground"
+                    for="dl-cfg-interval-hours"
+                  >
+                    {t('dataloggerConfig.intervalHours')}
+                  </label>
+                  <input
+                    id="dl-cfg-interval-hours"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={intervalHoursInput()}
+                    onInput={(e) => {
+                      setIntervalHoursInput(e.currentTarget.value);
+                      setUseDuration(false);
+                      setIsDirty(true);
+                    }}
+                    class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-[11px] text-muted-foreground"
+                    for="dl-cfg-interval-minutes"
+                  >
+                    {t('dataloggerConfig.intervalMinutes')}
+                  </label>
+                  <input
+                    id="dl-cfg-interval-minutes"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={intervalMinutesInput()}
+                    onInput={(e) => {
+                      setIntervalMinutesInput(e.currentTarget.value);
+                      setUseDuration(false);
+                      setIsDirty(true);
+                    }}
+                    class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-[11px] text-muted-foreground"
+                    for="dl-cfg-interval-seconds"
+                  >
+                    {t('dataloggerConfig.intervalSeconds')}
+                  </label>
+                  <input
+                    id="dl-cfg-interval-seconds"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={intervalSecondsInput()}
+                    onInput={(e) => {
+                      setIntervalSecondsInput(e.currentTarget.value);
+                      setUseDuration(false);
+                      setIsDirty(true);
+                    }}
+                    class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                </div>
+              </div>
               <p class="text-xs text-muted-foreground">{t('dataloggerConfig.intervalHint')}</p>
             </div>
 
-            <div class="space-y-2 rounded-md border bg-muted/20 p-3.5">
-              <label class="flex items-center gap-2 text-xs font-medium">
-                <input
-                  id="dl-cfg-use-duration"
-                  type="checkbox"
-                  checked={useDuration()}
-                  onChange={(e) => {
-                    const checked = e.currentTarget.checked;
-                    setUseDuration(checked);
-                    setIsDirty(true);
-                    if (checked) {
-                      const cur = requestedDurationSeconds();
-                      if (!cur || cur <= 0) {
-                        setDurationDaysInput('1');
-                        setDurationHoursInput('0');
-                        setDurationMinutesInput('0');
-                        setDurationSecondsInput('0');
-                        syncIntervalFromDurationIfPossible(86400);
-                      } else {
-                        syncIntervalFromDurationIfPossible(cur);
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between gap-2">
+                <label
+                  class="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer"
+                  for="dl-cfg-use-duration"
+                >
+                  <input
+                    id="dl-cfg-use-duration"
+                    type="checkbox"
+                    checked={useDuration()}
+                    onChange={(e) => {
+                      const checked = e.currentTarget.checked;
+                      setUseDuration(checked);
+                      setIsDirty(true);
+                      if (checked) {
+                        const cur = requestedDurationSeconds();
+                        if (!cur || cur <= 0) {
+                          setDurationDaysInput('1');
+                          setDurationHoursInput('0');
+                          setDurationMinutesInput('0');
+                          setDurationSecondsInput('0');
+                          syncIntervalFromDurationIfPossible(86400);
+                        } else {
+                          syncIntervalFromDurationIfPossible(cur);
+                        }
                       }
-                    }
-                  }}
-                  class="size-4 rounded border-input"
-                />
-                <span>{t('dataloggerConfig.useDurationCalculator')}</span>
-              </label>
+                    }}
+                    class="size-4 rounded border-input"
+                  />
+                  <span>{t('dataloggerConfig.useDurationCalculator')}</span>
+                </label>
+              </div>
 
-              <Show when={useDuration()}>
-                <div class="space-y-2.5 pt-1">
-                  <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <div class="space-y-1">
-                      <label class="text-[11px] text-muted-foreground" for="dl-dur-days">
-                        {t('dataloggerConfig.durationDays')}
-                      </label>
-                      <input
-                        id="dl-dur-days"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={durationDaysInput()}
-                        onInput={(e) => {
-                          setDurationDaysInput(e.currentTarget.value);
-                          setIsDirty(true);
-                          const next = requestedDurationSeconds();
-                          if (next && next > 0) syncIntervalFromDurationIfPossible(next);
-                        }}
-                        class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs"
-                      />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-[11px] text-muted-foreground" for="dl-dur-hours">
-                        {t('dataloggerConfig.durationHours')}
-                      </label>
-                      <input
-                        id="dl-dur-hours"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={durationHoursInput()}
-                        onInput={(e) => {
-                          setDurationHoursInput(e.currentTarget.value);
-                          setIsDirty(true);
-                          const next = requestedDurationSeconds();
-                          if (next && next > 0) syncIntervalFromDurationIfPossible(next);
-                        }}
-                        class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs"
-                      />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-[11px] text-muted-foreground" for="dl-dur-minutes">
-                        {t('dataloggerConfig.durationMinutes')}
-                      </label>
-                      <input
-                        id="dl-dur-minutes"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={durationMinutesInput()}
-                        onInput={(e) => {
-                          setDurationMinutesInput(e.currentTarget.value);
-                          setIsDirty(true);
-                          const next = requestedDurationSeconds();
-                          if (next && next > 0) syncIntervalFromDurationIfPossible(next);
-                        }}
-                        class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs"
-                      />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-[11px] text-muted-foreground" for="dl-dur-seconds">
-                        {t('dataloggerConfig.durationSeconds')}
-                      </label>
-                      <input
-                        id="dl-dur-seconds"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={durationSecondsInput()}
-                        onInput={(e) => {
-                          setDurationSecondsInput(e.currentTarget.value);
-                          setIsDirty(true);
-                          const next = requestedDurationSeconds();
-                          if (next && next > 0) syncIntervalFromDurationIfPossible(next);
-                        }}
-                        class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <Show when={durationCalculation().error}>
-                    <p class="text-xs font-medium text-destructive">
-                      {durationCalculation().error}
-                    </p>
-                  </Show>
-
-                  <Show
-                    when={
-                      durationCalculation().effectiveInterval !== null &&
-                      durationCalculation().achievedSeconds !== null
-                    }
+              <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div class="space-y-1">
+                  <label
+                    class="text-[11px] text-muted-foreground"
+                    classList={{ 'opacity-50': !useDuration() }}
+                    for="dl-dur-days"
                   >
-                    <div class="rounded border bg-background px-2.5 py-2 font-mono text-xs">
-                      {t('dataloggerConfig.durationCalcSummary', {
-                        interval: String(durationCalculation().effectiveInterval),
-                        capacity: (durationCalculation().capacity ?? 0).toLocaleString(),
-                        achieved: `${durationCalculation().achievedSeconds!.toLocaleString()}s (${formatDurationHuman(durationCalculation().achievedSeconds!)})`,
-                      })}
-                    </div>
-                  </Show>
-
-                  <Show when={!props.device.deviceInfo()}>
-                    <p class="text-xs text-muted-foreground">
-                      {t('dataloggerConfig.durationNeedsDeviceHint')}
-                    </p>
-                  </Show>
-
-                  <p class="text-[11px] text-muted-foreground">
-                    {t('dataloggerConfig.durationNoStopNotice')}
-                  </p>
+                    {t('dataloggerConfig.durationDays')}
+                  </label>
+                  <input
+                    id="dl-dur-days"
+                    type="number"
+                    min={0}
+                    step={1}
+                    disabled={!useDuration()}
+                    value={durationDaysInput()}
+                    onInput={(e) => {
+                      setDurationDaysInput(e.currentTarget.value);
+                      setIsDirty(true);
+                      const next = requestedDurationSeconds();
+                      if (next && next > 0) syncIntervalFromDurationIfPossible(next);
+                    }}
+                    class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
                 </div>
-              </Show>
-            </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-[11px] text-muted-foreground"
+                    classList={{ 'opacity-50': !useDuration() }}
+                    for="dl-dur-hours"
+                  >
+                    {t('dataloggerConfig.durationHours')}
+                  </label>
+                  <input
+                    id="dl-dur-hours"
+                    type="number"
+                    min={0}
+                    step={1}
+                    disabled={!useDuration()}
+                    value={durationHoursInput()}
+                    onInput={(e) => {
+                      setDurationHoursInput(e.currentTarget.value);
+                      setIsDirty(true);
+                      const next = requestedDurationSeconds();
+                      if (next && next > 0) syncIntervalFromDurationIfPossible(next);
+                    }}
+                    class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-[11px] text-muted-foreground"
+                    classList={{ 'opacity-50': !useDuration() }}
+                    for="dl-dur-minutes"
+                  >
+                    {t('dataloggerConfig.durationMinutes')}
+                  </label>
+                  <input
+                    id="dl-dur-minutes"
+                    type="number"
+                    min={0}
+                    step={1}
+                    disabled={!useDuration()}
+                    value={durationMinutesInput()}
+                    onInput={(e) => {
+                      setDurationMinutesInput(e.currentTarget.value);
+                      setIsDirty(true);
+                      const next = requestedDurationSeconds();
+                      if (next && next > 0) syncIntervalFromDurationIfPossible(next);
+                    }}
+                    class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-[11px] text-muted-foreground"
+                    classList={{ 'opacity-50': !useDuration() }}
+                    for="dl-dur-seconds"
+                  >
+                    {t('dataloggerConfig.durationSeconds')}
+                  </label>
+                  <input
+                    id="dl-dur-seconds"
+                    type="number"
+                    min={0}
+                    step={1}
+                    disabled={!useDuration()}
+                    value={durationSecondsInput()}
+                    onInput={(e) => {
+                       setDurationSecondsInput(e.currentTarget.value);
+                       setIsDirty(true);
+                       const next = requestedDurationSeconds();
+                       if (next && next > 0) syncIntervalFromDurationIfPossible(next);
+                     }}
+                     class="flex h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                   />
+                 </div>
+               </div>
+
+               <Show when={useDuration() && durationCalculation().error}>
+                 <p class="text-xs font-medium text-destructive">
+                   {durationCalculation().error}
+                 </p>
+               </Show>
+
+               <Show
+                 when={
+                   useDuration() &&
+                   durationCalculation().effectiveInterval !== null &&
+                   durationCalculation().achievedSeconds !== null
+                 }
+               >
+                 <div class="rounded border bg-muted/30 px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
+                   {t('dataloggerConfig.durationCalcSummary', {
+                     interval: String(durationCalculation().effectiveInterval),
+                     capacity: (durationCalculation().capacity ?? 0).toLocaleString(),
+                     achieved: `${durationCalculation().achievedSeconds!.toLocaleString()}s (${formatDurationHuman(durationCalculation().achievedSeconds!)})`,
+                   })}
+                 </div>
+               </Show>
+
+               <Show when={useDuration() && !props.device.deviceInfo()}>
+                 <p class="text-xs text-muted-foreground">
+                   {t('dataloggerConfig.durationNeedsDeviceHint')}
+                 </p>
+               </Show>
+
+               <p class="text-xs text-muted-foreground">
+                 {t('dataloggerConfig.durationNoStopNotice')}
+               </p>
+             </div>
           </div>
 
           {/* Start Mode & Conditional Delay / Scheduled Start */}
@@ -1181,61 +1311,58 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
           </div>
 
           {/* RC-5+ Screen Display Auto-Off Timeout */}
-          <div class="space-y-3 rounded-md border bg-card p-4">
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <label
-                  class="text-xs font-semibold text-foreground"
-                  for="dl-cfg-display-timeout"
-                >
-                  {t('dataloggerConfig.displayTimeoutLabel')}
-                </label>
-                <p class="text-xs text-muted-foreground">
-                  {t('dataloggerConfig.displayTimeoutHint')}
-                </p>
-              </div>
-              <Show when={props.device.connected()}>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  class="h-8 text-xs shrink-0 self-start sm:self-auto gap-1.5"
-                  onClick={handleSetDisplayTimeoutImmediate}
-                  disabled={props.device.deviceBusy() || settingTimeout()}
-                >
-                  <IconSettings class="size-3.5" />
-                  {settingTimeout()
-                    ? t('dataloggerConfig.updatingDisplayTimeoutBtn')
-                    : t('dataloggerConfig.updateDisplayTimeoutBtn')}
-                </Button>
-              </Show>
-            </div>
-
-            <Show when={timeoutSuccessMsg()}>
-              <Alert>
-                <IconCheck class="size-4 text-status-selesai" />
-                <AlertDescription class="text-xs font-medium">
-                  {timeoutSuccessMsg()}
-                </AlertDescription>
-              </Alert>
-            </Show>
-
-            <div class="max-w-xs">
-              <select
-                id="dl-cfg-display-timeout"
-                value={displayTimeoutCode()}
-                onChange={(e) => {
-                  setDisplayTimeoutCode(Number(e.currentTarget.value));
-                  setIsDirty(true);
-                  setTimeoutSuccessMsg(null);
-                }}
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="space-y-1.5">
+              <label
+                class="text-xs font-medium text-muted-foreground"
+                for="dl-cfg-display-timeout"
               >
-                <option value={1}>{t('dataloggerConfig.displayTimeout15s')}</option>
-                <option value={2}>{t('dataloggerConfig.displayTimeout30s')}</option>
-                <option value={3}>{t('dataloggerConfig.displayTimeout45s')}</option>
-                <option value={4}>{t('dataloggerConfig.displayTimeout60s')}</option>
-                <option value={15}>{t('dataloggerConfig.displayTimeoutAlwaysOn')}</option>
-              </select>
+                {t('dataloggerConfig.displayTimeoutLabel')}
+              </label>
+              <div class="flex items-center gap-2">
+                <select
+                  id="dl-cfg-display-timeout"
+                  value={displayTimeoutCode()}
+                  onChange={(e) => {
+                    setDisplayTimeoutCode(Number(e.currentTarget.value));
+                    setIsDirty(true);
+                    setTimeoutSuccessMsg(null);
+                  }}
+                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value={1}>{t('dataloggerConfig.displayTimeout15s')}</option>
+                  <option value={2}>{t('dataloggerConfig.displayTimeout30s')}</option>
+                  <option value={3}>{t('dataloggerConfig.displayTimeout45s')}</option>
+                  <option value={4}>{t('dataloggerConfig.displayTimeout60s')}</option>
+                  <option value={15}>{t('dataloggerConfig.displayTimeoutAlwaysOn')}</option>
+                </select>
+                <Show when={props.device.connected()}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    class="h-10 text-xs shrink-0 gap-1.5"
+                    onClick={handleSetDisplayTimeoutImmediate}
+                    disabled={props.device.deviceBusy() || settingTimeout()}
+                  >
+                    <IconSettings class="size-3.5" />
+                    {settingTimeout()
+                      ? t('dataloggerConfig.updatingDisplayTimeoutBtn')
+                      : t('dataloggerConfig.updateDisplayTimeoutBtn')}
+                  </Button>
+                </Show>
+              </div>
+              <p class="text-xs text-muted-foreground">
+                {t('dataloggerConfig.displayTimeoutHint')}
+              </p>
+              <Show when={timeoutSuccessMsg()}>
+                <Alert class="py-2">
+                  <IconCheck class="size-4 text-status-selesai" />
+                  <AlertDescription class="text-xs font-medium">
+                    {timeoutSuccessMsg()}
+                  </AlertDescription>
+                </Alert>
+              </Show>
             </div>
           </div>
 

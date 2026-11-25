@@ -83,16 +83,15 @@ Automated order ingestion, normalization, and visualization system.
     - **Desktop Invariant**: Desktop rendering (`!isMobile()`) preserves the full 8-column main content table and 4-column right sidebar across all routes without layout shifts.
 - **Elitech Data Logger Workspace (`/datalogger`, `/datalogger-records/:id`)**:
   - Accessible directly from the main sidebar under Tools (`navGroups.tools.datalogger` with thermometer icon).
-  - Ingests Elitech USB temperature/humidity data loggers directly in Chromium browsers via WebHID or from Elitech / custom-mapped CSV exports.
-  - Persists named recording sessions and readings in SQLite (`datalogger_sessions`, `datalogger_records`) independently of spreadsheet resyncs, exposed via `/api/v1/datalogger/*` (with inclusive date overlap filtering, text search, and customizable pagination).
   - Ingests Elitech USB temperature/humidity data loggers directly in Chromium browsers via WebHID or from Elitech / custom-mapped CSV exports, sharing a single live USB session across Import and Configuration tabs, binding pulled datasets into immutable device-serial snapshots, and utilizing a reusable `DeviceConnectSection` component.
   - Persists named recording sessions, readings, and reusable configuration profiles in SQLite (`datalogger_sessions`, `datalogger_records`, `datalogger_profiles`) independently of spreadsheet resyncs, exposed via `/api/v1/datalogger/*` (with inclusive date overlap filtering, text search, customizable pagination, and role-gated profile CRUD).
   - Fully localized across English and Indonesian (`web/src/i18n/`) with unified translations for tabs, KPI cards, sessions directory, responsive mobile cards, graph view, import forms, date filter, and pagination.
   - Dedicated Configuration tab (`?tab=config`) supporting RC-5+ logging interval, target-duration interval calculation, start mode (`immediate`, `manual` delay, `timer` scheduled local start), 13-byte trip number, 100-byte trip description, RC-5+ LCD screen display auto-off timeout (`15s`, `30s`, `45s`, `60s`, `Always On` with on-the-fly standalone write), reusable shared profiles, Quick Reset (preserving current hardware settings), workstation clock/timezone synchronization, and post-format read-only verification.
   - Cold-chain telemetry KPI cards prominently placed at the top (`Total Sessions`, `Total Records`, `Temp Range`, `Latest Import`) with the refresh action inline with the navigation tabs.
   - Dual desktop/mobile table representation: full 9-column `DataTable` on desktop and touchscreen-friendly responsive card list on mobile (eliminating horizontal clipping).
-  - Dedicated tabbed Graph View with full-width `ZoomableTimeChart` (dual-axis zoom & pan), active session pills, date range windowing, and per-session summary stats table with direct "View Raw" action links (zero merged records clutter).
+  - Dedicated tabbed Graph View with full-width `ZoomableTimeChart` (dual-axis zoom & pan), hardware Marked events (`M` flag) triangle overlay and accessible `<details>` list, active session pills, date range windowing, and per-session summary stats table with direct "View Raw" action links.
   - Dedicated single-session Raw Data log viewing and CSV file export at `/datalogger-records/:id`.
+  - Technical reference (USB HID protocol, RC-5+ configuration & Quick Reset, firmware `0x38` quirks, Linux `udev` rules, schema, API): [`docs/datalogger.md`](docs/datalogger.md).
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
