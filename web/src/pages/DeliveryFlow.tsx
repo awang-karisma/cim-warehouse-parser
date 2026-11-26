@@ -142,6 +142,26 @@ interface AreaGroupSummary {
 }
 export const DeliveryFlow: Component = () => {
   const { t } = useI18n();
+  const getRunStatusLabel = (status: string) => {
+    switch (status) {
+      case 'ALL':
+        return t('common.all');
+      case DELIVERY_RUN_STATUS.PLANNED:
+        return t('status.planned');
+      case DELIVERY_RUN_STATUS.PICKING:
+        return t('status.picking');
+      case DELIVERY_RUN_STATUS.READY:
+        return t('status.ready');
+      case DELIVERY_RUN_STATUS.DISPATCHED:
+        return t('status.dispatched');
+      case DELIVERY_RUN_STATUS.COMPLETED:
+        return t('status.completed');
+      default:
+        return status;
+    }
+  };
+  const formatAreaLabel = (area: string) =>
+    area === 'Unassigned' ? t('deliveryFlow.unassigned') : area;
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = createSignal(false);
   const [runsDrawerOpen, setRunsDrawerOpen] = createSignal(false);
@@ -931,7 +951,7 @@ export const DeliveryFlow: Component = () => {
         groups.set(orderKey, {
           orderId: it.order_id || '',
           orderNumber: it.order_number,
-          customer: it.customer || 'Unknown Customer',
+          customer: it.customer || t('deliveryFlow.unknownCustomer'),
           area: it.area || '',
           items: [],
         });
@@ -1022,7 +1042,7 @@ export const DeliveryFlow: Component = () => {
                 type="button"
                 onClick={() => setSearchTerm('')}
                 class="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                title="Clear search"
+                title={t('deliveryFlow.clearSearch')}
               >
                 <IconX class="size-3" />
               </button>
@@ -1048,8 +1068,8 @@ export const DeliveryFlow: Component = () => {
               class="size-4 rounded text-primary focus:ring-ring"
             />
             <span>{t('deliveryFlow.readyInWarehouseOnly')}</span>
-            <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-primary/15 text-primary">
-              STOK GUDANG
+            <span class="text-[10px] font-bold uppercase px-1.5 py-0.2 rounded bg-primary/15 text-primary">
+              {t('status.stokGudang')}
             </span>
           </label>
 
@@ -1061,8 +1081,8 @@ export const DeliveryFlow: Component = () => {
               class="size-4 rounded text-status-pending focus:ring-ring"
             />
             <span>{t('deliveryFlow.showClientHolds')}</span>
-            <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-status-pending/15 text-status-pending">
-              PENDING
+            <span class="text-[10px] font-bold uppercase px-1.5 py-0.2 rounded bg-status-pending/15 text-status-pending">
+              {t('status.pending')}
             </span>
           </label>
         </CardContent>
@@ -1103,7 +1123,7 @@ export const DeliveryFlow: Component = () => {
                     onClick={() => setSelectedAreaFilter(isSelected() ? null : grp.area)}
                   >
                     <div class="flex items-center gap-1.5 min-w-0">
-                      <span class="font-bold text-foreground truncate">{grp.area}</span>
+                      <span class="font-bold text-foreground truncate">{formatAreaLabel(grp.area)}</span>
                       <Show when={grp.selectedItemsCount > 0}>
                         <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-primary text-primary-foreground tabular-nums">
                           {t('deliveryFlow.pickedCount', { count: grp.selectedItemsCount })}
@@ -1143,8 +1163,8 @@ export const DeliveryFlow: Component = () => {
             {t('deliveryFlow.selectionSummary')}
           </CardTitle>
           <Show when={editingRunId()}>
-            <span class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted text-foreground">
-              RUN #{editingRunId()}
+            <span class="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-muted text-foreground">
+              {t('deliveryFlow.runIdFallback', { id: editingRunId() ?? '' })}
             </span>
           </Show>
         </CardHeader>
@@ -1471,7 +1491,7 @@ export const DeliveryFlow: Component = () => {
                       : 'bg-background text-muted-foreground border-border hover:bg-muted'
                   )}
                 >
-                  {st}
+                  {getRunStatusLabel(st)}
                 </button>
               )}
             </For>
@@ -1561,7 +1581,7 @@ export const DeliveryFlow: Component = () => {
             class="text-[10px] h-6 px-2 gap-1 shrink-0"
           >
             <IconCheck class="size-2.5 text-primary" />
-            <span>Ready</span>
+            <span>{t('status.ready')}</span>
           </Button>
         </div>
 
@@ -1615,7 +1635,7 @@ export const DeliveryFlow: Component = () => {
                         <Show when={activeRunInfo()}>
                           <span class="inline-flex items-center gap-1 text-[9.5px] font-bold px-2 py-0 h-4 leading-none rounded-full bg-status-pending/15 text-status-pending border border-status-pending/30">
                             <IconTruckDelivery class="size-2.5" />
-                            <span>Run #{activeRunInfo()!.runId} ({activeRunInfo()!.plannedQty})</span>
+                            <span>{t('deliveryFlow.inRunBadgeShort', { runId: activeRunInfo()!.runId, qty: activeRunInfo()!.plannedQty })}</span>
                           </span>
                         </Show>
                         <Show when={item.keterangan || item.catatan || isClientPending()}>
@@ -1654,7 +1674,7 @@ export const DeliveryFlow: Component = () => {
             <div class="flex items-center justify-between">
               <span class="font-bold text-xs text-foreground flex items-center gap-1.5">
                 <IconAdjustmentsHorizontal class="size-3.5 text-primary" />
-                <span>Filter Kesiapan & Area</span>
+                <span>{t('deliveryFlow.dockFilterTitle')}</span>
               </span>
               <button
                 type="button"
@@ -1680,7 +1700,7 @@ export const DeliveryFlow: Component = () => {
                   type="button"
                   onClick={() => setSearchTerm('')}
                   class="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  title="Clear search"
+                  title={t('deliveryFlow.clearSearch')}
                 >
                   <IconX class="size-3" />
                 </button>
@@ -1699,7 +1719,7 @@ export const DeliveryFlow: Component = () => {
                     : 'bg-muted/40 text-muted-foreground'
                 )}
               >
-                <span>Stok Gudang</span>
+                <span>{t('status.stokGudang')}</span>
                 <Show when={readyInWarehouseOnly()}><IconCheck class="size-3 text-blue-600" /></Show>
               </button>
               <button
@@ -1712,7 +1732,7 @@ export const DeliveryFlow: Component = () => {
                     : 'bg-muted/40 text-muted-foreground'
                 )}
               >
-                <span>Client Hold</span>
+                <span>{t('deliveryFlow.clientHold')}</span>
                 <Show when={includeClientHold()}><IconCheck class="size-3 text-status-pending" /></Show>
               </button>
             </div>
@@ -1720,7 +1740,7 @@ export const DeliveryFlow: Component = () => {
             {/* NTB Area Grid */}
             <div class="space-y-1">
               <div class="flex items-center justify-between text-xs">
-                <span class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Pilih Wilayah NTB</span>
+                <span class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t('deliveryFlow.selectRegion')}</span>
                 <Show when={selectedAreaFilter()}>
                   <button
                     type="button"
@@ -1729,7 +1749,7 @@ export const DeliveryFlow: Component = () => {
                     }}
                     class="text-[10px] font-bold text-primary hover:underline"
                   >
-                    + Select Ready in {selectedAreaFilter()}
+                    {t('deliveryFlow.addSelectReadyInArea', { area: formatAreaLabel(selectedAreaFilter() ?? '') })}
                   </button>
                 </Show>
               </div>
@@ -1744,7 +1764,7 @@ export const DeliveryFlow: Component = () => {
                       : 'bg-muted/30 text-muted-foreground hover:bg-muted'
                   )}
                 >
-                  Semua Area
+                  {t('deliveryFlow.allAreas')}
                 </button>
                 <For each={areaGroups()}>
                   {(grp) => (
@@ -1758,8 +1778,8 @@ export const DeliveryFlow: Component = () => {
                           : 'bg-muted/30 text-muted-foreground hover:bg-muted'
                       )}
                     >
-                      <span class="truncate">{grp.area}</span>
-                      <span class="text-[10px] opacity-80">{grp.readyItemsCount} ready</span>
+                      <span class="truncate">{formatAreaLabel(grp.area)}</span>
+                      <span class="text-[10px] opacity-80">{t('deliveryFlow.readyItemsShort', { count: grp.readyItemsCount })}</span>
                     </button>
                   )}
                 </For>
@@ -1831,7 +1851,7 @@ export const DeliveryFlow: Component = () => {
           <span>{t('deliveryFlow.backToSelectItems')}</span>
         </button>
         <span class="text-[11px] text-muted-foreground tabular-nums">
-          <strong class="text-foreground font-semibold">{draftStats().totalItems}</strong> items ({draftStats().totalPlannedUnits} units)
+          {t('deliveryFlow.selectedItemsCount', { count: draftStats().totalItems, units: draftStats().totalPlannedUnits })}
         </span>
       </div>
       <div class="grid grid-cols-2 gap-2">
@@ -1842,7 +1862,7 @@ export const DeliveryFlow: Component = () => {
           class="text-xs h-10 gap-1.5 rounded-xl font-medium"
         >
           <IconUser class="size-3.5" />
-          <span>Driver & Roster</span>
+          <span>{t('deliveryFlow.driverAndRoster')}</span>
         </Button>
         <Button
           size="sm"
@@ -1919,7 +1939,7 @@ export const DeliveryFlow: Component = () => {
                       </span>
                       <Show when={selectedAreaFilter()}>
                         <div class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
-                          <span>{t('deliveryFlow.areaChip', { area: selectedAreaFilter() ?? '' })}</span>
+                          <span>{t('deliveryFlow.areaChip', { area: formatAreaLabel(selectedAreaFilter() ?? '') })}</span>
                           <button
                             type="button"
                             onClick={() => setSelectedAreaFilter(null)}
@@ -1968,7 +1988,7 @@ export const DeliveryFlow: Component = () => {
                     </span>
                     <Show when={selectedAreaFilter()}>
                       <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
-                        <span class="truncate max-w-[80px]">{selectedAreaFilter()}</span>
+                        <span class="truncate max-w-[80px]">{formatAreaLabel(selectedAreaFilter() ?? '')}</span>
                         <button type="button" onClick={() => setSelectedAreaFilter(null)}>
                           <IconX class="size-2.5" />
                         </button>
@@ -2583,8 +2603,8 @@ export const DeliveryFlow: Component = () => {
                         <CardHeader class="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div>
                             <div class="flex items-center gap-2">
-                              <span class="text-xs font-bold px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                                RUN #{run().id}
+                              <span class="text-xs font-bold uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                                {t('deliveryFlow.runIdFallback', { id: run().id ?? '' })}
                               </span>
                               <CardTitle class="text-lg font-bold">
                                 {run().title || t('deliveryFlow.dispatchRunTitle', { id: run().id ?? '' })}
@@ -2615,9 +2635,9 @@ export const DeliveryFlow: Component = () => {
                                   <Spinner size="sm" />
                                 </Show>
                               </div>
-                              <span>• Date: {run().delivery_date}</span>
+                              <span>{t('deliveryFlow.datePrefix')} {run().delivery_date}</span>
                               <Show when={run().areas && run().areas!.length > 0}>
-                                <span>• Areas: {run().areas!.join(', ')}</span>
+                                <span>• {t('deliveryFlow.areasLabel', { areas: run().areas!.join(', ') })}</span>
                               </Show>
                             </div>
                           </div>
@@ -2630,11 +2650,11 @@ export const DeliveryFlow: Component = () => {
                                 handleStatusChange(run().id!, e.currentTarget.value as DeliveryRunStatus)
                               }
                             >
-							<option value={DELIVERY_RUN_STATUS.PLANNED}>{DELIVERY_RUN_STATUS.PLANNED}</option>
-							<option value={DELIVERY_RUN_STATUS.PICKING}>{DELIVERY_RUN_STATUS.PICKING}</option>
-							<option value={DELIVERY_RUN_STATUS.READY}>{DELIVERY_RUN_STATUS.READY}</option>
-							<option value={DELIVERY_RUN_STATUS.DISPATCHED}>{DELIVERY_RUN_STATUS.DISPATCHED}</option>
-							<option value={DELIVERY_RUN_STATUS.COMPLETED}>{DELIVERY_RUN_STATUS.COMPLETED}</option>
+							<option value={DELIVERY_RUN_STATUS.PLANNED}>{getRunStatusLabel(DELIVERY_RUN_STATUS.PLANNED)}</option>
+							<option value={DELIVERY_RUN_STATUS.PICKING}>{getRunStatusLabel(DELIVERY_RUN_STATUS.PICKING)}</option>
+							<option value={DELIVERY_RUN_STATUS.READY}>{getRunStatusLabel(DELIVERY_RUN_STATUS.READY)}</option>
+							<option value={DELIVERY_RUN_STATUS.DISPATCHED}>{getRunStatusLabel(DELIVERY_RUN_STATUS.DISPATCHED)}</option>
+							<option value={DELIVERY_RUN_STATUS.COMPLETED}>{getRunStatusLabel(DELIVERY_RUN_STATUS.COMPLETED)}</option>
                             </select>
 
                             <Button
@@ -2792,7 +2812,7 @@ export const DeliveryFlow: Component = () => {
                         <div class="border-b-2 border-black pb-2 mb-4 flex justify-between">
                           <div>
                             <h1 class="text-xl font-bold uppercase">{t('deliveryFlow.manifestTitle')}</h1>
-                            <p class="text-xs">Run #{run().id} • {run().title || t('deliveryFlow.dispatchSheet')}</p>
+                            <p class="text-xs">{t('deliveryFlow.runIdFallback', { id: run().id ?? '' })} • {run().title || t('deliveryFlow.dispatchSheet')}</p>
                           </div>
                           <div class="text-right text-xs">
                             <div>{t('deliveryFlow.manifestDate', { date: run().delivery_date })}</div>
@@ -2803,11 +2823,11 @@ export const DeliveryFlow: Component = () => {
                         <table class="w-full text-left text-xs border border-collapse border-black mb-6">
                           <thead>
                             <tr class="bg-gray-200 text-black border-b border-black text-[11px]">
-                              <th class="border border-black p-1.5 w-10 text-center">Pick</th>
-                              <th class="border border-black p-1.5">Customer & Area</th>
-                              <th class="border border-black p-1.5">Item Name</th>
-                              <th class="border border-black p-1.5 w-24 text-center">Qty</th>
-                              <th class="border border-black p-1.5">Notes</th>
+                              <th class="border border-black p-1.5 w-10 text-center">{t('deliveryFlow.pick')}</th>
+                              <th class="border border-black p-1.5">{t('deliveryFlow.customerAndArea')}</th>
+                              <th class="border border-black p-1.5">{t('deliveryFlow.itemName')}</th>
+                              <th class="border border-black p-1.5 w-24 text-center">{t('common.qty')}</th>
+                              <th class="border border-black p-1.5">{t('common.notes')}</th>
                             </tr>
                           </thead>
                           <tbody>
