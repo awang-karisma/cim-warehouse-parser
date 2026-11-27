@@ -1388,6 +1388,8 @@ export const dict = {
     clientRequests: "Client Requests",
     warehouseStock: "Warehouse Stock",
     suppliersCount: "Suppliers",
+    pendingOrders: "Pending Orders",
+    finishedOrders: "Finished Orders",
     searchLabel: "Search",
     searchPlaceholder: "Search item, supplier, code, NIE, client...",
     typeLabel: "Request Type",

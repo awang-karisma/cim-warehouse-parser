@@ -1386,6 +1386,8 @@ export const dict: RawDictionary = {
     clientRequests: "Permintaan Pelanggan",
     warehouseStock: "Stok Gudang",
     suppliersCount: "Pemasok",
+    pendingOrders: "Order Belum Selesai",
+    finishedOrders: "Order Selesai",
     searchLabel: "Cari",
     searchPlaceholder: "Cari barang, pemasok, kode, NIE, pelanggan...",
     typeLabel: "Jenis Permintaan",

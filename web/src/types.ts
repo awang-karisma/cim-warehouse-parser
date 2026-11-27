@@ -598,6 +598,8 @@ export interface PurchaseOrderStats {
   stock_items: number;
   client_items: number;
   suppliers_count: number;
+  pending_items: number;
+  finished_items: number;
 }
 
 export interface PurchaseOrderListResponse {

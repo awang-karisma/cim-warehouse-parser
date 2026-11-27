@@ -83,7 +83,7 @@ func TestSyncAndGetPurchaseOrderItems(t *testing.T) {
 	if res.Items[0].RowIndex != 4 || res.Items[1].RowIndex != 2 || res.Items[2].RowIndex != 3 {
 		t.Fatalf("unexpected default sort order: %d, %d, %d", res.Items[0].RowIndex, res.Items[1].RowIndex, res.Items[2].RowIndex)
 	}
-	if res.Stats.Total != 3 || res.Stats.StockItems != 2 || res.Stats.ClientItems != 2 || res.Stats.SuppliersCount != 2 {
+	if res.Stats.Total != 3 || res.Stats.StockItems != 2 || res.Stats.ClientItems != 2 || res.Stats.SuppliersCount != 2 || res.Stats.PendingItems != 3 || res.Stats.FinishedItems != 0 {
 		t.Fatalf("unexpected stats: %+v", res.Stats)
 	}
 	if len(res.Suppliers) != 2 || res.Suppliers[0] != "PT Farma Jaya" || res.Suppliers[1] != "PT Medika Utama" {
@@ -136,5 +136,37 @@ func TestSyncAndGetPurchaseOrderItems(t *testing.T) {
 	res, err = store.GetPurchaseOrderItems(ctx, model.PurchaseOrderFilter{})
 	if err != nil || res.Total != 0 || res.Items == nil || len(res.Items) != 0 {
 		t.Fatalf("expected empty non-nil items after ClearData: err=%v res=%+v", err, res)
+	}
+}
+
+func TestPurchaseOrderStatsPendingAndFinished(t *testing.T) {
+	store, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create in-memory storage: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	d := time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)
+
+	seed := []model.PurchaseOrderItem{
+		{RowIndex: 1, Tanggal: d, Pemasok: "Sup A", NamaBarang: "Item 1", StatusOrder: ""},
+		{RowIndex: 2, Tanggal: d, Pemasok: "Sup A", NamaBarang: "Item 2", StatusOrder: "PROSES"},
+		{RowIndex: 3, Tanggal: d, Pemasok: "Sup B", NamaBarang: "Item 3", StatusOrder: "SELESAI"},
+		{RowIndex: 4, Tanggal: d, Pemasok: "Sup B", NamaBarang: "Item 4", StatusOrder: " done "},
+		{RowIndex: 5, Tanggal: d, Pemasok: "Sup C", NamaBarang: "Item 5", StatusOrder: "Completed"},
+		{RowIndex: 6, Tanggal: d, Pemasok: "Sup C", NamaBarang: "Item 6", StatusOrder: "FINISHED"},
+	}
+
+	if err := store.SyncPurchaseOrders(ctx, seed); err != nil {
+		t.Fatalf("SyncPurchaseOrders failed: %v", err)
+	}
+
+	res, err := store.GetPurchaseOrderItems(ctx, model.PurchaseOrderFilter{Status: "PROSES"})
+	if err != nil {
+		t.Fatalf("GetPurchaseOrderItems failed: %v", err)
+	}
+	if res.Stats.Total != 6 || res.Stats.PendingItems != 2 || res.Stats.FinishedItems != 4 {
+		t.Fatalf("unexpected pending/finished stats: %+v", res.Stats)
 	}
 }

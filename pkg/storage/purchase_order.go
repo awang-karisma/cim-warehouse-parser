@@ -233,9 +233,11 @@ func (s *Storage) GetPurchaseOrderItems(ctx context.Context, filter model.Purcha
 			COUNT(*),
 			COALESCE(SUM(CASE WHEN is_stock = 1 THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN keterangan != '' AND UPPER(TRIM(keterangan)) NOT IN ('STOK', 'STOCK') THEN 1 ELSE 0 END), 0),
-			COUNT(DISTINCT CASE WHEN TRIM(pemasok) != '' THEN TRIM(pemasok) END)
+			COUNT(DISTINCT CASE WHEN TRIM(pemasok) != '' THEN TRIM(pemasok) END),
+			COALESCE(SUM(CASE WHEN UPPER(TRIM(status_order)) NOT IN ('SELESAI', 'DONE', 'COMPLETED', 'FINISHED') THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN UPPER(TRIM(status_order)) IN ('SELESAI', 'DONE', 'COMPLETED', 'FINISHED') THEN 1 ELSE 0 END), 0)
 		FROM purchase_order_items
-	`).Scan(&stats.Total, &stats.StockItems, &stats.ClientItems, &stats.SuppliersCount); err != nil {
+	`).Scan(&stats.Total, &stats.StockItems, &stats.ClientItems, &stats.SuppliersCount, &stats.PendingItems, &stats.FinishedItems); err != nil {
 		return nil, fmt.Errorf("failed to compute purchase order stats: %w", err)
 	}
 

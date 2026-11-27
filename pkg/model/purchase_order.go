@@ -99,6 +99,8 @@ type PurchaseOrderStats struct {
 	StockItems     int `json:"stock_items"`
 	ClientItems    int `json:"client_items"`
 	SuppliersCount int `json:"suppliers_count"`
+	PendingItems   int `json:"pending_items"`
+	FinishedItems  int `json:"finished_items"`
 }
 
 // PurchaseOrderListResponse is the paginated response payload for purchase order queries.

@@ -10,8 +10,8 @@ import {
 } from 'solid-js';
 import {
   IconAlertTriangle,
-  IconBuildingStore,
-  IconPackage,
+  IconCircleCheck,
+  IconClock,
   IconRefresh,
   IconRotateClockwise,
   IconShoppingCart,
@@ -346,16 +346,16 @@ export const PurchaseOrders: Component = () => {
           <CardContent class="p-4 flex items-center justify-between gap-3">
             <div class="min-w-0">
               <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
-                {t('purchaseOrders.warehouseStock')}
+                {t('purchaseOrders.pendingOrders')}
               </p>
               <Show when={!data.loading} fallback={<Skeleton class="h-7 w-16 mt-1" />}>
                 <p class="text-2xl font-bold tracking-tight tabular-nums mt-1 text-foreground">
-                  {stats()?.stock_items ?? 0}
+                  {stats()?.pending_items ?? 0}
                 </p>
               </Show>
             </div>
             <div class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <IconPackage class="size-4" />
+              <IconClock class="size-4" />
             </div>
           </CardContent>
         </Card>
@@ -364,16 +364,16 @@ export const PurchaseOrders: Component = () => {
           <CardContent class="p-4 flex items-center justify-between gap-3">
             <div class="min-w-0">
               <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
-                {t('purchaseOrders.suppliersCount')}
+                {t('purchaseOrders.finishedOrders')}
               </p>
               <Show when={!data.loading} fallback={<Skeleton class="h-7 w-16 mt-1" />}>
                 <p class="text-2xl font-bold tracking-tight tabular-nums mt-1 text-foreground">
-                  {stats()?.suppliers_count ?? 0}
+                  {stats()?.finished_items ?? 0}
                 </p>
               </Show>
             </div>
             <div class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <IconBuildingStore class="size-4" />
+              <IconCircleCheck class="size-4" />
             </div>
           </CardContent>
         </Card>
