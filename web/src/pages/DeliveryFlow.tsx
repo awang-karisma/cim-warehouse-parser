@@ -6,6 +6,8 @@ import {
   createSignal,
   createMemo,
   createResource,
+  createEffect,
+  on,
   Show,
   For,
   batch,
@@ -35,14 +37,12 @@ import type {
   DeliveryRunStatus,
 } from '~/types';
 import { Tabs, TabsList, TabsTrigger } from '~/components/ui/tabs';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '~/components/ui/sheet';
 import { useIsMobile } from '~/components/ui/sidebar';
 import { Badge } from '~/components/Badge';
 import { TableSkeleton } from '~/components/TableSkeleton';
 import { Spinner } from '~/components/Spinner';
 import { getDominantOrderStatus } from '~/utils/orderStatus';
 import { cn } from '~/lib/utils';
-import { createDebouncedSignal } from '~/utils/debounce';
 import { Button } from '~/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '~/components/ui/card';
 import {
@@ -61,30 +61,31 @@ import {
 } from '~/components/ui/alert-dialog';
 import {
   IconTruckDelivery,
+  IconTruck,
   IconCheck,
   IconPlus,
   IconMinus,
   IconPrinter,
-  IconEdit,
   IconTrash,
   IconSearch,
   IconFilter,
   IconAlertTriangle,
   IconCalendar,
   IconUser,
+  IconUsers,
   IconMapPin,
   IconListCheck,
   IconBuildingWarehouse,
   IconArrowRight,
-  IconArrowLeft,
   IconRefresh,
   IconX,
   IconChevronDown,
   IconChevronRight,
-  IconChevronUp,
-  IconBox,
-  IconClock,
   IconAdjustmentsHorizontal,
+  IconClipboardList,
+  IconFilePlus,
+  IconNotes,
+  IconPencil,
 } from '@tabler/icons-solidjs';
 
 function parseQty(val?: string): number {
@@ -141,7 +142,7 @@ interface AreaGroupSummary {
   selectedItemsCount: number;
 }
 export const DeliveryFlow: Component = () => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const getRunStatusLabel = (status: string) => {
     switch (status) {
       case 'ALL':
@@ -163,30 +164,27 @@ export const DeliveryFlow: Component = () => {
   const formatAreaLabel = (area: string) =>
     area === 'Unassigned' ? t('deliveryFlow.unassigned') : area;
   const isMobile = useIsMobile();
-  const [sidebarOpen, setSidebarOpen] = createSignal(false);
-  const [runsDrawerOpen, setRunsDrawerOpen] = createSignal(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = () => {
-    if (searchParams.tab === 'runs') return 'runs';
-    if (searchParams.tab === 'configure') return 'configure';
+    if (searchParams.tab === 'runs' || searchParams.tab === 'configure') return 'runs';
     return 'plan';
   };
-
+  createEffect(
+    on(
+      () => searchParams.tab,
+      (tab) => {
+        if (tab === 'configure' && draftItems().size > 0) {
+          batch(() => {
+            setSelectedRunId(null);
+            setRunsEditAll(true);
+            setRunsDispatchOpen(true);
+          });
+        }
+      }
+    )
+  );
   const [dockFilterOpen, setDockFilterOpen] = createSignal(false);
 
-  const [expandedOrders, setExpandedOrders] = createSignal<Set<string>>(new Set());
-  const isOrderExpanded = (orderId: string) => expandedOrders().has(orderId);
-  const toggleOrderExpanded = (orderId: string) => {
-    setExpandedOrders((prev) => {
-      const next = new Set(prev);
-      if (next.has(orderId)) {
-        next.delete(orderId);
-      } else {
-        next.add(orderId);
-      }
-      return next;
-    });
-  };
   // Backend resources
   const [candidatesData, { refetch: refetchCandidates }] = createResource(getDeliveryCandidates);
   const [driversData, { refetch: refetchDrivers }] = createResource(getDeliveryDrivers);
@@ -194,7 +192,6 @@ export const DeliveryFlow: Component = () => {
 
   // Filters & toolbar state
   const [searchTerm, setSearchTerm] = createSignal('');
-  const [configureSearchTerm, debouncedConfigureSearchTerm, setConfigureSearchTerm, flushConfigureSearchTerm] = createDebouncedSignal('', 300);
   const [readyInWarehouseOnly, setReadyInWarehouseOnly] = createSignal(false);
   const [includeClientHold, setIncludeClientHold] = createSignal(false);
   const [selectedAreaFilter, setSelectedAreaFilter] = createSignal<string | null>(null);
@@ -215,20 +212,30 @@ export const DeliveryFlow: Component = () => {
   const [runTitle, setRunTitle] = createSignal('');
   const [runNotes, setRunNotes] = createSignal('');
   const [draftItems, setDraftItems] = createSignal<Map<string, DraftItemSelection>>(new Map());
-  const [editingRunId, setEditingRunId] = createSignal<number | null>(null);
   const [isSavingRun, setIsSavingRun] = createSignal(false);
   const [plannerError, setPlannerError] = createSignal('');
 
-  // Runs Workspace state (Tab 2)
+  // Runs & Dispatch Workspace state (Tab 2 - Mockup 1)
+  type GroupBy = 'destination' | 'none';
+  type PickFilter = 'all' | 'to-pick' | 'picked';
+  type RunsDockPanel = 'runs' | 'driver' | 'filters';
+
   const [selectedRunId, setSelectedRunId] = createSignal<number | null>(null);
   const [runSearchQuery, setRunSearchQuery] = createSignal('');
   const [runStatusFilter, setRunStatusFilter] = createSignal<string>('ALL');
-  const [runDateFilter, setRunDateFilter] = createSignal<string>('');
-  const [pickingViewMode, setPickingViewMode] = createSignal<'orders' | 'consolidated'>('orders');
-  const [runToDelete, setRunToDelete] = createSignal<DeliveryRun | null>(null);
+  const [runsEditAll, setRunsEditAll] = createSignal(false);
+  const [runsGroupBy, setRunsGroupBy] = createSignal<GroupBy>('destination');
+  const [runsPickFilter, setRunsPickFilter] = createSignal<PickFilter>('all');
+  const [runsDestinationFilter, setRunsDestinationFilter] = createSignal('');
+  const [runsDispatchOpen, setRunsDispatchOpen] = createSignal(false);
+  const [runsItemQuery, setRunsItemQuery] = createSignal('');
+  const [runsFilterOpen, setRunsFilterOpen] = createSignal(false);
+  const [runsDockPanel, setRunsDockPanel] = createSignal<RunsDockPanel | null>(null);
+  const [editingItemKey, setEditingItemKey] = createSignal<string | undefined>(undefined);
+  const [deleteDialogOpen, setDeleteDialogOpen] = createSignal(false);
   const [isDeletingRun, setIsDeletingRun] = createSignal(false);
-  const [isReassigningDriver, setIsReassigningDriver] = createSignal(false);
-
+  let runsDockTrigger: HTMLButtonElement | undefined;
+  let runsItemSearchRef!: HTMLInputElement;
   // Driver Management modal
   const [showDriverModal, setShowDriverModal] = createSignal(false);
   const [newDriverName, setNewDriverName] = createSignal('');
@@ -379,47 +386,6 @@ export const DeliveryFlow: Component = () => {
     setDraftItems(next);
   };
 
-  const updateItemPlannedQty = (order: Order, item: OrderItem, delta: number) => {
-    const key = makeItemKey(order, item);
-    const next = new Map(draftItems());
-    const existing = next.get(key);
-    if (!existing) return;
-
-    const cur = parseQty(existing.planned_qty);
-    const updated = Math.max(1, cur + delta);
-    next.set(key, {
-      ...existing,
-      planned_qty: updated.toString(),
-    });
-    setDraftItems(next);
-  };
-
-  const setItemPlannedQtyDirect = (order: Order, item: OrderItem, qtyStr: string) => {
-    const key = makeItemKey(order, item);
-    const next = new Map(draftItems());
-    const existing = next.get(key);
-    if (!existing) return;
-
-    next.set(key, {
-      ...existing,
-      planned_qty: qtyStr,
-    });
-    setDraftItems(next);
-  };
-
-  const setItemNote = (order: Order, item: OrderItem, note: string) => {
-    const key = makeItemKey(order, item);
-    const next = new Map(draftItems());
-    const existing = next.get(key);
-    if (!existing) return;
-
-    next.set(key, {
-      ...existing,
-      note,
-    });
-    setDraftItems(next);
-  };
-
   // Order-level select toggle
   const toggleOrderSelection = (order: Order) => {
     const eligible = (order.items || []).filter((it) => isItemEligible(it));
@@ -518,65 +484,33 @@ export const DeliveryFlow: Component = () => {
     });
   };
 
-  const toggleExpandAll = () => {
-    const allIds = visibleOrders().map((o) => String(o.id || ''));
-    if (expandedOrders().size >= allIds.length) {
-      setExpandedOrders(new Set<string>());
-    } else {
-      setExpandedOrders(new Set<string>(allIds));
+  const isDraft = () => selectedRunId() === null && draftItems().size > 0;
+  const pickedRun = createMemo<DeliveryRun | null>(() => {
+    if (isDraft()) return null;
+    const runs = runsData()?.runs || [];
+    if (selectedRunId() !== null) {
+      const found = runs.find((r) => r.id === selectedRunId());
+      if (found) return found;
     }
-  };
-
-  // Group selected draft items by Order for Stage 2 (Quantities & Dispatch)
-  type ConfigureEntry = { key: string; item: OrderItem; readonly planned_qty: string; readonly note: string };
-  type ConfigureGroup = { order: Order; entries: ConfigureEntry[] };
-  const selectedOrderGroups = createMemo<ConfigureGroup[]>((previous = []) => {
-    const previousGroups = new Map(previous.map((group) => [group.order.id || group.order.order_number || 'UNKNOWN', group]));
-    const previousEntries = new Map(previous.flatMap((group) => group.entries.map((entry) => [entry.key, entry] as const)));
-    const groups = new Map<string, ConfigureGroup>();
-    const term = debouncedConfigureSearchTerm().trim().toLowerCase();
-
-    for (const [key, draft] of draftItems().entries()) {
-      if (term) {
-        const matchCust = (draft.order.customer || '').toLowerCase().includes(term);
-        const matchArea = (draft.order.area || '').toLowerCase().includes(term);
-        const matchOrder = (draft.order.order_number || draft.order.id || '').toLowerCase().includes(term);
-        const matchItem = (draft.item.nama_barang || '').toLowerCase().includes(term);
-        const matchNote = (draftItems().get(key)?.note || '').toLowerCase().includes(term);
-        if (!matchCust && !matchArea && !matchOrder && !matchItem && !matchNote) continue;
-      }
-      const orderKey = draft.order.id || draft.order.order_number || 'UNKNOWN';
-      let group = groups.get(orderKey);
-      if (!group) {
-        group = { order: draft.order, entries: [] };
-        groups.set(orderKey, group);
-      }
-      const oldEntry = previousEntries.get(key);
-      const entry = oldEntry && oldEntry.item === draft.item
-        ? oldEntry
-        : {
-            key,
-            item: draft.item,
-            get planned_qty() { return draftItems().get(key)?.planned_qty || ''; },
-            get note() { return draftItems().get(key)?.note || ''; },
-          };
-      group.entries.push(entry);
-    }
-
-    return Array.from(groups, ([key, group]) => {
-      const oldGroup = previousGroups.get(key);
-      const sameEntries = oldGroup && oldGroup.entries.length === group.entries.length &&
-        oldGroup.entries.every((entry, index) => entry === group.entries[index]);
-      if (oldGroup && oldGroup.order === group.order && sameEntries) return oldGroup;
-      return { ...group, entries: sameEntries ? oldGroup!.entries : group.entries };
-    });
+    return runs[0] || null;
   });
 
-  // Driver Workload & Route Overview for the target Dispatch Date
+  const formatDispatchDate = (dateStr?: string) => {
+    if (!dateStr) return '-';
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat(locale() === 'id' ? 'id-ID' : 'en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(d);
+  };
+
+  // Driver Workload & Route Overview for the active dispatch date
   const driverWorkloads = createMemo(() => {
     const activeDrivers = (driversData()?.drivers || []).filter((d) => d.active);
     const allRuns = runsData()?.runs || [];
-    const targetDate = deliveryDate().trim();
+    const targetDate = (isDraft() ? deliveryDate() : (pickedRun()?.delivery_date || '')).trim();
     const dateRuns = allRuns.filter((r) => !targetDate || r.delivery_date === targetDate);
 
     return activeDrivers.map((d) => {
@@ -585,78 +519,46 @@ export const DeliveryFlow: Component = () => {
           (d.id && r.driver_id === d.id) ||
           (!r.driver_id && r.driver_name.trim().toLowerCase() === d.name.trim().toLowerCase())
       );
-	const activeRuns = matchingRuns.filter((r) => (r.status || '').toUpperCase() !== DELIVERY_RUN_STATUS.COMPLETED);
-      let assignedItems = 0;
-      const orderSet = new Set<string>();
       const areaSet = new Set<string>();
-
       for (const r of matchingRuns) {
-        assignedItems += r.total_items || (r.items ? r.items.length : 0);
         for (const a of r.areas || []) {
           if (a) areaSet.add(a);
         }
         for (const it of r.items || []) {
-          if (it.order_id) orderSet.add(it.order_id);
           if (it.area) areaSet.add(it.area);
         }
       }
-
       return {
         driver: d,
         runsCount: matchingRuns.length,
-        activeRunsCount: activeRuns.length,
-        assignedItems,
-        ordersCount: orderSet.size,
         areas: Array.from(areaSet),
       };
     });
   });
 
-  // Remove all items of a specific order from draft (Stage 2 order checkbox)
-  const removeOrderFromDraft = (order: Order) => {
-    const next = new Map(draftItems());
-    const ordId = order.id || order.order_number || '';
-    for (const [k, v] of next.entries()) {
-      if ((v.order.id || v.order.order_number || '') === ordId) {
-        next.delete(k);
-      }
-    }
-    setDraftItems(next);
-  };
-
-  // Reset all items in an order to their full remaining qty (Stage 2 helper)
-  const fillMaxRemainingInOrder = (order: Order) => {
-    const next = new Map(draftItems());
-    const ordId = order.id || order.order_number || '';
-    for (const [k, v] of next.entries()) {
-      if ((v.order.id || v.order.order_number || '') === ordId) {
-        const rem = getItemRemainingQty(v.item);
-        next.set(k, {
-          ...v,
-          planned_qty: rem > 0 ? rem.toString() : '1',
-        });
-      }
-    }
-    setDraftItems(next);
-  };
-
-  // Handle Driver assignment
-  const handleDriverSelect = (driverIdStr: string) => {
-    if (!driverIdStr) {
-      setSelectedDriverId(null);
-      setDriverName('');
-      return;
-    }
-    const id = parseInt(driverIdStr, 10);
-    const drivers = driversData()?.drivers || [];
-    const found = drivers.find((d) => d.id === id);
-    if (found) {
-      setSelectedDriverId(found.id || null);
-      setDriverName(found.name);
+  // Persist saved run updates cleanly
+  const persistSavedRun = async (run: DeliveryRun, patch: Partial<DeliveryRun>, refetchCands = false) => {
+    if (!run.id) return;
+    const payload: DeliveryRun = {
+      title: patch.title !== undefined ? patch.title : (run.title || ''),
+      driver_id: patch.driver_id !== undefined ? patch.driver_id : (run.driver_id || 0),
+      driver_name: patch.driver_name !== undefined ? patch.driver_name : (run.driver_name || 'Unassigned'),
+      areas: patch.areas !== undefined ? patch.areas : (run.areas || []),
+      delivery_date: patch.delivery_date !== undefined ? patch.delivery_date : run.delivery_date,
+      status: patch.status !== undefined ? patch.status : (run.status || DELIVERY_RUN_STATUS.PLANNED),
+      notes: patch.notes !== undefined ? patch.notes : (run.notes || ''),
+      items: patch.items !== undefined ? patch.items : (run.items || []),
+    };
+    try {
+      await updateDeliveryRun(run.id, payload);
+      refetchRuns();
+      if (refetchCands) refetchCandidates();
+    } catch (err) {
+      console.error('Failed to update delivery run:', err);
     }
   };
 
-  // Save or Update Delivery Run
+  // Save Draft Delivery Run
   const handleSaveRun = async () => {
     setPlannerError('');
     const dName = driverName().trim() || t('deliveryFlow.unassigned');
@@ -701,30 +603,28 @@ export const DeliveryFlow: Component = () => {
         driver_name: dName,
         areas: draftStats().areas,
         delivery_date: dDate,
-		status: DELIVERY_RUN_STATUS.PLANNED,
+        status: DELIVERY_RUN_STATUS.PLANNED,
         notes: runNotes().trim(),
         items: runItems,
       };
 
-      let savedRun: DeliveryRun;
-      if (editingRunId()) {
-        const res = await updateDeliveryRun(editingRunId()!, payload);
-        savedRun = res.run;
-      } else {
-        const res = await createDeliveryRun(payload);
-        savedRun = res.run;
-      }
+      const res = await createDeliveryRun(payload);
+      const savedRun = res.run;
 
       batch(() => {
         setDraftItems(new Map());
-        setEditingRunId(null);
         setRunTitle('');
         setRunNotes('');
+        setSelectedDriverId(null);
+        setDriverName('');
         setSelectedRunId(savedRun.id || null);
+        setRunsEditAll(false);
+        setRunsDispatchOpen(false);
+        setRunsFilterOpen(false);
+        setRunsDockPanel(null);
         setSearchParams({ tab: 'runs' });
         setReadyInWarehouseOnly(false);
         setIncludeClientHold(false);
-        flushConfigureSearchTerm('');
       });
 
       refetchRuns();
@@ -735,58 +635,6 @@ export const DeliveryFlow: Component = () => {
       setIsSavingRun(false);
     }
   };
-
-  // Load an existing run into planner to edit
-  const handleEditInPlanner = (run: DeliveryRun) => {
-    batch(() => {
-      setEditingRunId(run.id || null);
-      setDriverName(run.driver_name === 'Unassigned' ? '' : run.driver_name);
-      setSelectedDriverId(run.driver_id || null);
-      setDeliveryDate(run.delivery_date);
-      setRunTitle(run.title || '');
-      setRunNotes(run.notes || '');
-
-      const nextDraft = new Map<string, DraftItemSelection>();
-      for (const it of run.items || []) {
-        const mockOrder: Order = {
-          id: it.order_id || '',
-          order_number: it.order_number,
-          ecatalog_number: it.ecatalog_number,
-          customer: it.customer || '',
-          area: it.area || '',
-          tanggal: it.tanggal || '',
-          items: [],
-        };
-        const mockItem: OrderItem = {
-          row_index: it.row_index || 0,
-          order_number: it.order_number,
-          ecatalog_number: it.ecatalog_number,
-          nama_barang: it.nama_barang,
-          jumlah: it.jumlah || '',
-          satuan: it.satuan || '',
-          tanggal_pengiriman: '',
-          lead_time_pengiriman: '',
-          jumlah_terkirim: '',
-          belum_terkirim: it.belum_terkirim || '',
-          status_order: it.status_order || '',
-          status_barang: it.status_barang || '',
-          keterangan: it.keterangan || '',
-          catatan: it.catatan || '',
-        };
-        const k = it.source_key || makeItemKey(mockOrder, mockItem);
-        nextDraft.set(k, {
-          order: mockOrder,
-          item: mockItem,
-          planned_qty: it.planned_qty,
-          note: it.note || '',
-        });
-      }
-      setDraftItems(nextDraft);
-      flushConfigureSearchTerm('');
-      setSearchParams({ tab: 'configure' });
-    });
-  };
-
   // Driver CRUD handlers
   const handleAddDriver = async (e: Event) => {
     e.preventDefault();
@@ -838,9 +686,8 @@ export const DeliveryFlow: Component = () => {
     }
   };
 
-  // Sudden driver reassignment on active runs (Tab 2)
+  // Driver reassignment on active runs
   const handleReassignDriver = async (runId: number, driverIdStr: string) => {
-    setIsReassigningDriver(true);
     try {
       if (!driverIdStr) {
         await updateDeliveryRunDriver(runId, {
@@ -861,40 +708,25 @@ export const DeliveryFlow: Component = () => {
       refetchRuns();
     } catch (err) {
       console.error('Failed to reassign driver:', err);
-    } finally {
-      setIsReassigningDriver(false);
     }
   };
 
-  // Step 4: Runs & Picking Workspace
+  // Runs & Dispatch Workspace helpers
   const filteredRuns = createMemo(() => {
     let runs = runsData()?.runs || [];
     const q = runSearchQuery().trim().toLowerCase();
     if (q) {
       runs = runs.filter((r) =>
-        r.driver_name.toLowerCase().includes(q) ||
-        (r.title || '').toLowerCase().includes(q) ||
-        (r.areas || []).some((a) => a.toLowerCase().includes(q))
+        `${r.title || ''} #${r.id || ''} ${r.driver_name || ''} ${(r.areas || []).join(' ')}`
+          .toLowerCase()
+          .includes(q)
       );
     }
     const status = runStatusFilter();
     if (status !== 'ALL') {
       runs = runs.filter((r) => (r.status || '').toUpperCase() === status);
     }
-    const date = runDateFilter();
-    if (date) {
-      runs = runs.filter((r) => r.delivery_date === date);
-    }
     return runs;
-  });
-
-  const activeRun = createMemo(() => {
-    const runs = runsData()?.runs || [];
-    if (selectedRunId()) {
-      const found = runs.find((r) => r.id === selectedRunId());
-      if (found) return found;
-    }
-    return runs[0] || null;
   });
 
   const handleTogglePick = async (runId: number, itemId: number, currentPicked: boolean) => {
@@ -915,106 +747,377 @@ export const DeliveryFlow: Component = () => {
     }
   };
 
-  const confirmDeleteRun = async () => {
-    const run = runToDelete();
-    if (!run || !run.id) return;
+  interface WorkspaceItem {
+    key: string;
+    id?: number;
+    order_id: string;
+    order_number: string;
+    ecatalog_number: string;
+    customer: string;
+    area: string;
+    nama_barang: string;
+    satuan: string;
+    jumlah: number;
+    belum_terkirim: number;
+    planned_qty: number;
+    note: string;
+    picked: boolean;
+  }
+
+  const activeWorkspaceItems = createMemo<WorkspaceItem[]>(() => {
+    if (isDraft()) {
+      return Array.from(draftItems().entries()).map(([key, d]) => ({
+        key,
+        order_id: d.order.id || d.order.order_number || 'UNKNOWN',
+        order_number: d.order.order_number || d.order.id || '',
+        ecatalog_number: d.order.ecatalog_number || '',
+        customer: d.order.customer || t('deliveryFlow.unknownCustomer'),
+        area: d.order.area || '',
+        nama_barang: d.item.nama_barang,
+        satuan: d.item.satuan || '',
+        jumlah: parseQty(d.item.jumlah),
+        belum_terkirim: getItemRemainingQty(d.item),
+        planned_qty: Math.max(1, parseQty(d.planned_qty)),
+        note: d.note || '',
+        picked: false,
+      }));
+    }
+    const run = pickedRun();
+    if (!run) return [];
+    return (run.items || []).map((it, idx) => {
+      const rem = parseQty(it.belum_terkirim);
+      const req = parseQty(it.jumlah);
+      return {
+        key: String(it.id ?? idx),
+        id: it.id,
+        order_id: it.order_id || it.order_number || 'UNKNOWN',
+        order_number: it.order_number || it.order_id || '',
+        ecatalog_number: it.ecatalog_number || '',
+        customer: it.customer || t('deliveryFlow.unknownCustomer'),
+        area: it.area || '',
+        nama_barang: it.nama_barang,
+        satuan: it.satuan || '',
+        jumlah: req,
+        belum_terkirim: rem > 0 ? rem : req,
+        planned_qty: Math.max(1, parseQty(it.planned_qty)),
+        note: it.note || '',
+        picked: Boolean(it.picked),
+      };
+    });
+  });
+
+  const visibleWorkspaceItems = createMemo(() => {
+    const items = activeWorkspaceItems();
+    const terms = runsItemQuery().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const pFilter = runsPickFilter();
+    const dFilter = runsDestinationFilter();
+    if (!terms.length && pFilter === 'all' && !dFilter) return items;
+    return items.filter((item) => {
+      if (!isDraft() && pFilter !== 'all' && item.picked !== (pFilter === 'picked')) return false;
+      if (dFilter && JSON.stringify([item.customer, item.area]) !== dFilter) return false;
+      if (!terms.length) return true;
+      const text = `${item.nama_barang} ${item.customer} ${item.area} ${item.order_number} ${item.ecatalog_number} ${item.note}`.toLowerCase();
+      return terms.every((term) => text.includes(term));
+    });
+  });
+
+  const workspaceDestinations = createMemo(() => {
+    const options = new Map<string, string>();
+    for (const item of activeWorkspaceItems()) {
+      const label = item.area ? `${item.customer} \u00b7 ${item.area}` : item.customer;
+      options.set(JSON.stringify([item.customer, item.area]), label);
+    }
+    return options;
+  });
+
+  createEffect(() => {
+    if (runsDestinationFilter() && !workspaceDestinations().has(runsDestinationFilter())) {
+      setRunsDestinationFilter('');
+    }
+  });
+
+  createEffect(
+    on(
+      () => [selectedRunId(), isDraft(), runsEditAll()],
+      () => setEditingItemKey(undefined)
+    )
+  );
+
+  const enabledRunsFilterCount = () =>
+    Number(runsGroupBy() === 'none') +
+    Number(!isDraft() && runsPickFilter() !== 'all') +
+    Number(Boolean(runsDestinationFilter()));
+
+  const pickedRunCount = createMemo(() => {
+    let count = 0;
+    for (const it of pickedRun()?.items || []) {
+      if (it.picked) count++;
+    }
+    return count;
+  });
+  const activeDriverId = () => {
+    if (isDraft()) return selectedDriverId();
+    const id = pickedRun()?.driver_id;
+    return id && id > 0 ? id : null;
+  };
+
+  const getDriverVehicle = (driverId?: number | null, name?: string) => {
+    const drivers = driversData()?.drivers || [];
+    const found =
+      (driverId ? drivers.find((d) => d.id === driverId) : undefined) ||
+      (name ? drivers.find((d) => d.name.trim().toLowerCase() === name.trim().toLowerCase()) : undefined);
+    return found?.vehicle?.trim() || '';
+  };
+
+  const activeWorkspaceItemMap = createMemo(() => {
+    const map = new Map<string, WorkspaceItem>();
+    for (const item of activeWorkspaceItems()) {
+      map.set(item.key, item);
+    }
+    return map;
+  });
+
+  const visibleWorkspaceItemKeys = createMemo(() => visibleWorkspaceItems().map((it) => it.key));
+
+  const groupedWorkspaceOrders = createMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        order_id: string;
+        order_number: string;
+        ecatalog_number: string;
+        customer: string;
+        area: string;
+        items: WorkspaceItem[];
+      }
+    >();
+    for (const item of visibleWorkspaceItems()) {
+      const existing = groups.get(item.order_id);
+      if (existing) {
+        existing.items.push(item);
+      } else {
+        groups.set(item.order_id, {
+          order_id: item.order_id,
+          order_number: item.order_number,
+          ecatalog_number: item.ecatalog_number,
+          customer: item.customer,
+          area: item.area,
+          items: [item],
+        });
+      }
+    }
+    return Array.from(groups.values());
+  });
+
+  const orderPickTotals = createMemo(() => {
+    const counts = new Map<string, { picked: number; total: number }>();
+    for (const item of activeWorkspaceItems()) {
+      const c = counts.get(item.order_id) ?? { picked: 0, total: 0 };
+      c.total++;
+      if (item.picked) c.picked++;
+      counts.set(item.order_id, c);
+    }
+    return counts;
+  });
+
+  const closeRunsDockPanel = () => {
+    if (!runsDockPanel()) return;
+    setRunsDockPanel(null);
+    runsDockTrigger?.focus({ preventScroll: true });
+  };
+
+  const toggleRunsDockPanel = (panel: RunsDockPanel, trigger: HTMLButtonElement) => {
+    if (runsDockPanel() === panel) {
+      closeRunsDockPanel();
+    } else {
+      runsDockTrigger = trigger;
+      setRunsDockPanel(panel);
+    }
+  };
+
+  const resetRunsItemFilters = () => {
+    batch(() => {
+      setRunsGroupBy('destination');
+      setRunsPickFilter('all');
+      setRunsDestinationFilter('');
+    });
+  };
+
+  const openDraftInRuns = () => {
+    batch(() => {
+      setDockFilterOpen(false);
+      setSelectedRunId(null);
+      setRunsItemQuery('');
+      setRunsPickFilter('all');
+      setRunsDestinationFilter('');
+      setRunsEditAll(true);
+      setRunsDispatchOpen(true);
+      setRunsFilterOpen(false);
+      setSearchParams({ tab: 'runs' });
+    });
+    closeRunsDockPanel();
+  };
+
+  const selectRunInWorkspace = (runId: number) => {
+    batch(() => {
+      setSelectedRunId(runId);
+      setRunsItemQuery('');
+      setRunsPickFilter('all');
+      setRunsDestinationFilter('');
+      setRunsEditAll(false);
+      setRunsDispatchOpen(false);
+      setRunsFilterOpen(false);
+    });
+    closeRunsDockPanel();
+  };
+
+  const handleAssignRunDriver = async (driverId: number | null) => {
+    if (isDraft()) {
+      if (driverId === null) {
+        setSelectedDriverId(null);
+        setDriverName('');
+      } else {
+        const found = (driversData()?.drivers || []).find((d) => d.id === driverId);
+        if (found) {
+          setSelectedDriverId(found.id || null);
+          setDriverName(found.name);
+        }
+      }
+      return;
+    }
+    const run = pickedRun();
+    if (!run?.id) return;
+    await handleReassignDriver(run.id, driverId === null ? '' : String(driverId));
+  };
+
+  const handleUpdateRunDate = (date: string) => {
+    if (isDraft()) {
+      setDeliveryDate(date);
+      return;
+    }
+    const run = pickedRun();
+    if (run) persistSavedRun(run, { delivery_date: date });
+  };
+
+  const handleUpdateRunTitle = (title: string) => {
+    if (isDraft()) {
+      setRunTitle(title);
+      return;
+    }
+    const run = pickedRun();
+    if (run && (run.title || '') !== title) persistSavedRun(run, { title });
+  };
+
+  const handleUpdateRunNotes = (notes: string) => {
+    if (isDraft()) {
+      setRunNotes(notes);
+      return;
+    }
+    const run = pickedRun();
+    if (run && (run.notes || '') !== notes) persistSavedRun(run, { notes });
+  };
+
+  const handleUpdateItemQty = (item: WorkspaceItem, qty: number) => {
+    const maxQty = item.belum_terkirim > 0 ? item.belum_terkirim : qty;
+    const clamped = Math.max(1, Math.min(maxQty, Math.round(qty)));
+    if (isDraft()) {
+      setDraftItems((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(item.key);
+        if (existing) next.set(item.key, { ...existing, planned_qty: String(clamped) });
+        return next;
+      });
+      return;
+    }
+    const run = pickedRun();
+    if (!run || item.id === undefined) return;
+    const nextItems = (run.items || []).map((it) =>
+      it.id === item.id ? { ...it, planned_qty: String(clamped) } : it
+    );
+    persistSavedRun(run, { items: nextItems }, true);
+  };
+
+  const handleUpdateItemNote = (item: WorkspaceItem, note: string) => {
+    if (isDraft()) {
+      setDraftItems((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(item.key);
+        if (existing) next.set(item.key, { ...existing, note });
+        return next;
+      });
+      return;
+    }
+    const run = pickedRun();
+    if (!run || item.id === undefined) return;
+    const nextItems = (run.items || []).map((it) =>
+      it.id === item.id ? { ...it, note } : it
+    );
+    persistSavedRun(run, { items: nextItems });
+  };
+
+  const handleRemoveWorkspaceItem = (item: WorkspaceItem) => {
+    if (isDraft()) {
+      removeDraftItem(item.key);
+      return;
+    }
+    const run = pickedRun();
+    if (!run || item.id === undefined || (run.items?.length || 0) <= 1) return;
+    const nextItems = (run.items || []).filter((it) => it.id !== item.id);
+    const areas = Array.from(new Set(nextItems.map((it) => it.area || '').filter(Boolean)));
+    persistSavedRun(run, { items: nextItems, areas }, true);
+  };
+
+  const handleFillOrderRemaining = (orderId: string) => {
+    if (isDraft()) {
+      setDraftItems((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of next.entries()) {
+          if ((v.order.id || v.order.order_number || 'UNKNOWN') === orderId) {
+            const rem = getItemRemainingQty(v.item);
+            next.set(k, { ...v, planned_qty: rem > 0 ? String(rem) : '1' });
+          }
+        }
+        return next;
+      });
+      return;
+    }
+    const run = pickedRun();
+    if (!run) return;
+    const nextItems = (run.items || []).map((it) => {
+      if ((it.order_id || it.order_number || 'UNKNOWN') !== orderId) return it;
+      const rem = parseQty(it.belum_terkirim) || parseQty(it.jumlah);
+      return { ...it, planned_qty: rem > 0 ? String(rem) : it.planned_qty };
+    });
+    persistSavedRun(run, { items: nextItems }, true);
+  };
+
+  const confirmDeleteOrDiscard = async () => {
+    if (isDraft()) {
+      batch(() => {
+        setDraftItems(new Map());
+        setRunTitle('');
+        setRunNotes('');
+        setSelectedDriverId(null);
+        setDriverName('');
+        setDeleteDialogOpen(false);
+      });
+      return;
+    }
+    const run = pickedRun();
+    if (!run?.id) return;
     setIsDeletingRun(true);
     try {
       await deleteDeliveryRun(run.id);
-      setRunToDelete(null);
+      setDeleteDialogOpen(false);
       if (selectedRunId() === run.id) {
         setSelectedRunId(null);
       }
       refetchRuns();
+      refetchCandidates();
     } catch (err) {
       console.error('Failed to delete run:', err);
     } finally {
       setIsDeletingRun(false);
-    }
-  };
-
-  // Grouped active run items for Picking View
-  const runItemsByOrder = createMemo(() => {
-    const run = activeRun();
-    if (!run) return [];
-    const groups = new Map<string, {
-      orderId: string;
-      orderNumber?: string;
-      customer: string;
-      area: string;
-      items: DeliveryRunItem[];
-    }>();
-
-    for (const it of run.items || []) {
-      const orderKey = it.order_id || 'UNKNOWN';
-      if (!groups.has(orderKey)) {
-        groups.set(orderKey, {
-          orderId: it.order_id || '',
-          orderNumber: it.order_number,
-          customer: it.customer || t('deliveryFlow.unknownCustomer'),
-          area: it.area || '',
-          items: [],
-        });
-      }
-      groups.get(orderKey)!.items.push(it);
-    }
-
-    return Array.from(groups.values());
-  });
-
-  const consolidatedRunItems = createMemo(() => {
-    const run = activeRun();
-    if (!run) return [];
-    const groups = new Map<string, {
-      nama_barang: string;
-      satuan: string;
-      status_barang: string;
-      totalPlannedQty: number;
-      allPicked: boolean;
-      somePicked: boolean;
-      items: DeliveryRunItem[];
-      destinations: { customer: string; orderId: string; plannedQty: string }[];
-    }>();
-
-    for (const it of run.items || []) {
-      const key = `${it.nama_barang.trim().toLowerCase()}_${(it.satuan || '').trim().toLowerCase()}`;
-      if (!groups.has(key)) {
-        groups.set(key, {
-          nama_barang: it.nama_barang,
-          satuan: it.satuan || '',
-          status_barang: it.status_barang || '',
-          totalPlannedQty: 0,
-          allPicked: true,
-          somePicked: false,
-          items: [],
-          destinations: [],
-        });
-      }
-      const grp = groups.get(key)!;
-      grp.items.push(it);
-      grp.totalPlannedQty += parseQty(it.planned_qty);
-      grp.destinations.push({
-        customer: it.customer || '',
-        orderId: it.order_number || it.order_id || '',
-        plannedQty: it.planned_qty,
-      });
-      if (it.picked) {
-        grp.somePicked = true;
-      } else {
-        grp.allPicked = false;
-      }
-    }
-
-    return Array.from(groups.values()).sort((a, b) => a.nama_barang.localeCompare(b.nama_barang));
-  });
-
-  const toggleConsolidatedProduct = async (runId: number, items: DeliveryRunItem[], allPicked: boolean) => {
-    const targetPicked = !allPicked;
-    try {
-      await Promise.all(items.map((it) => it.id ? toggleDeliveryRunItemPick(runId, it.id, targetPicked) : Promise.resolve()));
-      refetchRuns();
-    } catch (err) {
-      console.error('Failed to toggle consolidated pick:', err);
     }
   };
   const PlanSelectSidebarContent = () => (
@@ -1162,11 +1265,6 @@ export const DeliveryFlow: Component = () => {
             <IconListCheck class="size-3.5" />
             {t('deliveryFlow.selectionSummary')}
           </CardTitle>
-          <Show when={editingRunId()}>
-            <span class="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-muted text-foreground">
-              {t('deliveryFlow.runIdFallback', { id: editingRunId() ?? '' })}
-            </span>
-          </Show>
         </CardHeader>
         <CardContent class="p-3.5 pt-0 space-y-3">
           <div class="p-2.5 rounded-lg bg-muted/30 border border-border space-y-1">
@@ -1190,10 +1288,7 @@ export const DeliveryFlow: Component = () => {
           <div class="space-y-1.5">
             <Button
               size="sm"
-              onClick={() => {
-                setSidebarOpen(false);
-                setSearchParams({ tab: 'configure' });
-              }}
+              onClick={openDraftInRuns}
               disabled={draftStats().totalItems === 0}
               class="w-full text-xs h-9 font-semibold gap-1.5"
             >
@@ -1203,347 +1298,6 @@ export const DeliveryFlow: Component = () => {
           </div>
         </CardContent>
       </Card>
-    </div>
-  );
-
-  const ConfigureDispatchSidebarContent = () => (
-    <div class="space-y-4">
-      {/* Card 1: Driver Workload & Route Overview */}
-      <Card class="border-border bg-card shadow-xs animate-[card-enter_400ms_ease-out_both]">
-        <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between gap-2">
-          <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-primary">
-            <IconUser class="size-3.5" />
-            {t('deliveryFlow.driverWorkload')}
-          </CardTitle>
-          <div class="flex items-center gap-1.5">
-            <span class="text-[10px] font-mono text-muted-foreground">
-              {deliveryDate() || t('deliveryFlow.allDates')}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowDriverModal(true)}
-              class="text-[10px] h-6 px-2 border-border"
-            >
-              {t('deliveryFlow.roster')}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent class="p-3.5 pt-0 space-y-2">
-          <Show
-            when={driverWorkloads().length > 0}
-            fallback={
-              <div class="p-3 rounded-lg border border-dashed text-center text-xs text-muted-foreground">
-                {t('deliveryFlow.noActiveDrivers')}
-              </div>
-            }
-          >
-            <For each={driverWorkloads()}>
-              {(wl) => {
-                const isSelectedDriver = () => selectedDriverId() === wl.driver.id;
-                return (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleDriverSelect(
-                        isSelectedDriver() ? '' : (wl.driver.id?.toString() || '')
-                      )
-                    }
-                    class={cn(
-                      'w-full p-2.5 rounded-lg border text-left text-xs transition-all space-y-1',
-                      isSelectedDriver()
-                        ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                        : 'border-border bg-card hover:border-primary/50'
-                    )}
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-1.5 min-w-0">
-                        <span class="font-bold text-foreground truncate">{wl.driver.name}</span>
-                        <Show when={wl.driver.vehicle}>
-                          <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground shrink-0">
-                            {wl.driver.vehicle}
-                          </span>
-                        </Show>
-                      </div>
-                      <span
-                        class={cn(
-                          'text-[10px] font-semibold px-1.5 py-0.5 rounded-full tabular-nums shrink-0',
-                          wl.activeRunsCount > 0
-                            ? 'bg-status-proses/15 text-status-proses border border-status-proses/30'
-                            : 'bg-status-selesai/15 text-status-selesai border border-status-selesai/30'
-                        )}
-                      >
-                        {wl.runsCount === 0
-                          ? t('deliveryFlow.available')
-                          : t('deliveryFlow.runsCount', { count: wl.runsCount })}
-                      </span>
-                    </div>
-                    <div class="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
-                      <span>
-                        {t('deliveryFlow.assignedSummary', { items: wl.assignedItems, orders: wl.ordersCount })}
-                      </span>
-                      <Show when={isSelectedDriver()}>
-                        <span class="text-[10px] font-semibold text-primary">{t('deliveryFlow.assigned')}</span>
-                      </Show>
-                    </div>
-                    <Show when={wl.areas.length > 0}>
-                      <div class="text-[10px] text-muted-foreground truncate pt-0.5 border-t border-border/60">
-                        {t('deliveryFlow.routesLabel', { routes: wl.areas.join(', ') })}
-                      </div>
-                    </Show>
-                  </button>
-                );
-              }}
-            </For>
-          </Show>
-        </CardContent>
-      </Card>
-
-      {/* Card 2: Driver Assignment & Run Dispatch Action */}
-      <Card class="border-border bg-card shadow-sm animate-[card-enter_400ms_ease-out_both]" style={{ "animation-delay": "100ms" }}>
-        <CardHeader class="p-3.5 pb-2 flex flex-row items-center justify-between">
-          <CardTitle class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
-            <IconTruckDelivery class="size-3.5" />
-            {t('deliveryFlow.driverAssignment')}
-          </CardTitle>
-          <Show when={editingRunId()}>
-            <span class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-muted text-foreground">
-              {t('deliveryFlow.editRunBadge', { id: editingRunId() ?? '' })}
-            </span>
-          </Show>
-        </CardHeader>
-
-        <CardContent class="p-3.5 pt-0 space-y-3">
-          <div>
-            <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              {t('deliveryFlow.assignedDriverLabel')}
-            </label>
-            <select
-              class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              value={selectedDriverId() ? selectedDriverId()!.toString() : ''}
-              onChange={(e) => handleDriverSelect(e.currentTarget.value)}
-            >
-              <option value="">{t('deliveryFlow.unassignedOption')}</option>
-              <For each={driversData()?.drivers?.filter((d) => d.active)}>
-                {(d) => (
-                  <option value={d.id?.toString()}>
-                    {d.name} {d.vehicle ? `(${d.vehicle})` : ''}
-                  </option>
-                )}
-              </For>
-            </select>
-            <Show when={!selectedDriverId() && driverName()}>
-              <input
-                type="text"
-                placeholder={t('deliveryFlow.customDriverPlaceholder')}
-                value={driverName()}
-                onInput={(e) => setDriverName(e.currentTarget.value)}
-                class="mt-1 w-full text-xs py-1 px-2 rounded-md border border-border bg-background text-foreground"
-              />
-            </Show>
-          </div>
-
-          <div>
-            <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              {t('deliveryFlow.dispatchDateLabel')}
-            </label>
-            <input
-              type="date"
-              value={deliveryDate()}
-              onInput={(e) => setDeliveryDate(e.currentTarget.value)}
-              class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-
-          <div>
-            <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              {t('deliveryFlow.runTitleLabel')}
-            </label>
-            <input
-              type="text"
-              placeholder={t('deliveryFlow.runTitlePlaceholder')}
-              value={runTitle()}
-              onInput={(e) => setRunTitle(e.currentTarget.value)}
-              class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-
-          <div>
-            <label class="block text-[11px] font-semibold text-muted-foreground mb-1">
-              {t('deliveryFlow.routeNotesLabel')}
-            </label>
-            <input
-              type="text"
-              placeholder={t('deliveryFlow.routeNotesPlaceholder')}
-              value={runNotes()}
-              onInput={(e) => setRunNotes(e.currentTarget.value)}
-              class="w-full text-xs py-1.5 px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-
-          <div class="p-2.5 rounded-lg bg-muted/30 border border-border space-y-1">
-            <div class="flex items-center justify-between text-xs font-bold text-foreground">
-              <span>{t('deliveryFlow.selectedItemsLabel')}</span>
-              <span class="text-primary font-extrabold text-sm tabular-nums">
-                {t('deliveryFlow.itemsCount', { count: draftStats().totalItems })}
-              </span>
-            </div>
-            <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>{t('deliveryFlow.totalPlannedQtyLabel')}</span>
-              <span class="font-semibold text-foreground tabular-nums">
-                {t('deliveryFlow.plannedUnits', { count: draftStats().totalPlannedUnits })}
-              </span>
-            </div>
-            <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>{t('deliveryFlow.ordersCoveredLabel')}</span>
-              <span class="tabular-nums">{t('deliveryFlow.ordersCoveredCount', { count: draftStats().totalOrders })}</span>
-            </div>
-            <Show when={draftStats().areas.length > 0}>
-              <div class="text-[10px] text-muted-foreground truncate pt-1 border-t border-border">
-                {t('deliveryFlow.areasLabel', { areas: draftStats().areas.join(', ') })}
-              </div>
-            </Show>
-          </div>
-
-          <div class="space-y-1.5">
-            <Button
-              size="sm"
-              onClick={async () => {
-                await handleSaveRun();
-                setSidebarOpen(false);
-              }}
-              disabled={isSavingRun() || draftStats().totalItems === 0}
-              class="w-full text-xs h-9 font-semibold gap-1.5"
-            >
-              <Show when={isSavingRun()} fallback={<IconArrowRight class="size-4" />}>
-                <Spinner size="sm" />
-              </Show>
-              <span>{editingRunId() ? t('deliveryFlow.updateRun') : t('deliveryFlow.dispatchSaveRun')}</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSidebarOpen(false);
-                setSearchParams({ tab: 'plan' });
-              }}
-              class="w-full text-[11px] h-8 gap-1"
-            >
-              <IconArrowLeft class="size-3.5" />
-              <span>{t('deliveryFlow.backToSelectItems')}</span>
-            </Button>
-
-            <Show when={draftStats().totalItems > 0}>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setDraftItems(new Map());
-                  setEditingRunId(null);
-                }}
-                class="w-full text-[11px] h-7 text-muted-foreground hover:text-foreground"
-              >
-                {t('deliveryFlow.clearSelection')}
-              </Button>
-            </Show>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const RunsListContent = (props: { onSelectRun?: () => void }) => (
-    <div class="space-y-4">
-      <Card class="animate-[card-enter_400ms_ease-out_both]">
-        <CardHeader class="pb-3 flex flex-row items-center justify-between">
-          <CardTitle class="text-base font-semibold flex items-center gap-2">
-            <IconBuildingWarehouse class="size-4 text-primary" />
-            {t('deliveryFlow.dispatchRuns')}
-          </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetchRuns()}
-            class="text-xs h-7 px-2"
-          >
-            <IconRefresh class="size-3" />
-          </Button>
-        </CardHeader>
-        <CardContent class="space-y-3 pt-0">
-          <input
-            type="text"
-            placeholder={t('deliveryFlow.searchRunsPlaceholder')}
-            value={runSearchQuery()}
-            onInput={(e) => setRunSearchQuery(e.currentTarget.value)}
-            class="w-full py-1 px-2.5 text-xs rounded-md border bg-background"
-          />
-          <div class="flex flex-wrap gap-1">
-			<For each={['ALL', DELIVERY_RUN_STATUS.PLANNED, DELIVERY_RUN_STATUS.PICKING, DELIVERY_RUN_STATUS.READY, DELIVERY_RUN_STATUS.DISPATCHED, DELIVERY_RUN_STATUS.COMPLETED]}>
-              {(st) => (
-                <button
-                  type="button"
-                  onClick={() => setRunStatusFilter(st)}
-                  class={cn(
-                    'px-2 py-0.5 text-[10px] font-semibold rounded-full border transition-all',
-                    runStatusFilter() === st
-                      ? 'bg-foreground text-background border-foreground'
-                      : 'bg-background text-muted-foreground border-border hover:bg-muted'
-                  )}
-                >
-                  {getRunStatusLabel(st)}
-                </button>
-              )}
-            </For>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stack */}
-      <div class="space-y-2.5">
-        <For each={filteredRuns()}>
-          {(run, index) => {
-            const isSelected = () => activeRun()?.id === run.id;
-            const total = () => run.total_items || 0;
-            const picked = () => run.picked_items || 0;
-            const pct = () => (total() > 0 ? Math.round((picked() / total()) * 100) : 0);
-
-            return (
-              <div
-                onClick={() => {
-                  setSelectedRunId(run.id || null);
-                  props.onSelectRun?.();
-                }}
-                style={{ "animation-delay": `${index() * 40}ms` }}
-                class={cn(
-                  'p-3 rounded-lg border text-left cursor-pointer transition-all space-y-2 animate-[card-enter_400ms_ease-out_both]',
-                  isSelected()
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary/20 shadow-sm'
-                    : 'border-border bg-card hover:border-primary/50'
-                )}
-              >
-                <div class="flex items-start justify-between gap-2">
-                  <div>
-                    <div class="text-xs font-bold text-foreground">
-                      {run.title || t('deliveryFlow.runIdFallback', { id: run.id ?? '' })}
-                    </div>
-                    <div class="text-[11px] text-muted-foreground font-medium flex items-center gap-1.5 mt-0.5">
-                      <IconUser class="size-3" />
-                      <span>{run.driver_name || t('deliveryFlow.unassigned')}</span>
-                    </div>
-                  </div>
-				<Badge status={run.status || DELIVERY_RUN_STATUS.PLANNED} />
-                </div>
-
-                <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>{run.delivery_date}</span>
-                  <span>{t('deliveryFlow.pickedProgressSummary', { picked: picked(), total: total(), pct: pct() })}</span>
-                </div>
-              </div>
-            );
-          }}
-        </For>
-      </div>
     </div>
   );
 
@@ -1827,7 +1581,7 @@ export const DeliveryFlow: Component = () => {
           <Button
             size="sm"
             disabled={draftStats().totalItems === 0}
-            onClick={() => setSearchParams({ tab: 'configure' })}
+            onClick={openDraftInRuns}
             class="text-xs h-10 gap-1.5 rounded-xl font-semibold"
           >
             <span>{t('deliveryFlow.continueToDispatch')}</span>
@@ -1838,47 +1592,593 @@ export const DeliveryFlow: Component = () => {
     </>
   );
 
-  // Persistent Bottom Dock for Stage 2 (Configure Dispatch)
-  const BottomDockConfigure = () => (
-    <div class="fixed bottom-2 left-2 right-2 z-40 p-3.5 sm:p-4 rounded-2xl border bg-card/98 backdrop-blur-md shadow-2xl no-print">
-      <div class="flex items-center justify-between text-xs mb-2.5">
-        <button
-          type="button"
-          onClick={() => setSearchParams({ tab: 'plan' })}
-          class="inline-flex items-center gap-1 text-xs text-primary hover:underline font-semibold"
-        >
-          <IconArrowLeft class="size-3.5" />
-          <span>{t('deliveryFlow.backToSelectItems')}</span>
-        </button>
-        <span class="text-[11px] text-muted-foreground tabular-nums">
-          {t('deliveryFlow.selectedItemsCount', { count: draftStats().totalItems, units: draftStats().totalPlannedUnits })}
-        </span>
-      </div>
-      <div class="grid grid-cols-2 gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setSidebarOpen(true)}
-          class="text-xs h-10 gap-1.5 rounded-xl font-medium"
-        >
-          <IconUser class="size-3.5" />
-          <span>{t('deliveryFlow.driverAndRoster')}</span>
-        </Button>
-        <Button
-          size="sm"
-          disabled={isSavingRun() || draftStats().totalItems === 0}
-          onClick={handleSaveRun}
-          class="text-xs h-10 gap-1.5 rounded-xl font-semibold"
-        >
-          <Show when={isSavingRun()} fallback={<IconTruckDelivery class="size-3.5" />}>
-            <Spinner size="sm" />
-          </Show>
-          <span>{editingRunId() ? t('deliveryFlow.updateRun') : t('deliveryFlow.dispatchSaveRun')}</span>
-        </Button>
-      </div>
-    </div>
+  const fieldInputClass =
+    'h-11 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-base text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 md:text-sm';
+  const insetFocusClass =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
+  const runStatusClasses: Record<string, string> = {
+    [DELIVERY_RUN_STATUS.PLANNED]: 'bg-muted text-muted-foreground border-border',
+    [DELIVERY_RUN_STATUS.PICKING]: 'bg-status-proses/15 text-status-proses border-status-proses/30',
+    [DELIVERY_RUN_STATUS.READY]: 'bg-status-selesai/15 text-status-selesai border-status-selesai/30',
+    [DELIVERY_RUN_STATUS.DISPATCHED]: 'bg-primary/10 text-foreground border-primary/30',
+    [DELIVERY_RUN_STATUS.COMPLETED]: 'bg-status-selesai/15 text-status-selesai border-status-selesai/30',
+  };
+  const runStatusFlow: readonly DeliveryRunStatus[] = [
+    DELIVERY_RUN_STATUS.PLANNED,
+    DELIVERY_RUN_STATUS.PICKING,
+    DELIVERY_RUN_STATUS.READY,
+    DELIVERY_RUN_STATUS.DISPATCHED,
+    DELIVERY_RUN_STATUS.COMPLETED,
+  ];
+  const runFeedFilters = ['ALL', ...runStatusFlow] as const;
+  const ActiveFilter: Component<{ label: string; onRemove: () => void }> = (props) => (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      class="h-9 min-w-0 max-w-full gap-1 rounded-full bg-muted/35 px-2.5"
+      title={props.label}
+      aria-label={t('deliveryFlow.removeFilter', { label: props.label })}
+      onClick={props.onRemove}
+    >
+      <span class="truncate">{props.label}</span>
+      <IconX aria-hidden="true" />
+    </Button>
   );
 
+  const RunFeed = () => (
+    <>
+      <div class="grid min-w-0 gap-2">
+        <div class="relative min-w-0">
+          <IconSearch aria-hidden="true" class="pointer-events-none absolute left-3 top-3.5 size-4 text-muted-foreground" />
+          <input
+            type="search"
+            aria-label={t('deliveryFlow.searchRunsPlaceholder')}
+            placeholder={t('deliveryFlow.searchRunsPlaceholder')}
+            value={runSearchQuery()}
+            onInput={(e) => setRunSearchQuery(e.currentTarget.value)}
+            class={cn(fieldInputClass, 'pl-9 [&::-webkit-search-cancel-button]:hidden', runSearchQuery() && 'pr-10')}
+          />
+          <Show when={runSearchQuery()}>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              class="absolute right-0.5 top-0.5 size-10"
+              aria-label={t('deliveryFlow.clearSearch')}
+              onClick={() => setRunSearchQuery('')}
+            >
+              <IconX aria-hidden="true" />
+            </Button>
+          </Show>
+        </div>
+        <div class="flex flex-wrap gap-1" aria-label={t('deliveryFlow.runStatusLabel')} role="group">
+          <For each={runFeedFilters}>
+            {(st) => (
+              <Button
+                type="button"
+                variant={runStatusFilter() === st ? 'default' : 'outline'}
+                size="sm"
+                class="h-10 px-2.5 text-[11px] tracking-wide"
+                aria-pressed={runStatusFilter() === st}
+                onClick={() => setRunStatusFilter(st)}
+              >
+                {getRunStatusLabel(st)}
+              </Button>
+            )}
+          </For>
+        </div>
+      </div>
+
+      <Show when={draftItems().size > 0}>
+        <button
+          type="button"
+          aria-pressed={isDraft()}
+          class={cn(
+            'flex min-h-16 w-full min-w-0 items-center gap-3 rounded-lg border border-dashed border-primary/50 bg-muted/40 px-3 py-2 text-left transition-colors hover:bg-muted',
+            insetFocusClass,
+            isDraft() && 'border-primary bg-muted'
+          )}
+          onClick={openDraftInRuns}
+        >
+          <span class="grid size-9 shrink-0 place-items-center rounded-md border bg-background">
+            <IconFilePlus class="size-5" aria-hidden="true" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold">{t('deliveryFlow.pendingDraft')}</span>
+            <span class="block text-xs text-muted-foreground">
+              {t('deliveryFlow.itemsReadyToConfigure', { count: draftItems().size })}
+            </span>
+          </span>
+          <IconChevronRight aria-hidden="true" class="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      </Show>
+
+      <For
+        each={filteredRuns()}
+        fallback={
+          <p class="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+            {t('deliveryFlow.noMatchingRuns')}
+          </p>
+        }
+      >
+        {(run) => {
+          const total = () => run.total_items || run.items?.length || 0;
+          const picked = () => run.picked_items || (run.items || []).filter((it) => it.picked).length;
+          const pct = () => (total() > 0 ? Math.round((picked() / total()) * 100) : 0);
+          const vehicle = () => getDriverVehicle(run.driver_id, run.driver_name);
+          const statusKey = () => (run.status || DELIVERY_RUN_STATUS.PLANNED).toUpperCase();
+          const isSelected = () => !isDraft() && pickedRun()?.id === run.id;
+
+          return (
+            <button
+              type="button"
+              aria-pressed={isSelected()}
+              class={cn(
+                'group w-full min-w-0 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50',
+                insetFocusClass,
+                isSelected() && 'border-primary/50 bg-muted/35'
+              )}
+              onClick={() => run.id && selectRunInWorkspace(run.id)}
+            >
+              <span class="flex min-w-0 flex-wrap items-center justify-between gap-1.5">
+                <span class="font-mono text-xs font-semibold tabular-nums text-muted-foreground">#{run.id}</span>
+                <Badge status={statusKey()} class={runStatusClasses[statusKey()] || ''} />
+              </span>
+              <span class="mt-1.5 flex min-w-0 items-center gap-2">
+                <span class="min-w-0 flex-1 break-words text-sm font-semibold leading-snug">
+                  {run.title || t('deliveryFlow.runIdFallback', { id: run.id ?? '' })}
+                </span>
+                <IconChevronRight aria-hidden="true" class="size-4 shrink-0 text-muted-foreground" />
+              </span>
+              <span class="mt-2 flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
+                <IconTruck class="size-4 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 break-words">
+                  {run.driver_name || t('deliveryFlow.unassigned')}
+                  <Show when={vehicle()}>
+                    <span class="text-muted-foreground"> ({vehicle()})</span>
+                  </Show>
+                </span>
+              </span>
+              <span class="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <IconMapPin class="size-4 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 break-words">
+                  {(run.areas || []).length > 0 ? run.areas!.map(formatAreaLabel).join(' / ') : '-'}
+                </span>
+              </span>
+              <span class="mt-2.5 block min-w-0 space-y-1.5">
+                <span class="flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
+                  <span class="font-medium text-muted-foreground">{t('deliveryFlow.pickPicked')}</span>
+                  <span class="font-mono font-semibold tabular-nums">
+                    {picked()}/{total()}
+                  </span>
+                </span>
+                <span
+                  role="progressbar"
+                  aria-label={t('deliveryFlow.pickingProgress', { picked: picked(), total: total() })}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={pct()}
+                  class="block h-1.5 overflow-hidden rounded-full bg-muted"
+                >
+                  <span
+                    class={cn(
+                      'block h-full rounded-full transition-[width] motion-reduce:transition-none',
+                      pct() === 100 ? 'bg-status-selesai' : 'bg-primary'
+                    )}
+                    style={{ width: `${pct()}%` }}
+                  />
+                </span>
+              </span>
+            </button>
+          );
+        }}
+      </For>
+    </>
+  );
+
+  const DispatchSetup = () => {
+    const currentDate = () => (isDraft() ? deliveryDate() : pickedRun()?.delivery_date || '');
+    const currentTitle = () => (isDraft() ? runTitle() : pickedRun()?.title || '');
+    const currentNotes = () => (isDraft() ? runNotes() : pickedRun()?.notes || '');
+
+    return (
+      <div class="grid min-w-0 gap-4">
+        <section class="min-w-0 space-y-2" aria-label={t('deliveryFlow.driverWorkload')}>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-sm font-semibold">{t('deliveryFlow.driverWorkload')}</h3>
+            <Button type="button" variant="outline" size="sm" class="h-11 gap-1.5" onClick={() => setShowDriverModal(true)}>
+              <IconUsers aria-hidden="true" />
+              <span>{t('deliveryFlow.roster')}</span>
+            </Button>
+          </div>
+          <div class="grid min-w-0 gap-1.5">
+            <For
+              each={driverWorkloads()}
+              fallback={
+                <p class="rounded-md border p-3 text-sm text-muted-foreground">
+                  {t('deliveryFlow.noActiveDrivers')}
+                </p>
+              }
+            >
+              {(wl) => {
+                const isSelected = () => activeDriverId() === wl.driver.id;
+                return (
+                  <button
+                    type="button"
+                    aria-pressed={isSelected()}
+                    class={cn(
+                      'grid min-h-14 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted',
+                      insetFocusClass,
+                      isSelected() && 'border-primary/50 bg-muted/50'
+                    )}
+                    onClick={() => handleAssignRunDriver(wl.driver.id ?? null)}
+                  >
+                    <span class="min-w-0">
+                      <span class="block break-words text-sm font-semibold">{wl.driver.name}</span>
+                      <Show when={wl.driver.vehicle}>
+                        <span class="inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                          <IconTruck class="size-3.5 shrink-0" aria-hidden="true" />
+                          <span class="truncate font-mono">{wl.driver.vehicle}</span>
+                        </span>
+                      </Show>
+                      <Show when={wl.areas.length > 0}>
+                        <span class="block break-words text-xs text-muted-foreground">
+                          {wl.areas.map(formatAreaLabel).join(' / ')}
+                        </span>
+                      </Show>
+                    </span>
+                    <span class="flex items-center gap-1 text-right text-xs font-medium text-muted-foreground">
+                      <Show when={isSelected()}>
+                        <IconCheck class="size-4 shrink-0 text-foreground" aria-label={t('deliveryFlow.assigned')} />
+                      </Show>
+                      <span class="tabular-nums">
+                        {wl.runsCount === 0
+                          ? t('deliveryFlow.available')
+                          : t('deliveryFlow.runsCount', { count: wl.runsCount })}
+                      </span>
+                    </span>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+          <Show when={activeDriverId() !== null}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              class="h-11 px-2"
+              onClick={() => handleAssignRunDriver(null)}
+            >
+              {t('deliveryFlow.clearAssignment')}
+            </Button>
+          </Show>
+        </section>
+
+        <label class="grid min-w-0 gap-1.5 text-sm font-medium">
+          {t('deliveryFlow.dispatchDateLabel')}
+          <input
+            type="date"
+            class={fieldInputClass}
+            required
+            value={currentDate()}
+            onChange={(e) => handleUpdateRunDate(e.currentTarget.value)}
+          />
+        </label>
+
+        <label class="grid min-w-0 gap-1.5 text-sm font-medium">
+          {t('deliveryFlow.runTitleLabel')}
+          <input
+            type="text"
+            class={fieldInputClass}
+            value={currentTitle()}
+            placeholder={t('deliveryFlow.runTitlePlaceholder')}
+            onInput={(e) => {
+              if (isDraft()) setRunTitle(e.currentTarget.value);
+            }}
+            onChange={(e) => {
+              if (!isDraft()) handleUpdateRunTitle(e.currentTarget.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+          />
+        </label>
+
+        <label class="grid min-w-0 gap-1.5 text-sm font-medium">
+          {t('deliveryFlow.routeNotesLabel')}
+          <textarea
+            class={cn(fieldInputClass, 'min-h-20 py-2')}
+            rows={3}
+            value={currentNotes()}
+            placeholder={t('deliveryFlow.routeNotesPlaceholder')}
+            onInput={(e) => {
+              if (isDraft()) setRunNotes(e.currentTarget.value);
+            }}
+            onChange={(e) => {
+              if (!isDraft()) handleUpdateRunNotes(e.currentTarget.value);
+            }}
+          />
+        </label>
+      </div>
+    );
+  };
+
+  const ItemFilters = () => {
+    const groupOptions = () =>
+      [
+        ['destination', t('deliveryFlow.groupDestination')],
+        ['none', t('deliveryFlow.groupNone')],
+      ] as const;
+    const pickOptions = () =>
+      [
+        ['all', t('deliveryFlow.pickAll')],
+        ['to-pick', t('deliveryFlow.pickToPick')],
+        ['picked', t('deliveryFlow.pickPicked')],
+      ] as const;
+
+    return (
+      <>
+        <fieldset class="min-w-0">
+          <legend class="mb-1 text-xs font-medium text-muted-foreground">{t('deliveryFlow.groupBy')}</legend>
+          <div class="flex flex-wrap gap-1">
+            <For each={groupOptions()}>
+              {(option) => (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={runsGroupBy() === option[0] ? 'default' : 'outline'}
+                  class="h-11 px-2.5"
+                  aria-pressed={runsGroupBy() === option[0]}
+                  onClick={() => setRunsGroupBy(option[0])}
+                >
+                  {option[1]}
+                </Button>
+              )}
+            </For>
+          </div>
+        </fieldset>
+
+        <Show when={!isDraft()}>
+          <fieldset class="min-w-0">
+            <legend class="mb-1 text-xs font-medium text-muted-foreground">{t('deliveryFlow.pickStatus')}</legend>
+            <div class="flex flex-wrap gap-1">
+              <For each={pickOptions()}>
+                {(option) => (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={runsPickFilter() === option[0] ? 'default' : 'outline'}
+                    class="h-11 px-2.5"
+                    aria-pressed={runsPickFilter() === option[0]}
+                    onClick={() => setRunsPickFilter(option[0])}
+                  >
+                    {option[1]}
+                  </Button>
+                )}
+              </For>
+            </div>
+          </fieldset>
+        </Show>
+
+        <Show when={workspaceDestinations().size > 1 || runsDestinationFilter()}>
+          <label class="grid min-w-0 flex-1 basis-48 gap-1 text-xs font-medium text-muted-foreground">
+            {t('deliveryFlow.destinationLabel')}
+            <select
+              class={fieldInputClass}
+              value={runsDestinationFilter()}
+              onChange={(e) => setRunsDestinationFilter(e.currentTarget.value)}
+            >
+              <option value="">{t('deliveryFlow.allDestinations')}</option>
+              <For each={[...workspaceDestinations().keys()]}>
+                {(key) => <option value={key}>{workspaceDestinations().get(key)}</option>}
+              </For>
+            </select>
+          </label>
+        </Show>
+
+        <Show when={enabledRunsFilterCount() > 0}>
+          <Button type="button" variant="ghost" size="sm" class="h-11 px-2" onClick={resetRunsItemFilters}>
+            {t('deliveryFlow.resetFilters')}
+          </Button>
+        </Show>
+      </>
+    );
+  };
+
+  const WorkspaceItemRow: Component<{ itemKey: string }> = (props) => {
+    const item = () => activeWorkspaceItemMap().get(props.itemKey);
+
+    return (
+      <Show when={item()}>
+        {(current) => {
+          const expanded = () => runsEditAll() || editingItemKey() === props.itemKey;
+          const maxAllowed = () => Math.max(1, current().belum_terkirim || current().jumlah || current().planned_qty);
+          const canTogglePick = () => !isDraft() && pickedRun()?.id && current().id !== undefined;
+
+          const rowContents = () => (
+            <>
+              <Show when={canTogglePick()}>
+                <span
+                  class={cn(
+                    'grid size-6 shrink-0 place-items-center rounded-md border border-input bg-background',
+                    current().picked && 'border-primary bg-primary text-primary-foreground'
+                  )}
+                  aria-hidden="true"
+                >
+                  <Show when={current().picked}>
+                    <IconCheck class="size-4" />
+                  </Show>
+                </span>
+              </Show>
+              <span class="min-w-0 flex-1">
+                <span class={cn('block break-words text-sm font-medium', current().picked && 'line-through text-muted-foreground')}>
+                  {current().nama_barang}
+                </span>
+                <Show when={runsGroupBy() === 'none'}>
+                  <span class="mt-0.5 block break-words text-xs font-medium">
+                    {current().customer}
+                    <Show when={current().area}> &middot; {formatAreaLabel(current().area)}</Show>
+                  </span>
+                  <Show when={current().order_number}>
+                    <span class="block break-words font-mono text-xs text-muted-foreground">
+                      {current().order_number}
+                    </span>
+                  </Show>
+                </Show>
+                <Show when={current().note && !expanded()}>
+                  <span class="mt-0.5 block break-words text-xs text-muted-foreground">{current().note}</span>
+                </Show>
+              </span>
+              <span class="max-w-[30%] shrink-0 break-words text-right text-xs text-muted-foreground">
+                <span class="font-mono text-sm font-semibold tabular-nums text-foreground">{current().planned_qty}</span>{' '}
+                <span class="font-mono tabular-nums">/ {current().jumlah}</span> {current().satuan}
+              </span>
+            </>
+          );
+
+          const rowClass = 'flex min-h-14 min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left sm:px-4';
+
+          return (
+            <li class="@container min-w-0">
+              <div class="flex min-w-0 items-center">
+                <Show when={canTogglePick()} fallback={<div class={rowClass}>{rowContents()}</div>}>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={current().picked}
+                    class={cn(rowClass, 'hover:bg-muted/50', insetFocusClass)}
+                    onClick={() => handleTogglePick(pickedRun()!.id!, current().id!, current().picked)}
+                  >
+                    {rowContents()}
+                  </button>
+                </Show>
+                <Show when={!runsEditAll()}>
+                  <Button
+                    type="button"
+                    variant={expanded() ? 'secondary' : 'ghost'}
+                    size="icon"
+                    class="mr-1 size-11 shrink-0 sm:mr-2"
+                    aria-expanded={expanded()}
+                    aria-label={expanded() ? t('deliveryFlow.doneEditing') : t('deliveryFlow.editQty')}
+                    onClick={() => setEditingItemKey(expanded() ? undefined : props.itemKey)}
+                  >
+                    <Show when={expanded()} fallback={<IconPencil aria-hidden="true" />}>
+                      <IconCheck aria-hidden="true" />
+                    </Show>
+                  </Button>
+                </Show>
+              </div>
+              <Show when={expanded()}>
+                <div class="min-w-0 space-y-2 px-3 pb-3 sm:px-4">
+                  <p class="flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                    <span>
+                      {t('deliveryFlow.remainingLabel')}:{' '}
+                      <span class="font-mono tabular-nums">{current().belum_terkirim}</span> {current().satuan}
+                    </span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span>
+                      {t('deliveryFlow.requestedLabel')}:{' '}
+                      <span class="font-mono tabular-nums">{current().jumlah}</span> {current().satuan}
+                    </span>
+                  </p>
+                  <div class="grid min-w-0 gap-2 @min-[32rem]:grid-cols-[auto_minmax(0,1fr)] @min-[32rem]:items-end">
+                    <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <div class="flex shrink-0 items-center rounded-md border bg-background">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          class="size-11 rounded-r-none"
+                          aria-label={t('deliveryFlow.decreaseQty')}
+                          disabled={current().planned_qty <= 1}
+                          onClick={() => handleUpdateItemQty(current(), current().planned_qty - 1)}
+                        >
+                          <IconMinus aria-hidden="true" />
+                        </Button>
+                        <input
+                          type="text"
+                          inputmode="numeric"
+                          pattern="[0-9]*"
+                          aria-label={t('deliveryFlow.qtyToDeliver')}
+                          class={cn('h-11 w-12 border-x bg-transparent px-1 text-center font-mono text-base tabular-nums md:text-sm', insetFocusClass)}
+                          value={current().planned_qty}
+                          onFocus={(e) => e.currentTarget.select()}
+                          onChange={(e) => {
+                            const input = e.currentTarget;
+                            if (/^\d+$/.test(input.value.trim())) {
+                              handleUpdateItemQty(current(), Number(input.value));
+                            }
+                            input.value = String(current().planned_qty);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') e.currentTarget.blur();
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          class="size-11 rounded-l-none"
+                          aria-label={t('deliveryFlow.increaseQty')}
+                          disabled={current().planned_qty >= maxAllowed()}
+                          onClick={() => handleUpdateItemQty(current(), current().planned_qty + 1)}
+                        >
+                          <IconPlus aria-hidden="true" />
+                        </Button>
+                      </div>
+                      <span class="text-xs text-muted-foreground">{current().satuan}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        class="h-11 px-2"
+                        disabled={current().planned_qty >= maxAllowed()}
+                        aria-label={t('deliveryFlow.fillRemainingQty')}
+                        onClick={() => handleUpdateItemQty(current(), maxAllowed())}
+                      >
+                        {t('deliveryFlow.maxQty')}
+                      </Button>
+                    </div>
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <input
+                        type="text"
+                        class={fieldInputClass}
+                        aria-label={t('deliveryFlow.pickingNote')}
+                        placeholder={t('deliveryFlow.pickingNote')}
+                        value={current().note}
+                        onInput={(e) => {
+                          if (isDraft()) handleUpdateItemNote(current(), e.currentTarget.value);
+                        }}
+                        onChange={(e) => {
+                          if (!isDraft()) handleUpdateItemNote(current(), e.currentTarget.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur();
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        class="size-11 shrink-0"
+                        disabled={!isDraft() && activeWorkspaceItems().length <= 1}
+                        aria-label={t('common.delete')}
+                        onClick={() => handleRemoveWorkspaceItem(current())}
+                      >
+                        <IconTrash aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </Show>
+            </li>
+          );
+        }}
+      </Show>
+    );
+  };
   return (
     <div class="space-y-4">
       {/* Tab Navigation */}
@@ -1886,8 +2186,8 @@ export const DeliveryFlow: Component = () => {
         value={activeTab()}
         onChange={(val) => {
           setSearchParams({ tab: val });
-          setSidebarOpen(false);
-          setRunsDrawerOpen(false);
+          setDockFilterOpen(false);
+          setRunsDockPanel(null);
         }}
         class="w-full no-print"
       >
@@ -1896,21 +2196,17 @@ export const DeliveryFlow: Component = () => {
             <IconListCheck class="size-4" />
             <span>{t('deliveryFlow.tabPlan')}</span>
           </TabsTrigger>
-          <TabsTrigger value="configure" class="gap-2 text-xs h-8">
-            <IconTruckDelivery class="size-4" />
-            <span>{t('deliveryFlow.tabConfigure')}</span>
-            <Show when={draftStats().totalItems > 0}>
-              <span class="df-tab-counter">
-                {draftStats().totalItems}
-              </span>
-            </Show>
-          </TabsTrigger>
           <TabsTrigger value="runs" class="gap-2 text-xs h-8">
             <IconBuildingWarehouse class="size-4" />
-            <span>{t('deliveryFlow.tabRuns')}</span>
+            <span>{t('deliveryFlow.tabRunsDispatch')}</span>
             <Show when={(runsData()?.runs?.length || 0) > 0}>
               <span class="inline-flex items-center justify-center h-[18px] min-w-5 px-1.5 text-[10px] leading-none font-bold rounded bg-muted text-muted-foreground tabular-nums">
                 {runsData()?.runs?.length}
+              </span>
+            </Show>
+            <Show when={draftItems().size > 0}>
+              <span class="rounded-full border border-dashed border-primary/60 px-1.5 py-0.2 text-[10px] font-semibold leading-tight text-foreground">
+                {t('deliveryFlow.draftBadge')}
               </span>
             </Show>
           </TabsTrigger>
@@ -2288,630 +2584,719 @@ export const DeliveryFlow: Component = () => {
       </Show>
     </Show>
 
-        {/* TAB 2 (STAGE 2): QUANTITIES, NOTES & DRIVER DISPATCH (Identical Order Card/Table Shell) */}
-        <Show when={activeTab() === 'configure'}>
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* MAIN CONTENT: SELECTED ORDERS & QUANTITY CONFIGURATION */}
-            <div class={cn('space-y-4', isMobile() ? 'col-span-1 pb-32' : 'lg:col-span-8')}>
-              {/* Back link for second step */}
-              <div class="no-print">
-                <button
-                  type="button"
-                  onClick={() => setSearchParams({ tab: 'plan' })}
-                  class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors py-0.5"
-                >
-                  <IconArrowLeft class="size-3.5" />
-                  <span>{t('deliveryFlow.backToSelectItems')}</span>
-                </button>
-              </div>
-
-              {/* Sub-Header Toolbar */}
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-sm font-bold text-foreground">{t('deliveryFlow.selectedOrdersTitle')}</span>
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold tabular-nums">
-                    {t('deliveryFlow.selectedSummaryHeader', { orders: selectedOrderGroups().length, items: draftStats().totalItems })}
-                  </span>
-                </div>
-
-                <div class="flex items-center gap-2">
-                  <div class="relative w-full sm:w-64">
-                    <IconSearch class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder={t('deliveryFlow.filterSelectedPlaceholder')}
-                      value={configureSearchTerm()}
-                      onInput={(e) => setConfigureSearchTerm(e.currentTarget.value)}
-                      class="w-full pl-8 pr-2.5 py-1 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <Show when={plannerError()}>
-                <div class="p-3 rounded-lg bg-destructive/15 border border-destructive/30 text-destructive text-xs flex items-center gap-2">
-                  <IconAlertTriangle class="size-4 shrink-0" />
-                  <span>{plannerError()}</span>
-                </div>
-              </Show>
-
-              <Show
-                when={draftStats().totalItems > 0}
-                fallback={
-                  <div class="p-16 text-center border rounded-lg bg-card space-y-3">
-                    <IconListCheck class="size-12 mx-auto text-muted-foreground" />
-                    <div>
-                      <h3 class="text-sm font-semibold text-foreground">{t('deliveryFlow.noItemsSelectedTitle')}</h3>
-                      <p class="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                        {t('deliveryFlow.noItemsSelectedDesc')}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => setSearchParams({ tab: 'plan' })}
-                      class="text-xs h-8 px-3 gap-1.5"
-                    >
-                      <IconArrowLeft class="size-3.5" />
-                      <span>{t('deliveryFlow.tabPlan')}</span>
-                    </Button>
-                  </div>
-                }
-              >
-                <Show
-                  when={selectedOrderGroups().length > 0}
-                  fallback={
-                    <div class="p-12 text-center border rounded-lg bg-card">
-                      <h3 class="text-sm font-semibold text-foreground">{t('deliveryFlow.noSelectedMatchSearch')}</h3>
-                      <p class="text-xs text-muted-foreground mt-1">
-                        {t('deliveryFlow.clearSearchToShowAll', { total: draftStats().totalItems })}
-                      </p>
-                    </div>
-                  }
-                >
-                  <div class="space-y-4">
-                    <For each={selectedOrderGroups()}>
-                      {(group, index) => {
-                        const order = group.order;
-                        return (
-                          <div
-                            class="border rounded-xl bg-card overflow-hidden shadow-xs hover:border-primary/50 transition-all animate-[card-enter_400ms_ease-out_both]"
-                            style={{ "animation-delay": `${index() * 50}ms` }}
-                          >
-                            {/* Order Header (Identical shell to Candidate Orders) */}
-                            <div class="bg-muted/30 p-3 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b">
-                              <div class="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={true}
-                                  onChange={() => removeOrderFromDraft(order)}
-                                  class="size-4 rounded text-primary focus:ring-ring cursor-pointer"
-                                  title={t('deliveryFlow.uncheckOrderTitle')}
-                                />
-                                <div>
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="font-bold text-sm text-foreground">{order.customer}</span>
-                                    <Show when={order.area}>
-                                      <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                                        {order.area}
-                                      </span>
-                                    </Show>
-                                    <Badge status={getDominantOrderStatus(group.entries.map((e) => e.item))} />
-                                  </div>
-                                  <div class="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                                    <span>{t('deliveryFlow.orderNoPrefix')} <strong class="font-mono text-foreground">{order.order_number || order.id}</strong></span>
-                                    <Show when={order.ecatalog_number}>
-                                      <span>{t('deliveryFlow.ecatPrefix')} <span class="font-mono">{order.ecatalog_number}</span></span>
-                                    </Show>
-                                    <Show when={order.tanggal}>
-                                      <span>{t('deliveryFlow.datePrefix')} {typeof order.tanggal === 'string' ? order.tanggal : ''}</span>
-                                    </Show>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => fillMaxRemainingInOrder(order)}
-                                class="text-[11px] h-7 px-2.5 gap-1 self-end sm:self-auto"
-                              >
-                                <IconCheck class="size-3 text-primary" />
-                                <span>{t('deliveryFlow.fillRemainingQty')}</span>
-                              </Button>
-                            </div>
-
-                            {/* Order Items Table (Identical table shell, fixed columns with always-visible Qty & Note inputs) */}
-                            <div class="overflow-x-auto">
-                              <table class="w-full text-right text-xs border-collapse">
-                                <thead>
-                                  <tr class="border-b bg-muted/20 text-muted-foreground text-[11px]">
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.pick')}</th>
-                                    <th class="py-2.5 px-3 w-full text-left">{t('deliveryFlow.itemName')}</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.stockStatus')}</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.remoteRemaining')}</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.qtyToDeliver')}</th>
-                                    <th class="py-2.5 px-3 w-px whitespace-nowrap text-right">{t('deliveryFlow.pickingNote')}</th>
-                                  </tr>
-                                </thead>
-                                <tbody class="divide-y divide-border">
-                                  <For each={group.entries}>
-                                    {(entry) => {
-                                      const item = entry.item;
-                                      const activeRunInfo = () => activeRunItemKeys().get(entry.key);
-                                      const remaining = getItemRemainingQty(item);
-								const isClientPending = () => (item.status_order || '').trim().toUpperCase() === ORDER_STATUS.PENDING;
-
-                                      return (
-                                        <tr
-                                          class={cn(
-                                            'transition-colors',
-                                            isClientPending()
-                                              ? 'bg-status-pending/5 hover:bg-status-pending/10'
-                                              : 'hover:bg-muted/50'
-                                          )}
-                                        >
-                                          {/* Checkbox (uncheck removes from draft) */}
-                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
-                                            <input
-                                              type="checkbox"
-                                              checked={true}
-                                              onChange={() => toggleItemSelection(order, item)}
-                                              class="size-4 rounded text-primary focus:ring-ring cursor-pointer align-middle"
-                                              title={t('deliveryFlow.uncheckItemTitle')}
-                                            />
-                                          </td>
-
-                                          {/* Item Name & Active Badges */}
-                                          <td class="py-2.5 px-3 w-full text-left">
-                                            <div class="font-medium text-foreground">{item.nama_barang}</div>
-                                            <div class="flex items-center gap-1.5 flex-wrap mt-1">
-                                              <Show when={activeRunInfo()}>
-                                                <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-status-pending/15 text-status-pending border border-status-pending/30">
-                                                  <IconTruckDelivery class="size-3" />
-                                                  {t('deliveryFlow.inRunBadge', { runId: activeRunInfo()!.runId, driver: activeRunInfo()!.driverName, qty: activeRunInfo()!.plannedQty })}
-                                                </span>
-                                              </Show>
-                                              <Show when={item.keterangan || item.catatan || isClientPending()}>
-                                                <div class="inline-flex items-center gap-1 text-[11px] text-status-pending font-medium">
-                                                  <IconAlertTriangle class="size-3 shrink-0" />
-                                                  <span>{item.keterangan || item.catatan || t('deliveryFlow.clientDelayRequest')}</span>
-                                                </div>
-                                              </Show>
-                                            </div>
-                                          </td>
-
-                                          {/* Stock Status */}
-                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
-                                            <Badge status={item.status_barang || '-'} kind="item" />
-                                          </td>
-
-                                          {/* Remaining Qty */}
-                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right text-muted-foreground font-medium tabular-nums">
-                                            <span class="font-bold text-foreground">{remaining}</span> / {item.jumlah || '0'} {item.satuan}
-                                          </td>
-
-                                          {/* Always-Visible Planned Qty Stepper */}
-                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
-                                            <div class="inline-flex items-center justify-end gap-1">
-                                              <button
-                                                type="button"
-                                                onClick={() => updateItemPlannedQty(order, item, -1)}
-                                                class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
-                                                title={t('deliveryFlow.decreaseQty')}
-                                              >
-                                                <IconMinus class="size-3" />
-                                              </button>
-                                              <input
-                                                type="number"
-                                                min="1"
-                                                max={remaining}
-                                                value={entry.planned_qty || '1'}
-                                                onInput={(e) => setItemPlannedQtyDirect(order, item, e.currentTarget.value)}
-                                                class="w-14 text-center py-0.5 text-xs font-semibold rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
-                                              />
-                                              <button
-                                                type="button"
-                                                onClick={() => updateItemPlannedQty(order, item, 1)}
-                                                class="size-6 flex items-center justify-center rounded border bg-background hover:bg-muted text-muted-foreground"
-                                                title={t('deliveryFlow.increaseQty')}
-                                              >
-                                                <IconPlus class="size-3" />
-                                              </button>
-                                              <span class="text-[11px] text-muted-foreground ml-1">
-                                                {item.satuan || ''}
-                                              </span>
-                                            </div>
-                                          </td>
-
-                                          {/* Always-Visible Picking Note Input */}
-                                          <td class="py-2.5 px-3 w-px whitespace-nowrap text-right">
-                                            <input
-                                              type="text"
-                                              placeholder={t('deliveryFlow.pickingNote')}
-                                              value={entry.note || ''}
-                                              onInput={(e) => setItemNote(order, item, e.currentTarget.value)}
-                                              class="w-36 text-right text-[11px] py-1 px-2 rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                                            />
-                                          </td>
-                                        </tr>
-                                      );
-                                    }}
-                                  </For>
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </Show>
-              </Show>
-            </div>
-
-            {/* FLOATING RIGHT SIDEBAR: DRIVER WORKLOAD & DISPATCH (Col 4) */}
-            <Show when={!isMobile()}>
-              <div class="lg:col-span-4 space-y-4 lg:sticky lg:top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 scrollbar-thin">
-                <ConfigureDispatchSidebarContent />
-              </div>
-            </Show>
-          </div>
-          {/* Persistent Bottom Dock for Stage 2 (Configure Dispatch) */}
-          <Show when={isMobile()}>
-            <BottomDockConfigure />
-          </Show>
-        </Show>
-        {/* TAB 2: WAREHOUSE PICKING & RUNS (Full Detail & Checklist) */}
+        {/* TAB 2: RUNS & DISPATCH (Mockup 1 Unified Workspace) */}
         <Show when={activeTab() === 'runs'}>
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Left: Runs List */}
-            <Show when={!isMobile() || !selectedRunId()}>
-              <div class={cn('no-print space-y-4', isMobile() ? 'col-span-1' : 'lg:col-span-4')}>
-                <RunsListContent onSelectRun={() => setRunsDrawerOpen(false)} />
-              </div>
-            </Show>
-
-            {/* Right: Active Run Workspace */}
-            <Show when={!isMobile() || selectedRunId()}>
-              <div class={cn('space-y-4', isMobile() ? 'col-span-1' : 'lg:col-span-8')}>
-                <Show when={isMobile() && selectedRunId()}>
-                  <button
+          <div class="min-w-0 space-y-4 pb-28 text-foreground print:hidden md:space-y-5 lg:pb-0">
+            <div class="grid min-w-0 items-start gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+              {/* Left Sticky Run Rail (Desktop) */}
+              <aside
+                aria-label={t('deliveryFlow.dispatchRuns')}
+                class="hidden min-w-0 flex-col gap-3 lg:sticky lg:top-4 lg:flex lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:pr-1"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <h2 class="text-lg font-semibold tracking-tight">{t('deliveryFlow.dispatchRuns')}</h2>
+                  <Button
                     type="button"
-                    onClick={() => setSelectedRunId(null)}
-                    class="no-print inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-1"
+                    variant="outline"
+                    size="icon"
+                    class="size-9 shrink-0"
+                    aria-label={t('common.refresh')}
+                    title={t('common.refresh')}
+                    onClick={() => refetchRuns()}
                   >
-                    <span>{t('deliveryFlow.backToRunsList')}</span>
-                  </button>
-                </Show>
+                    <IconRefresh class="size-4" aria-hidden="true" />
+                  </Button>
+                </div>
+                <RunFeed />
+              </aside>
+
+              {/* Right: Active Run Workspace */}
               <Show
-                when={activeRun()}
+                when={isDraft() || pickedRun()}
                 fallback={
-                  <div class="p-16 text-center border rounded-lg bg-card">
-                    <p class="text-sm font-semibold">{t('deliveryFlow.selectRunPrompt')}</p>
-                  </div>
+                  <p class="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
+                    {t('deliveryFlow.noRunSelected')}
+                  </p>
                 }
               >
-                {(run) => {
-                  const total = () => run().total_items || 0;
-                  const picked = () => run().picked_items || 0;
-                  const pct = () => (total() > 0 ? Math.round((picked() / total()) * 100) : 0);
+                <section aria-label={t('deliveryFlow.tabRunsDispatch')} class="@container min-w-0 space-y-4">
+                  <Show when={plannerError()}>
+                    <div class="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/15 p-3 text-xs text-destructive">
+                      <IconAlertTriangle class="size-4 shrink-0" aria-hidden="true" />
+                      <span>{plannerError()}</span>
+                    </div>
+                  </Show>
 
-                  return (
-                    <div class="space-y-4">
-                      {/* Active Run Header */}
-                      <Card class="no-print">
-                        <CardHeader class="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <div class="flex items-center gap-2">
-                              <span class="text-xs font-bold uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                                {t('deliveryFlow.runIdFallback', { id: run().id ?? '' })}
-                              </span>
-                              <CardTitle class="text-lg font-bold">
-                                {run().title || t('deliveryFlow.dispatchRunTitle', { id: run().id ?? '' })}
-                              </CardTitle>
-                            </div>
-                            <div class="text-xs text-muted-foreground mt-1.5 flex items-center gap-3 flex-wrap">
-                              {/* Reassign Driver Dropdown */}
-                              <div class="flex items-center gap-1.5">
-                                <IconUser class="size-3.5 text-primary" />
-                                <span class="font-medium text-foreground">{t('deliveryFlow.driverColon')}</span>
-                                <select
-                                  class="text-xs font-semibold py-0.5 px-2 rounded border bg-background"
-                                  value={run().driver_id ? run().driver_id!.toString() : ''}
-                                  disabled={isReassigningDriver()}
-                                  onChange={(e) => handleReassignDriver(run().id!, e.currentTarget.value)}
-                                  title={t('deliveryFlow.reassignDriverTitle')}
-                                >
-                                  <option value="">{t('deliveryFlow.unassigned')}</option>
-                                  <For each={driversData()?.drivers?.filter((d) => d.active)}>
-                                    {(d) => (
-                                      <option value={d.id?.toString()}>
-                                        {d.name} {d.vehicle ? `(${d.vehicle})` : ''}
-                                      </option>
-                                    )}
-                                  </For>
-                                </select>
-                                <Show when={isReassigningDriver()}>
-                                  <Spinner size="sm" />
+                  {/* In-Page Run Header Card */}
+                  <div class="min-w-0 space-y-3 rounded-lg border bg-card p-3 sm:p-4">
+                    <div class="flex min-w-0 flex-wrap items-start justify-between gap-2.5">
+                      <div class="min-w-0 flex-1 basis-52">
+                        <h1 class="break-words text-xl font-semibold tracking-tight md:text-2xl">
+                          {isDraft()
+                            ? runTitle() || t('deliveryFlow.newDeliveryRun')
+                            : pickedRun()!.title || t('deliveryFlow.runIdFallback', { id: pickedRun()!.id ?? '' })}
+                        </h1>
+                        <p class="mt-1 flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+                          <Show
+                            when={!isDraft() && pickedRun()}
+                            fallback={<span class="font-semibold">{t('deliveryFlow.draftBadge')}</span>}
+                          >
+                            {(run) => (
+                              <>
+                                <span class="font-mono font-semibold tabular-nums">#{run().id}</span>
+                                <Show when={(run().areas || []).length > 0}>
+                                  <span>{run().areas!.map(formatAreaLabel).join(' / ')}</span>
                                 </Show>
-                              </div>
-                              <span>{t('deliveryFlow.datePrefix')} {run().delivery_date}</span>
-                              <Show when={run().areas && run().areas!.length > 0}>
-                                <span>• {t('deliveryFlow.areasLabel', { areas: run().areas!.join(', ') })}</span>
-                              </Show>
+                              </>
+                            )}
+                          </Show>
+                        </p>
+                      </div>
+                      <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <Show when={!isDraft() && pickedRun()}>
+                          {(run) => (
+                            <>
+                              <select
+                                aria-label={t('deliveryFlow.runStatusLabel')}
+                                class={cn(fieldInputClass, 'w-auto')}
+                                value={run().status || DELIVERY_RUN_STATUS.PLANNED}
+                                onChange={(e) =>
+                                  run().id && handleStatusChange(run().id!, e.currentTarget.value as DeliveryRunStatus)
+                                }
+                              >
+                                <For each={runStatusFlow}>
+                                  {(st) => <option value={st}>{getRunStatusLabel(st)}</option>}
+                                </For>
+                              </select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                class="size-10 sm:size-11"
+                                aria-label={t('common.print')}
+                                title={t('common.print')}
+                                onClick={() => window.print()}
+                              >
+                                <IconPrinter aria-hidden="true" />
+                              </Button>
+                            </>
+                          )}
+                        </Show>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          class="size-10 sm:size-11"
+                          aria-label={isDraft() ? t('deliveryFlow.discardDraft') : t('deliveryFlow.deleteRun')}
+                          title={isDraft() ? t('deliveryFlow.discardDraft') : t('deliveryFlow.deleteRun')}
+                          onClick={() => setDeleteDialogOpen(true)}
+                        >
+                          <IconTrash aria-hidden="true" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div class="flex min-w-0 flex-wrap items-start justify-between gap-2.5 border-t pt-2.5">
+                      <div class="min-w-0 flex-1 space-y-1.5 text-xs text-muted-foreground">
+                        <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                          <span class="inline-flex min-w-0 items-center gap-1.5 text-foreground">
+                            <IconTruck aria-hidden="true" class="size-3.5 shrink-0 text-muted-foreground" />
+                            <span class="truncate font-medium">
+                              {(isDraft() ? driverName() : pickedRun()?.driver_name) || t('deliveryFlow.unassigned')}
+                            </span>
+                            <Show
+                              when={getDriverVehicle(
+                                activeDriverId(),
+                                isDraft() ? driverName() : pickedRun()?.driver_name
+                              )}
+                            >
+                              {(vehicle) => <span class="truncate text-muted-foreground">({vehicle()})</span>}
+                            </Show>
+                          </span>
+                          <span class="inline-flex items-center gap-1.5">
+                            <IconCalendar aria-hidden="true" class="size-3.5 shrink-0" />
+                            <span>
+                              {formatDispatchDate(isDraft() ? deliveryDate() : pickedRun()?.delivery_date)}
+                            </span>
+                          </span>
+                        </div>
+                        <p class="flex min-w-0 items-start gap-1.5">
+                          <IconNotes aria-hidden="true" class="mt-0.5 size-3.5 shrink-0" />
+                          <span
+                            class={cn(
+                              'min-w-0 break-words',
+                              !(isDraft() ? runNotes() : pickedRun()?.notes) && 'italic'
+                            )}
+                          >
+                            {(isDraft() ? runNotes() : pickedRun()?.notes) || t('deliveryFlow.noRouteNote')}
+                          </span>
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        class="h-10 shrink-0 gap-1.5 px-3 lg:hidden"
+                        aria-expanded={runsDockPanel() === 'driver'}
+                        aria-controls={runsDockPanel() === 'driver' ? 'delivery-runs-dock-panel' : undefined}
+                        onClick={(e) => toggleRunsDockPanel('driver', e.currentTarget)}
+                      >
+                        <IconPencil aria-hidden="true" class="size-3.5" />
+                        <span>{t('deliveryFlow.edit')}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        class="hidden h-10 shrink-0 gap-1.5 px-3 lg:inline-flex"
+                        aria-expanded={runsDispatchOpen()}
+                        onClick={() => setRunsDispatchOpen((open) => !open)}
+                      >
+                        <IconPencil aria-hidden="true" class="size-3.5" />
+                        <span>{t('deliveryFlow.edit')}</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Sticky Picking Progress (Saved Runs) */}
+                  <Show when={!isDraft() && pickedRun()}>
+                    {(run) => {
+                      const total = () => run().items?.length || run().total_items || 0;
+                      const picked = () => pickedRunCount();
+                      const pct = () => (total() > 0 ? Math.round((picked() / total()) * 100) : 0);
+                      return (
+                        <div class="sticky top-2 z-20 min-w-0 rounded-lg border bg-card/95 p-3 shadow-sm backdrop-blur-sm sm:p-4">
+                          <div class="block min-w-0 space-y-1.5">
+                            <div class="flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
+                              <span class="font-medium text-muted-foreground">
+                                {t('deliveryFlow.pickingProgress', { picked: picked(), total: total() })}
+                              </span>
+                              <span class="font-mono font-semibold tabular-nums">{pct()}%</span>
                             </div>
-                          </div>
-
-                          <div class="flex items-center gap-2">
-                            <select
-                              class="text-xs font-semibold py-1 px-2.5 rounded-md border bg-background"
-							value={run().status || DELIVERY_RUN_STATUS.PLANNED}
-                              onChange={(e) =>
-                                handleStatusChange(run().id!, e.currentTarget.value as DeliveryRunStatus)
-                              }
+                            <div
+                              role="progressbar"
+                              aria-label={t('deliveryFlow.pickingProgress', { picked: picked(), total: total() })}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={pct()}
+                              class="block h-2 overflow-hidden rounded-full bg-muted"
                             >
-							<option value={DELIVERY_RUN_STATUS.PLANNED}>{getRunStatusLabel(DELIVERY_RUN_STATUS.PLANNED)}</option>
-							<option value={DELIVERY_RUN_STATUS.PICKING}>{getRunStatusLabel(DELIVERY_RUN_STATUS.PICKING)}</option>
-							<option value={DELIVERY_RUN_STATUS.READY}>{getRunStatusLabel(DELIVERY_RUN_STATUS.READY)}</option>
-							<option value={DELIVERY_RUN_STATUS.DISPATCHED}>{getRunStatusLabel(DELIVERY_RUN_STATUS.DISPATCHED)}</option>
-							<option value={DELIVERY_RUN_STATUS.COMPLETED}>{getRunStatusLabel(DELIVERY_RUN_STATUS.COMPLETED)}</option>
-                            </select>
-
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEditInPlanner(run())}
-                              class="text-xs h-8 px-2.5 gap-1"
-                            >
-                              <IconEdit class="size-3.5" />
-                              <span>{t('common.edit')}</span>
-                            </Button>
-
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => window.print()}
-                              class="text-xs h-8 px-2.5 gap-1"
-                            >
-                              <IconPrinter class="size-3.5" />
-                              <span>{t('common.print')}</span>
-                            </Button>
-
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setRunToDelete(run())}
-                              class="text-xs h-8 px-2.5 text-destructive"
-                            >
-                              <IconTrash class="size-3.5" />
-                            </Button>
-                          </div>
-                        </CardHeader>
-
-                        <CardContent class="pt-0 space-y-3">
-                          <div class="space-y-1">
-                            <div class="flex justify-between text-xs font-medium">
-                              <span>{t('deliveryFlow.pickingProgress', { picked: picked(), total: total() })}</span>
-                              <span>{pct()}%</span>
-                            </div>
-                            <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
                               <div
                                 class={cn(
-                                  'h-full transition-all duration-300',
+                                  'block h-full rounded-full transition-[width] motion-reduce:transition-none',
                                   pct() === 100 ? 'bg-status-selesai' : 'bg-primary'
                                 )}
                                 style={{ width: `${pct()}%` }}
                               />
                             </div>
                           </div>
-
-                          <Show when={run().notes}>
-                            <div class="p-2 rounded-md bg-muted/40 border text-xs text-muted-foreground flex items-center gap-2">
-                              <span class="font-semibold text-foreground">{t('common.notes')}:</span>
-                              <span>{run().notes}</span>
-                            </div>
-                          </Show>
-
-                          {/* Picking View Mode */}
-                          <div class="pt-2 flex items-center justify-between border-t text-xs">
-                            <span class="font-semibold text-muted-foreground">{t('deliveryFlow.pickingMode')}</span>
-                            <div class="inline-flex rounded-md border p-0.5 bg-muted/40 text-xs">
-                              <button
-                                type="button"
-                                class={cn(
-                                  'px-2.5 py-0.5 rounded-sm font-semibold',
-                                  pickingViewMode() === 'orders' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground'
-                                )}
-                                onClick={() => setPickingViewMode('orders')}
-                              >
-                                {t('deliveryFlow.byDestination')}
-                              </button>
-                              <button
-                                type="button"
-                                class={cn(
-                                  'px-2.5 py-0.5 rounded-sm font-semibold',
-                                  pickingViewMode() === 'consolidated' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground'
-                                )}
-                                onClick={() => setPickingViewMode('consolidated')}
-                              >
-                                {t('deliveryFlow.consolidatedShelf')}
-                              </button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Items List */}
-                      <Show when={pickingViewMode() === 'orders'}>
-                        <div class="no-print space-y-3">
-                          <For each={runItemsByOrder()}>
-                            {(ordGroup) => (
-                              <div class="border rounded-lg bg-card overflow-hidden">
-                                <div class="bg-muted/30 p-2.5 px-3 flex items-center justify-between border-b">
-                                  <span class="font-bold text-xs">{ordGroup.customer} ({ordGroup.area})</span>
-                                  <span class="text-[11px] text-muted-foreground">{t('deliveryFlow.itemsCount', { count: ordGroup.items.length })}</span>
-                                </div>
-                                <div class="divide-y divide-border">
-                                  <For each={ordGroup.items}>
-                                    {(it) => (
-                                      <div class="p-2.5 flex items-center justify-between gap-3 text-xs">
-                                        <div class="flex items-center gap-3">
-                                          <input
-                                            type="checkbox"
-                                            checked={!!it.picked}
-                                            onChange={() => handleTogglePick(run().id!, it.id!, !!it.picked)}
-                                            class="size-5 rounded text-status-selesai focus:ring-ring cursor-pointer"
-                                          />
-                                          <div>
-                                            <div class={cn('font-medium', it.picked ? 'line-through text-muted-foreground' : '')}>
-                                              {it.nama_barang}
-                                            </div>
-                                            <div class="text-[11px] text-muted-foreground">
-                                              {t('common.qty')}: <strong>{it.planned_qty} {it.satuan}</strong>
-                                            </div>
-                                          </div>
-                                        </div>
-                                        <Show when={it.picked}>
-                                          <span class="text-[10px] font-bold text-status-selesai">{t('deliveryFlow.pickedBadge')}</span>
-                                        </Show>
-                                      </div>
-                                    )}
-                                  </For>
-                                </div>
-                              </div>
-                            )}
-                          </For>
                         </div>
-                      </Show>
+                      );
+                    }}
+                  </Show>
 
-                      <Show when={pickingViewMode() === 'consolidated'}>
-                        <div class="no-print space-y-2.5">
-                          <For each={consolidatedRunItems()}>
-                            {(prod) => (
-                              <div class="p-3 rounded-lg border bg-card flex items-start gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={prod.allPicked}
-                                  onChange={() => toggleConsolidatedProduct(run().id!, prod.items, prod.allPicked)}
-                                  class="size-5 rounded text-status-selesai mt-0.5 cursor-pointer"
-                                />
-                                <div class="text-xs">
-                                  <div class="font-bold text-sm">{prod.nama_barang}</div>
-                                  <div class="text-primary font-semibold mt-0.5">
-                                    {t('deliveryFlow.totalToPull', { qty: prod.totalPlannedQty, satuan: prod.satuan })}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </For>
-                        </div>
-                      </Show>
+                  {/* Main Workspace + Side Dispatch Panel */}
+                  <div
+                    class={cn(
+                      'grid min-w-0 items-start gap-4',
+                      runsDispatchOpen() && 'lg:@min-[53rem]:grid-cols-[minmax(0,1fr)_18rem]'
+                    )}
+                  >
+                    <Show when={runsDispatchOpen()}>
+                      <section
+                        aria-label={t('deliveryFlow.dispatchAndDriver')}
+                        class="hidden min-w-0 rounded-lg border bg-card p-4 lg:block lg:@min-[53rem]:sticky lg:@min-[53rem]:top-4 lg:@min-[53rem]:col-start-2 lg:@min-[53rem]:row-start-1"
+                      >
+                        <DispatchSetup />
+                      </section>
+                    </Show>
 
-                      {/* Printable A4 Manifest */}
-                      <div class="delivery-print-sheet hidden print:block text-black bg-white p-4">
-                        <div class="border-b-2 border-black pb-2 mb-4 flex justify-between">
-                          <div>
-                            <h1 class="text-xl font-bold uppercase">{t('deliveryFlow.manifestTitle')}</h1>
-                            <p class="text-xs">{t('deliveryFlow.runIdFallback', { id: run().id ?? '' })} • {run().title || t('deliveryFlow.dispatchSheet')}</p>
-                          </div>
-                          <div class="text-right text-xs">
-                            <div>{t('deliveryFlow.manifestDate', { date: run().delivery_date })}</div>
-                            <div>{t('deliveryFlow.manifestDriver', { driver: run().driver_name })}</div>
-                          </div>
-                        </div>
-
-                        <table class="w-full text-left text-xs border border-collapse border-black mb-6">
-                          <thead>
-                            <tr class="bg-gray-200 text-black border-b border-black text-[11px]">
-                              <th class="border border-black p-1.5 w-10 text-center">{t('deliveryFlow.pick')}</th>
-                              <th class="border border-black p-1.5">{t('deliveryFlow.customerAndArea')}</th>
-                              <th class="border border-black p-1.5">{t('deliveryFlow.itemName')}</th>
-                              <th class="border border-black p-1.5 w-24 text-center">{t('common.qty')}</th>
-                              <th class="border border-black p-1.5">{t('common.notes')}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <For each={run().items || []}>
-                              {(it) => (
-                                <tr class="border-b border-black">
-                                  <td class="border border-black p-1.5 text-center font-bold">[  ]</td>
-                                  <td class="border border-black p-1.5 font-bold">{it.customer} ({it.area})</td>
-                                  <td class="border border-black p-1.5">{it.nama_barang}</td>
-                                  <td class="border border-black p-1.5 text-center font-bold">{it.planned_qty} {it.satuan}</td>
-                                  <td class="border border-black p-1.5 text-[10px]">{it.note || it.keterangan || '-'}</td>
-                                </tr>
-                              )}
-                            </For>
-                          </tbody>
-                        </table>
+                    <div class="min-w-0 space-y-3 lg:@min-[53rem]:col-start-1 lg:@min-[53rem]:row-start-1">
+                      <div class="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2">
+                        <h2 class="text-lg font-semibold tracking-tight">{t('deliveryFlow.runItemsHeading')}</h2>
+                        <p class="text-xs text-muted-foreground tabular-nums">
+                          {t('deliveryFlow.linesCount', {
+                            visible: visibleWorkspaceItems().length,
+                            total: activeWorkspaceItems().length,
+                          })}
+                        </p>
                       </div>
+
+                      <div class="flex min-w-0 items-center gap-2 lg:flex-wrap">
+                        <div class="relative min-w-0 flex-1 lg:basis-52">
+                          <IconSearch
+                            aria-hidden="true"
+                            class="pointer-events-none absolute left-3 top-3.5 hidden size-4 text-muted-foreground sm:block"
+                          />
+                          <input
+                            ref={runsItemSearchRef}
+                            type="search"
+                            aria-label={t('deliveryFlow.searchItemsOrDestination')}
+                            placeholder={t('deliveryFlow.searchItemsOrDestination')}
+                            value={runsItemQuery()}
+                            class={cn(
+                              fieldInputClass,
+                              'px-2 placeholder:text-sm sm:pl-9 [&::-webkit-search-cancel-button]:hidden',
+                              runsItemQuery() && 'pr-10'
+                            )}
+                            onInput={(e) => setRunsItemQuery(e.currentTarget.value)}
+                          />
+                          <Show when={runsItemQuery()}>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              class="absolute right-0.5 top-0.5 size-10"
+                              aria-label={t('deliveryFlow.clearSearch')}
+                              onClick={() => {
+                                setRunsItemQuery('');
+                                runsItemSearchRef.focus();
+                              }}
+                            >
+                              <IconX aria-hidden="true" />
+                            </Button>
+                          </Show>
+                        </div>
+
+                        <div class="flex shrink-0 items-center gap-2">
+                          <Show
+                            when={!isDraft()}
+                            fallback={
+                              <span class="text-xs text-muted-foreground sm:text-sm">
+                                {t('deliveryFlow.editingQty')}
+                              </span>
+                            }
+                          >
+                            <Button
+                              type="button"
+                              variant={runsEditAll() ? 'secondary' : 'outline'}
+                              class="h-11 px-2 text-xs sm:px-2.5 sm:text-sm"
+                              aria-pressed={runsEditAll()}
+                              onClick={() => setRunsEditAll((editing) => !editing)}
+                            >
+                              <Show
+                                when={runsEditAll()}
+                                fallback={<IconPencil aria-hidden="true" class="hidden sm:block" />}
+                              >
+                                <IconCheck aria-hidden="true" class="hidden sm:block" />
+                              </Show>
+                              <span>
+                                {runsEditAll() ? t('deliveryFlow.doneEditing') : t('deliveryFlow.editQty')}
+                              </span>
+                            </Button>
+                          </Show>
+                          <Button
+                            type="button"
+                            variant={runsFilterOpen() ? 'secondary' : 'outline'}
+                            class="hidden h-11 px-2.5 lg:inline-flex"
+                            aria-expanded={runsFilterOpen()}
+                            aria-controls={runsFilterOpen() ? 'delivery-runs-item-filters' : undefined}
+                            onClick={() => setRunsFilterOpen((open) => !open)}
+                          >
+                            <IconAdjustmentsHorizontal aria-hidden="true" />
+                            <span>{t('deliveryFlow.filtersAndView')}</span>
+                            <Show when={enabledRunsFilterCount() > 0}>
+                              <span aria-hidden="true" class="size-1.5 rounded-full bg-current" />
+                            </Show>
+                          </Button>
+                        </div>
+                      </div>
+
+                      <Show when={enabledRunsFilterCount() > 0}>
+                        <div
+                          role="group"
+                          aria-label={t('deliveryFlow.filtersAndView')}
+                          class="flex min-w-0 flex-wrap gap-1.5"
+                        >
+                          <Show when={runsGroupBy() === 'none'}>
+                            <ActiveFilter
+                              label={t('deliveryFlow.flatList')}
+                              onRemove={() => setRunsGroupBy('destination')}
+                            />
+                          </Show>
+                          <Show when={!isDraft() && runsPickFilter() !== 'all'}>
+                            <ActiveFilter
+                              label={
+                                runsPickFilter() === 'picked'
+                                  ? t('deliveryFlow.pickPicked')
+                                  : t('deliveryFlow.pickToPick')
+                              }
+                              onRemove={() => setRunsPickFilter('all')}
+                            />
+                          </Show>
+                          <Show when={workspaceDestinations().get(runsDestinationFilter())}>
+                            {(label) => (
+                              <ActiveFilter label={label()} onRemove={() => setRunsDestinationFilter('')} />
+                            )}
+                          </Show>
+                        </div>
+                      </Show>
+
+                      <Show when={runsFilterOpen()}>
+                        <div
+                          id="delivery-runs-item-filters"
+                          class="hidden min-w-0 flex-wrap items-end gap-3 rounded-lg border bg-muted/35 p-2.5 lg:flex"
+                        >
+                          <ItemFilters />
+                        </div>
+                      </Show>
+
+                      {/* Integrated Item List */}
+                      <Show
+                        when={visibleWorkspaceItems().length > 0}
+                        fallback={
+                          <p class="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                            {activeWorkspaceItems().length > 0
+                              ? t('deliveryFlow.noItemsMatchFilters')
+                              : t('deliveryFlow.noItemsOnRun')}
+                          </p>
+                        }
+                      >
+                        <Show
+                          when={runsGroupBy() !== 'none'}
+                          fallback={
+                            <ul class="min-w-0 divide-y rounded-lg border bg-card">
+                              <For each={visibleWorkspaceItemKeys()}>
+                                {(key) => <WorkspaceItemRow itemKey={key} />}
+                              </For>
+                            </ul>
+                          }
+                        >
+                          <div class="grid min-w-0 gap-3">
+                            <For each={groupedWorkspaceOrders()}>
+                              {(ordGroup) => {
+                                const pickCount = () => orderPickTotals().get(ordGroup.order_id);
+                                const showFillBtn = () =>
+                                  runsEditAll() ||
+                                  ordGroup.items.some((it) => it.key === editingItemKey());
+                                const itemKeys = () => ordGroup.items.map((it) => it.key);
+                                return (
+                                  <section class="min-w-0 rounded-lg border bg-card">
+                                    <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-t-lg border-b bg-muted/35 px-3 py-2.5 sm:px-4">
+                                      <div class="min-w-0 flex-1 basis-36">
+                                        <h3 class="break-words text-sm font-semibold">{ordGroup.customer}</h3>
+                                        <p class="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+                                          <span class="min-w-0 break-words font-mono tabular-nums">
+                                            {ordGroup.ecatalog_number || ordGroup.order_number}
+                                          </span>
+                                          <Show when={ordGroup.area}>
+                                            <span class="min-w-0 break-words">{formatAreaLabel(ordGroup.area)}</span>
+                                          </Show>
+                                        </p>
+                                      </div>
+                                      <Show when={!isDraft() && pickCount()}>
+                                        {(count) => (
+                                          <span class="shrink-0 text-xs text-muted-foreground tabular-nums">
+                                            {t('deliveryFlow.pickedSummary', {
+                                              picked: count().picked,
+                                              total: count().total,
+                                            })}
+                                          </span>
+                                        )}
+                                      </Show>
+                                      <Show when={showFillBtn()}>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          class="h-11 bg-background px-2.5"
+                                          onClick={() => handleFillOrderRemaining(ordGroup.order_id)}
+                                        >
+                                          {t('deliveryFlow.fillRemainingQty')}
+                                        </Button>
+                                      </Show>
+                                    </div>
+                                    <ul class="min-w-0 divide-y">
+                                      <For each={itemKeys()}>
+                                        {(key) => <WorkspaceItemRow itemKey={key} />}
+                                      </For>
+                                    </ul>
+                                  </section>
+                                );
+                              }}
+                            </For>
+                          </div>
+                        </Show>
+                      </Show>
                     </div>
-                  );
-                }}
+                  </div>
+
+                  {/* Desktop Draft Save Footer */}
+                  <Show when={isDraft()}>
+                    <div class="hidden min-w-0 items-center justify-between gap-2 rounded-lg border bg-background p-3 lg:flex">
+                      <span class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                        <IconClipboardList class="hidden size-4 shrink-0 sm:block" aria-hidden="true" />
+                        <span class="min-w-0 break-words tabular-nums">
+                          {t('deliveryFlow.linesCount', {
+                            visible: activeWorkspaceItems().length,
+                            total: activeWorkspaceItems().length,
+                          })}{' '}
+                          &middot; {driverName() || t('deliveryFlow.unassigned')}
+                        </span>
+                      </span>
+                      <Button
+                        type="button"
+                        class="h-11 shrink-0 gap-1.5"
+                        disabled={isSavingRun() || draftItems().size === 0 || !deliveryDate()}
+                        onClick={handleSaveRun}
+                      >
+                        <Show when={isSavingRun()}>
+                          <Spinner size="sm" />
+                        </Show>
+                        <span>{t('deliveryFlow.saveRun')}</span>
+                      </Button>
+                    </div>
+                  </Show>
+                </section>
               </Show>
             </div>
-            </Show>
           </div>
-        </Show>
-        {/* Mobile Floating Action Buttons & Drawers (Portaled to body to float relative to viewport) */}
-        <Portal>
-          <Show when={isMobile() && (activeTab() === 'plan' || activeTab() === 'configure')}>
-            <Show when={false}>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
-              >
-                <Show when={activeTab() === 'plan'} fallback={<IconTruckDelivery class="size-4" />}>
-                  <IconFilter class="size-4" />
-                </Show>
-                <span class="text-sm font-semibold">
-                  {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerBtnPlan') : t('deliveryFlow.mobileDrawerBtnConfigure')}
-                </span>
-                <Show when={draftStats().totalItems > 0}>
-                  <span class="inline-flex items-center justify-center size-5 text-[11px] font-bold rounded-full bg-primary-foreground text-primary tabular-nums">
-                    {draftStats().totalItems}
-                  </span>
-                </Show>
-              </button>
-            </Show>
-            <Sheet open={sidebarOpen()} onOpenChange={setSidebarOpen}>
-              <SheetContent position="right" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
-                <SheetHeader>
-                  <SheetTitle>
-                    {activeTab() === 'plan' ? t('deliveryFlow.mobileDrawerTitlePlan') : t('deliveryFlow.mobileDrawerTitleConfigure')}
-                  </SheetTitle>
-                </SheetHeader>
-                <div class="mt-4">
-                  <Show when={activeTab() === 'plan'} fallback={<ConfigureDispatchSidebarContent />}>
-                    <PlanSelectSidebarContent />
-                  </Show>
+
+          {/* Printable A4 Manifest (Saved Runs) */}
+          <Show when={!isDraft() && pickedRun()}>
+            {(run) => (
+              <div class="delivery-print-sheet hidden print:block text-black bg-white p-4">
+                <div class="border-b-2 border-black pb-2 mb-4 flex justify-between">
+                  <div>
+                    <h1 class="text-xl font-bold uppercase">{t('deliveryFlow.manifestTitle')}</h1>
+                    <p class="text-xs">
+                      {t('deliveryFlow.runIdFallback', { id: run().id ?? '' })} •{' '}
+                      {run().title || t('deliveryFlow.dispatchSheet')}
+                    </p>
+                  </div>
+                  <div class="text-right text-xs">
+                    <div>{t('deliveryFlow.manifestDate', { date: run().delivery_date })}</div>
+                    <div>
+                      {t('deliveryFlow.manifestDriver', {
+                        driver: run().driver_name || t('deliveryFlow.unassigned'),
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </SheetContent>
-            </Sheet>
+
+                <table class="w-full text-left text-xs border border-collapse border-black mb-6">
+                  <thead>
+                    <tr class="bg-gray-200 text-black border-b border-black text-[11px]">
+                      <th class="border border-black p-1.5 w-10 text-center">{t('deliveryFlow.pick')}</th>
+                      <th class="border border-black p-1.5">{t('deliveryFlow.customerAndArea')}</th>
+                      <th class="border border-black p-1.5">{t('deliveryFlow.itemName')}</th>
+                      <th class="border border-black p-1.5 w-24 text-center">{t('common.qty')}</th>
+                      <th class="border border-black p-1.5">{t('common.notes')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={run().items || []}>
+                      {(it) => (
+                        <tr class="border-b border-black">
+                          <td class="border border-black p-1.5 text-center font-bold">[  ]</td>
+                          <td class="border border-black p-1.5 font-bold">
+                            {it.customer} ({it.area})
+                          </td>
+                          <td class="border border-black p-1.5">{it.nama_barang}</td>
+                          <td class="border border-black p-1.5 text-center font-bold">
+                            {it.planned_qty} {it.satuan}
+                          </td>
+                          <td class="border border-black p-1.5 text-[10px]">
+                            {it.note || it.keterangan || '-'}
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Show>
+        </Show>
 
-          {/* Mobile Runs Drawer */}
-          <Show when={isMobile() && activeTab() === 'runs' && selectedRunId()}>
-            <button
-              type="button"
-              onClick={() => setRunsDrawerOpen(true)}
-              class="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all no-print"
+        {/* Mobile Floating Bottom Bar for Runs & Dispatch (Mockup 1) */}
+        <Portal>
+          <Show when={activeTab() === 'runs'}>
+            <Show when={runsDockPanel()}>
+              <div class="df-dock-backdrop lg:hidden no-print" onClick={closeRunsDockPanel} />
+            </Show>
+            <div
+              class="fixed bottom-2 left-2 right-2 z-40 rounded-2xl border bg-card/98 p-2.5 shadow-2xl backdrop-blur-md sm:p-3 lg:hidden no-print"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && runsDockPanel()) {
+                  e.stopPropagation();
+                  closeRunsDockPanel();
+                }
+              }}
             >
-              <IconBuildingWarehouse class="size-4" />
-              <span class="text-sm font-semibold">{t('deliveryFlow.switchRun')}</span>
-            </button>
+              <Show when={runsDockPanel()} keyed>
+                {(panel) => (
+                  <section
+                    id="delivery-runs-dock-panel"
+                    aria-labelledby="delivery-runs-dock-title"
+                    class="mb-3 max-h-[62dvh] space-y-3 overflow-y-auto overscroll-contain rounded-xl border bg-background p-3 shadow-inner animate-[card-enter_200ms_ease-out_both] motion-reduce:animate-none"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <h2 id="delivery-runs-dock-title" class="text-sm font-semibold">
+                        {panel === 'runs'
+                          ? t('deliveryFlow.dispatchRuns')
+                          : panel === 'driver'
+                            ? t('deliveryFlow.dispatchAndDriver')
+                            : t('deliveryFlow.filtersAndView')}
+                      </h2>
+                      <Button
+                        ref={(btn) => queueMicrotask(() => btn.focus({ preventScroll: true }))}
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        class="size-9 shrink-0"
+                        aria-label={t('common.close')}
+                        onClick={closeRunsDockPanel}
+                      >
+                        <IconX aria-hidden="true" />
+                      </Button>
+                    </div>
+                    <Show when={panel === 'runs'}>
+                      <RunFeed />
+                    </Show>
+                    <Show when={panel === 'driver'}>
+                      <Show when={!isDraft() && pickedRun()}>
+                        {(run) => (
+                          <div class="flex items-center justify-between gap-2 border-b pb-3">
+                            <span class="text-sm font-medium">{t('deliveryFlow.runStatusLabel')}</span>
+                            <select
+                              aria-label={t('deliveryFlow.runStatusLabel')}
+                              class={cn(fieldInputClass, 'w-auto')}
+                              value={run().status || DELIVERY_RUN_STATUS.PLANNED}
+                              onChange={(e) =>
+                                run().id && handleStatusChange(run().id!, e.currentTarget.value as DeliveryRunStatus)
+                              }
+                            >
+                              <For each={runStatusFlow}>
+                                {(st) => <option value={st}>{getRunStatusLabel(st)}</option>}
+                              </For>
+                            </select>
+                          </div>
+                        )}
+                      </Show>
+                      <DispatchSetup />
+                      <Button type="button" class="h-10 w-full" onClick={closeRunsDockPanel}>
+                        {t('deliveryFlow.done')}
+                      </Button>
+                    </Show>
+                    <Show when={panel === 'filters'}>
+                      <div class="flex min-w-0 flex-wrap items-end gap-3">
+                        <ItemFilters />
+                      </div>
+                    </Show>
+                  </section>
+                )}
+              </Show>
 
-            <Sheet open={runsDrawerOpen()} onOpenChange={setRunsDrawerOpen}>
-              <SheetContent position="left" class="w-[85vw] sm:max-w-sm overflow-y-auto p-4">
-                <SheetHeader>
-                  <SheetTitle>{t('deliveryFlow.dispatchRuns')}</SheetTitle>
-                </SheetHeader>
-                <div class="mt-4">
-                  <RunsListContent onSelectRun={() => setRunsDrawerOpen(false)} />
-                </div>
-              </SheetContent>
-            </Sheet>
+              <Show
+                when={isDraft() || pickedRun()}
+                fallback={
+                  <div class="mb-2 truncate text-xs text-muted-foreground">
+                    {t('deliveryFlow.noRunSelected')}
+                  </div>
+                }
+              >
+                <Show
+                  when={isDraft()}
+                  fallback={
+                    <Show when={pickedRun()}>
+                      {(run) => (
+                        <div class="mb-2 flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span class="shrink-0 tabular-nums">
+                            <strong class="font-mono font-semibold text-foreground">#{run().id}</strong> &middot;{' '}
+                            {t('deliveryFlow.pickedSummary', {
+                              picked: pickedRunCount(),
+                              total: run().items?.length || 0,
+                            })}
+                          </span>
+                          <span
+                            class="truncate"
+                            title={run().title || run().driver_name || t('deliveryFlow.unassigned')}
+                          >
+                            {run().title || run().driver_name || t('deliveryFlow.unassigned')}
+                          </span>
+                        </div>
+                      )}
+                    </Show>
+                  }
+                >
+                  <div class="mb-2 flex min-w-0 items-center justify-between gap-2 text-xs">
+                    <span class="shrink-0 text-muted-foreground tabular-nums">
+                      <strong class="font-semibold text-foreground">{t('deliveryFlow.draftBadge')}</strong> &middot;{' '}
+                      {t('deliveryFlow.itemsCount', { count: draftItems().size })}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      class="h-9 shrink-0 gap-1.5 rounded-xl px-3 text-xs font-semibold"
+                      disabled={isSavingRun() || draftItems().size === 0 || !deliveryDate()}
+                      onClick={handleSaveRun}
+                    >
+                      <Show when={isSavingRun()}>
+                        <Spinner size="sm" />
+                      </Show>
+                      <span>{t('deliveryFlow.saveRun')}</span>
+                    </Button>
+                  </div>
+                </Show>
+              </Show>
+
+              <div class="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class={cn(
+                    'h-10 min-w-0 gap-1.5 rounded-xl px-2 text-xs [&_svg]:size-3.5',
+                    runsDockPanel() === 'runs' && 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                  )}
+                  aria-expanded={runsDockPanel() === 'runs'}
+                  aria-controls={runsDockPanel() === 'runs' ? 'delivery-runs-dock-panel' : undefined}
+                  onClick={(e) => toggleRunsDockPanel('runs', e.currentTarget)}
+                >
+                  <IconClipboardList aria-hidden="true" class="text-muted-foreground" />
+                  <span>{t('deliveryFlow.runsButton')}</span>
+                  <span class="rounded-full bg-muted px-1 text-[10px] font-bold tabular-nums">
+                    {(runsData()?.runs || []).length}
+                  </span>
+                  <Show when={draftItems().size > 0}>
+                    <span
+                      aria-hidden="true"
+                      class="size-2 shrink-0 rounded-full border border-dashed border-current"
+                    />
+                    <span class="sr-only">{t('deliveryFlow.pendingDraft')}</span>
+                  </Show>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class={cn(
+                    'h-10 min-w-0 gap-1.5 rounded-xl px-2 text-xs [&_svg]:size-3.5',
+                    runsDockPanel() === 'filters' && 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                  )}
+                  aria-expanded={runsDockPanel() === 'filters'}
+                  disabled={!isDraft() && !pickedRun()}
+                  aria-controls={runsDockPanel() === 'filters' ? 'delivery-runs-dock-panel' : undefined}
+                  onClick={(e) => toggleRunsDockPanel('filters', e.currentTarget)}
+                >
+                  <IconFilter aria-hidden="true" class="text-muted-foreground" />
+                  <span>{t('deliveryFlow.filters')}</span>
+                  <Show when={enabledRunsFilterCount() > 0}>
+                    <span class="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold leading-none text-primary-foreground tabular-nums shadow-xs">
+                      {enabledRunsFilterCount()}
+                    </span>
+                  </Show>
+                  <IconChevronDown
+                    aria-hidden="true"
+                    class={cn(
+                      'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                      runsDockPanel() === 'filters' && 'rotate-180'
+                    )}
+                  />
+                </Button>
+              </div>
+            </div>
           </Show>
         </Portal>
         {/* DRIVERS ROSTER MODAL */}
@@ -2990,24 +3375,31 @@ export const DeliveryFlow: Component = () => {
           </DialogContent>
         </Dialog>
 
-        {/* DELETE RUN ALERT DIALOG */}
-        <AlertDialog open={!!runToDelete()} onOpenChange={(open) => !open && setRunToDelete(null)}>
+        {/* DELETE RUN / DISCARD DRAFT ALERT DIALOG */}
+        <AlertDialog open={deleteDialogOpen()} onOpenChange={setDeleteDialogOpen}>
           <AlertDialogContent>
-            <AlertDialogTitle>{t('deliveryFlow.deleteRun')}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {isDraft() ? t('deliveryFlow.discardDraftTitle') : t('deliveryFlow.deleteRun')}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t('deliveryFlow.deleteRunConfirmDesc')}
+              {isDraft() ? t('deliveryFlow.discardDraftDesc') : t('deliveryFlow.deleteRunConfirmDesc')}
             </AlertDialogDescription>
             <div class="flex justify-end gap-2 mt-4">
-              <Button variant="outline" size="sm" onClick={() => setRunToDelete(null)}>
+              <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button size="sm" variant="destructive" onClick={confirmDeleteRun}>
-                {t('common.delete')}
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={isDeletingRun()}
+                onClick={confirmDeleteOrDiscard}
+              >
+                {isDraft() ? t('deliveryFlow.discardDraft') : t('common.delete')}
               </Button>
             </div>
           </AlertDialogContent>
         </AlertDialog>
-      </div>
+    </div>
   );
 };
 export default DeliveryFlow;
