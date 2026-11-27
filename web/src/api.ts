@@ -304,7 +304,7 @@ export const getWorkdayPolicies = () =>
   apiFetch<WorkdayPoliciesResponse>('/api/v1/workday-policies');
 
 export const setWorkdayPolicy = (workDays: string[]) =>
-  apiFetch<WorkdayPoliciesResponse>('/api/v1/workday-policies', {
+  apiFetch<{ policy: WorkdayPoliciesResponse['policies'][number] }>('/api/v1/workday-policies', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ work_days: workDays }),

@@ -1228,6 +1228,12 @@ type WorkdayPoliciesOutput struct {
 	Body WorkdayPoliciesResponse
 }
 
+type SetWorkdayPolicyOutput struct {
+	Body struct {
+		Policy model.WorkdayPolicy `json:"policy"`
+	}
+}
+
 type SetWorkdayPolicyInput struct {
 	Body struct {
 		WorkDays []string `json:"work_days" doc:"Canonical English weekday names (Monday..Sunday)"`
@@ -1259,7 +1265,7 @@ func (s *Server) handleGetWorkdayPolicies(ctx context.Context, input *struct{}) 
 	}, nil
 }
 
-func (s *Server) handleSetWorkdayPolicy(ctx context.Context, input *SetWorkdayPolicyInput) (*WorkdayPoliciesOutput, error) {
+func (s *Server) handleSetWorkdayPolicy(ctx context.Context, input *SetWorkdayPolicyInput) (*SetWorkdayPolicyOutput, error) {
 	if s.store == nil {
 		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
@@ -1297,16 +1303,9 @@ func (s *Server) handleSetWorkdayPolicy(ctx context.Context, input *SetWorkdayPo
 		return nil, huma.Error500InternalServerError("failed to set workday policy", err)
 	}
 
-	policies, err := s.store.GetWorkdayPolicies(ctx)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to load updated workday policies", err)
-	}
-
-	return &WorkdayPoliciesOutput{
-		Body: WorkdayPoliciesResponse{
-			Policies: policies,
-		},
-	}, nil
+	out := &SetWorkdayPolicyOutput{}
+	out.Body.Policy = model.WorkdayPolicy{EffectiveFrom: effectiveFrom, WorkDays: validatedDays}
+	return out, nil
 }
 
 type PageDesignsOutput struct {

@@ -934,6 +934,7 @@ export const dict = {
     friday: "Friday",
     saturday: "Saturday",
     sunday: "Sunday",
+    replaceWorkdaysDesc: "Select the active days for a replacement schedule. The current schedule is not visible with your permissions.",
     workdaysSavedSuccess: "Saved active workdays (effective {{date}}). Stored lead times recalculated.",
     workdaysSaveError: "Failed to save workday policy",
     triggeringResync: "Triggering full resync...",

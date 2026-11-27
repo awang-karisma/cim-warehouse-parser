@@ -45,7 +45,12 @@ function guardedPage(route: WorkspaceRoute, Page: Component): Component {
 const DashboardPage = guardedPage(ROUTES.dashboard, Dashboard);
 const Home: Component = () => {
   const auth = useAuth();
-  const first = () => WORKSPACE_DESTINATIONS.find((route) => canAccessRoute(auth, route));
+  const first = () => WORKSPACE_DESTINATIONS.find((route) => canAccessRoute(auth, route)) ?? (
+    canAccessRoute(auth, ROUTES.settings) && auth.canAny(
+      'system:read', 'workday:read', 'workday:update', 'accurate:read', 'accurate:create',
+      'accurate:update', 'accurate:delete', 'sync:trigger', 'database:clear',
+    ) ? ROUTES.settings : undefined
+  );
   return (
     <Show when={first()} keyed fallback={<WorkspaceAccess kind="unprovisioned" />}>
       {(route) => route === ROUTES.dashboard ? <DashboardPage /> : <Navigate href={route} />}

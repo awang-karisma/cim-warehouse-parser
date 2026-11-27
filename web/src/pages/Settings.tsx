@@ -64,9 +64,7 @@ export const Settings: Component = () => {
 
   const [policiesData, { refetch: refetchPolicies }] = createResource(() => auth.can('workday:read'), getWorkdayPolicies);
 	const ALL_WEEKDAYS: string[] = [WEEKDAY_NAME.MONDAY, WEEKDAY_NAME.TUESDAY, WEEKDAY_NAME.WEDNESDAY, WEEKDAY_NAME.THURSDAY, WEEKDAY_NAME.FRIDAY, WEEKDAY_NAME.SATURDAY, WEEKDAY_NAME.SUNDAY];
-	const [selectedDays, setSelectedDays] = createSignal<string[]>([
-		WEEKDAY_NAME.MONDAY, WEEKDAY_NAME.TUESDAY, WEEKDAY_NAME.WEDNESDAY, WEEKDAY_NAME.THURSDAY, WEEKDAY_NAME.FRIDAY, WEEKDAY_NAME.SATURDAY,
-	]);
+	const [selectedDays, setSelectedDays] = createSignal<string[]>([]);
 	const [isSavingPolicy, setIsSavingPolicy] = createSignal(false);
 	const [policySaveError, setPolicySaveError] = createSignal<string | null>(null);
 	const [policySaveSuccess, setPolicySaveSuccess] = createSignal<string | null>(null);
@@ -110,9 +108,7 @@ export const Settings: Component = () => {
     try {
       const res = await setWorkdayPolicy(selectedDays());
       if (auth.can('workday:read')) await refetchPolicies();
-      const updated = res.policies;
-      const latest = updated && updated.length > 0 ? updated[updated.length - 1] : null;
-      setPolicySaveSuccess(t('settings.workdaysSavedSuccess', { date: latest?.effective_from || 'today' }));
+      setPolicySaveSuccess(t('settings.workdaysSavedSuccess', { date: res.policy.effective_from }));
     } catch (err: unknown) {
       setPolicySaveError(err instanceof Error ? err.message : t('settings.workdaysSaveError'));
     } finally {
@@ -336,7 +332,7 @@ export const Settings: Component = () => {
           <div>
             <CardTitle class="text-base font-semibold">{t('settings.leadTimeWorkdays')}</CardTitle>
             <CardDescription>
-              {t('settings.leadTimeWorkdaysDesc')}
+              {t(auth.can('workday:read') ? 'settings.leadTimeWorkdaysDesc' : 'settings.replaceWorkdaysDesc')}
             </CardDescription>
           </div>
         </CardHeader>

@@ -371,6 +371,8 @@ Business endpoints are under `/api/v1`. A slash-separated pair of methods and ca
 | `/admin/users`; `/admin/users/{email}/role`; `/admin/users/{email}` | GET / PUT / DELETE | `user:read` / `user:create` (approval only) or `user:update` (assignment) / `user:delete` |
 | `/admin/permissions`; `/admin/roles`, `/admin/roles/{id}` | GET; GET / POST / PUT / DELETE | `role:read`; `role:read` / `role:create` / `role:update` / `role:delete` |
 
+`PUT /api/v1/workday-policies` returns only the saved `{policy}`. Update-only users choose a replacement schedule from an empty draft; history requires `workday:read`. If Settings is the only available operational workspace, `/` opens it.
+
 `GET /api/v1/search` searches only categories covered by `order:read`, `item:read`, or `customer:read`. Explicit forbidden categories return 403; an all-category request still returns empty arrays and zero counts for excluded categories.
 
 `POST /api/v1/admin/roles` and `PUT /api/v1/admin/roles/{id}` accept `{name, description, permissions}`. Supply `[]` to clear grants; `*` and unknown grants are not assignable. Role metadata and grants save atomically; roles with assignees cannot be deleted. User assignments keep the existing `{role: string}` body. The list returns allowed target actions and assignable role IDs/names without requiring `role:read`.

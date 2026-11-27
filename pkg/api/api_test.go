@@ -2504,8 +2504,8 @@ func TestWorkdayPoliciesEndpoints(t *testing.T) {
 		}
 	})
 
-	// 3. Successful PUT derives today's date in configured timezone and returns updated history
-	t.Run("successful PUT updates history with timezone-derived date", func(t *testing.T) {
+	// 3. Successful PUT returns the saved policy, not the policy history.
+	t.Run("successful PUT returns only the saved policy", func(t *testing.T) {
 		loc, _ := time.LoadLocation("Asia/Makassar")
 		expectedToday := time.Now().In(loc).Format("2006-01-02")
 
@@ -2521,23 +2521,14 @@ func TestWorkdayPoliciesEndpoints(t *testing.T) {
 		}
 
 		var body struct {
+			Policy   model.WorkdayPolicy   `json:"policy"`
 			Policies []model.WorkdayPolicy `json:"policies"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
-		if len(body.Policies) != 2 {
-			t.Fatalf("expected 2 policies in history, got %d", len(body.Policies))
-		}
-		// Effective-date order: 0001-01-01, then today
-		if body.Policies[0].EffectiveFrom != "0001-01-01" {
-			t.Errorf("expected first policy 0001-01-01, got %q", body.Policies[0].EffectiveFrom)
-		}
-		if body.Policies[1].EffectiveFrom != expectedToday {
-			t.Errorf("expected derived effective date %q, got %q", expectedToday, body.Policies[1].EffectiveFrom)
-		}
-		if len(body.Policies[1].WorkDays) != 5 {
-			t.Errorf("expected 5 workdays, got %d", len(body.Policies[1].WorkDays))
+		if body.Policies != nil || body.Policy.EffectiveFrom != expectedToday || len(body.Policy.WorkDays) != 5 {
+			t.Fatalf("expected only today's five-day policy, got %+v", body)
 		}
 	})
 }

@@ -932,6 +932,7 @@ export const dict: RawDictionary = {
     friday: "Jumat",
     saturday: "Sabtu",
     sunday: "Minggu",
+    replaceWorkdaysDesc: "Pilih hari aktif untuk jadwal pengganti. Jadwal saat ini tidak terlihat dengan izin Anda.",
     workdaysSavedSuccess: "Jadwal hari kerja aktif berhasil disimpan (berlaku {{date}}). Lead time tersimpan telah dihitung ulang.",
     workdaysSaveError: "Gagal menyimpan kebijakan hari kerja",
     triggeringResync: "Memulai sinkronisasi ulang penuh...",
