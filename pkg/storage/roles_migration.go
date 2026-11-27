@@ -69,8 +69,10 @@ func (s *Storage) migrateUserRoles() error {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO users_rbac (id, email, name, picture, role_id, locale, created_at, updated_at)
-			SELECT id, email, name, picture, CASE WHEN role = ? THEN ? ELSE ? END, locale, created_at, updated_at FROM users`,
-			model.RoleGuest, guestRoleID, userRoleID); err != nil {
+			SELECT id, email, name, picture,
+			CASE WHEN LOWER(TRIM(role)) IN (?, ?, ?) THEN ? ELSE ? END,
+			locale, created_at, updated_at FROM users`,
+			model.RoleUser, model.RoleAdmin, "superadmin", userRoleID, guestRoleID); err != nil {
 			return fmt.Errorf("copy legacy users: %w", err)
 		}
 		if _, err := tx.Exec(`DROP TABLE users; ALTER TABLE users_rbac RENAME TO users;`); err != nil {

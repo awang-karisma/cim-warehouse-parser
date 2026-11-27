@@ -25,7 +25,11 @@ func TestUserRoleCutover(t *testing.T) {
 		(11,'guest@example.com','Guest','p','guest','id','2026-01-01','2026-01-02'),
 		(12,'user@example.com','User','p','user','id','2026-01-01','2026-01-02'),
 		(13,'old-admin@example.com','Admin','p','admin','en','2026-01-01','2026-01-02'),
-		(14,'recovery@example.com','Recovery','p','superadmin','id','2026-01-01','2026-01-02');`)
+		(14,'recovery@example.com','Recovery','p',' SUPERADMIN ','id','2026-01-01','2026-01-02'),
+		(15,'mixed@example.com','Mixed','p','Guest','id','2026-01-01','2026-01-02'),
+		(16,'padded@example.com','Padded','p',' guest ','id','2026-01-01','2026-01-02'),
+		(17,'unknown@example.com','Unknown','p','operator','id','2026-01-01','2026-01-02'),
+		(18,'empty@example.com','Empty','p','','id','2026-01-01','2026-01-02');`)
 	_ = db.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -42,6 +46,8 @@ func TestUserRoleCutover(t *testing.T) {
 	for email, expected := range map[string]string{
 		"guest@example.com": "guest", "user@example.com": "user",
 		"old-admin@example.com": "user", "recovery@example.com": "user",
+		"mixed@example.com": "guest", "padded@example.com": "guest",
+		"unknown@example.com": "guest", "empty@example.com": "guest",
 	} {
 		u, err := s.GetUserByEmail(ctx, email)
 		if err != nil || u == nil || u.Role != expected {

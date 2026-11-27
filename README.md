@@ -231,7 +231,7 @@ sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
 
 1. Stop the old service and any other process writing to its SQLite database. Back up with the SQLite backup mechanism, or copy the stopped database together with its WAL if present. Keep the corresponding pre-upgrade binary.
 2. Verify that `SUPERADMIN_EMAILS` contains at least one recoverable Google account. Without a nonblank entry the new daemon refuses to start before opening SQLite.
-3. Start the new daemon. The one-time migration preserves profiles and locales, keeps guests pending, and assigns all previously approved accounts (including old admins) to `user` with no grants. Only configured superadmin identities retain implicit access. On later restarts, assignments and grants are preserved.
+3. Start the new daemon. The one-time migration preserves profiles and locales. Only legacy roles that normalize to `user`, `admin`, or `superadmin` become `user` with no grants; all other values become pending guests. Only configured superadmin identities retain implicit access. On later restarts, assignments and grants are preserved.
 4. Sign in as a configured superadmin, open **User Management**, and assign your first `admin`. Then provision `user` or create custom roles in **Role Management**. To roll back, restore the pre-upgrade database and binary together; do not run the old binary against the migrated database.
 
 For local development with authentication explicitly disabled, no recovery account is required. Keep that mode off on deployments serving untrusted clients.
