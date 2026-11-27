@@ -1031,6 +1031,7 @@ export const dict = {
     loadFailed: "Could not load roles and permissions.",
     saveFailed: "Could not save this role. Your changes are still here.",
     nameConflict: "That role name is already in use or reserved. Choose a different name.",
+    staleDraft: "This role changed while you were editing. Load the latest version before making changes.",
     deleteFailed: "Could not delete this role. Check that it is not assigned to any account.",
     choose: "Select a role to inspect its permissions.",
     groups: {

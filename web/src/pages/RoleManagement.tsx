@@ -24,6 +24,17 @@ const emptyRole: RoleInput = { name: '', description: '', permissions: [] };
 type Copy = RawDictionary['roleManagement'];
 type Selection = number | 'new';
 
+const roleValues = ({ name, description, permissions }: Role): RoleInput => ({ name, description, permissions });
+const sameValues = (a: RoleInput, b: RoleInput) => a.name === b.name && a.description === b.description &&
+  a.permissions.length === b.permissions.length && a.permissions.every((grant, i) => grant === b.permissions[i]);
+const roleSortName = (name: string) => name.replace(/[A-Z]/g, (char) => char.toLowerCase());
+const compareRoles = (a: Role, b: Role) => {
+  const system = Number(b.is_system) - Number(a.is_system);
+  const x = roleSortName(a.name);
+  const y = roleSortName(b.name);
+  return system || (x < y ? -1 : x > y ? 1 : a.id - b.id);
+};
+
 export const RoleManagement: Component = () => {
   const auth = useAuth();
   const { t } = useI18n();
@@ -45,11 +56,10 @@ export const RoleManagement: Component = () => {
   const canEdit = () => selection() === 'new' ? canCreate() : !!selected()?.actions.update && auth.can('role:update');
   const canDelete = () => !!selected()?.actions.delete && auth.can('role:delete');
   const loadFailed = () => directory.error || catalog.error;
-  const dirty = createMemo(() => {
-    const current = draft();
-    const saved = base();
-    return current.name !== saved.name || current.description !== saved.description ||
-      current.permissions.length !== saved.permissions.length || current.permissions.some((grant, i) => grant !== saved.permissions[i]);
+  const dirty = createMemo(() => !sameValues(draft(), base()));
+  const conflict = createMemo(() => {
+    const current = selected();
+    return !!current && dirty() && !sameValues(roleValues(current), base());
   });
   const visibleRoles = createMemo(() => {
     const query = search().trim().toLocaleLowerCase();
@@ -70,7 +80,7 @@ export const RoleManagement: Component = () => {
 
   function openRole(id: Selection) {
     const role = roles().find((row) => row.id === id);
-    const values = role ? { name: role.name, description: role.description, permissions: role.permissions } : emptyRole;
+    const values = role ? roleValues(role) : emptyRole;
     setSelection(id);
     setBase(values);
     setDraft(values);
@@ -79,7 +89,16 @@ export const RoleManagement: Component = () => {
   }
 
   createEffect(() => {
-    if (selection() === undefined && !directory.loading && roles().length) openRole(roles()[0].id);
+    if (busy() || directory.loading || directory.error || selection() === 'new') return;
+    const current = selected();
+    if (!current) {
+      const first = roles()[0];
+      if (first) openRole(first.id);
+    } else if (!dirty() && !sameValues(roleValues(current), base())) {
+      const values = roleValues(current);
+      setBase(values);
+      setDraft(values);
+    }
   });
 
   function selectRole(id: Selection) {
@@ -97,14 +116,14 @@ export const RoleManagement: Component = () => {
 
   async function handleSave(event: SubmitEvent) {
     event.preventDefault();
-    if (!canEdit() || busy() || !dirty() || !draft().name.trim() || loadFailed()) return;
+    if (!canEdit() || busy() || !dirty() || conflict() || !draft().name.trim() || loadFailed()) return;
     setBusy(true);
     setError(undefined);
     setFeedback(undefined);
     try {
       const id = selection();
       const result = await saveRole(typeof id === 'number' ? id : undefined, draft());
-      mutate((previous) => ({ roles: [...(previous?.roles ?? []).filter((row) => row.id !== result.role.id), result.role] }));
+      mutate((previous) => ({ roles: [...(previous?.roles ?? []).filter((row) => row.id !== result.role.id), result.role].sort(compareRoles) }));
       openRole(result.role.id);
       setFeedback('roleManagement.saved');
       await auth.refetch();
@@ -187,12 +206,18 @@ export const RoleManagement: Component = () => {
           </DataTable>
         </section>
 
-        <Show when={selection() !== undefined} fallback={<p class="text-sm text-muted-foreground">{t('roleManagement.choose')}</p>}>
+        <Show when={selection() === 'new' || !!selected()} fallback={<p class="text-sm text-muted-foreground">{t('roleManagement.choose')}</p>}>
           <form onSubmit={handleSave} class="min-w-0 space-y-5 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="role-editor-title">
             <div class="flex flex-wrap items-start justify-between gap-2">
               <h2 id="role-editor-title" class="break-all text-lg font-semibold">{selection() === 'new' ? t('roleManagement.newRole') : selected()?.name}</h2>
               <Show when={!canEdit()}><Badge variant="secondary">{t('roleManagement.readOnly')}</Badge></Show>
             </div>
+            <Show when={conflict()}>
+              <div class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 p-3 text-sm text-destructive" role="alert">
+                {t('roleManagement.staleDraft')}
+                <Button type="button" variant="outline" size="sm" onClick={() => { const role = selected(); if (role) openRole(role.id); }}>{t('common.refresh')}</Button>
+              </div>
+            </Show>
             <Show when={selected()?.name === USER_ROLE.SUPERADMIN} fallback={
               <Show when={selected()?.name !== USER_ROLE.ADMIN && selected()?.name !== USER_ROLE.GUEST} fallback={
                 <p class="text-sm text-muted-foreground">{t(selected()?.name === USER_ROLE.ADMIN ? 'roleManagement.adminInfo' : 'roleManagement.guestInfo')}</p>
@@ -245,7 +270,7 @@ export const RoleManagement: Component = () => {
                 </Show>
                 <Show when={canEdit()}>
                   <Button type="button" variant="outline" disabled={!dirty() || busy()} onClick={() => { setDraft(base()); setError(undefined); }}>{t('roleManagement.discard')}</Button>
-                  <Button type="submit" disabled={!dirty() || busy() || !draft().name.trim() || catalog.loading || !!loadFailed()}>{busy() ? t('common.loading') : t('common.save')}</Button>
+                  <Button type="submit" disabled={!dirty() || conflict() || busy() || !draft().name.trim() || catalog.loading || !!loadFailed()}>{busy() ? t('common.loading') : t('common.save')}</Button>
                 </Show>
               </footer>
             </Show>

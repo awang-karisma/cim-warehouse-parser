@@ -204,7 +204,7 @@ export const UserManagement: Component = () => {
                       {(u) => {
                         const isSelf = currentUser()?.email.toLowerCase() === u.email.toLowerCase();
 						const isTargetSuper = u.role === USER_ROLE.SUPERADMIN;
-                        const isUpdating = () => updatingEmail() === u.email;
+                        const isUpdating = () => !!updatingEmail();
                         return (
                           <TableRow>
                             <TableCell>

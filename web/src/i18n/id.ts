@@ -1029,6 +1029,7 @@ export const dict: RawDictionary = {
     loadFailed: "Peran dan izin tidak dapat dimuat.",
     saveFailed: "Peran tidak dapat disimpan. Perubahan Anda tetap ada.",
     nameConflict: "Nama peran sudah digunakan atau dicadangkan. Pilih nama lain.",
+    staleDraft: "Peran ini berubah saat Anda mengedit. Muat versi terbaru sebelum membuat perubahan.",
     deleteFailed: "Peran tidak dapat dihapus. Pastikan tidak ada akun yang menggunakan peran ini.",
     choose: "Pilih peran untuk melihat izinnya.",
     groups: {
