@@ -329,6 +329,13 @@ func New(dbPath string) (*Storage, error) {
 		}
 		dsn = fmt.Sprintf("%s%s_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", dbPath, sep)
 	}
+	// Acquire the writer lock before read-before-write authorization queries.
+	// Explicitly read-only transactions remain deferred.
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	dsn += sep + "_txlock=immediate"
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

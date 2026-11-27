@@ -283,8 +283,8 @@ func setRolePermissions(ctx context.Context, tx *sql.Tx, role model.Role) error 
 	return nil
 }
 
-// All administration writes authorize in their write transaction. Under WAL a
-// concurrent commit after the first read invalidates the snapshot's write upgrade.
+// Administration writes acquire the SQLite writer lock before authorizing, so
+// actor grants and the mutation are evaluated in the same serialized transaction.
 func (s *Storage) CreateRole(ctx context.Context, access AccessContext, input RoleInput) (*model.Role, error) {
 	role, err := normalizeRole(input)
 	if err != nil {

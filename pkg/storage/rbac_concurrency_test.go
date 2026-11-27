@@ -4,9 +4,6 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
-
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func TestRevokingActorDuringRoleWriteCannotCommitStaleAuthority(t *testing.T) {
@@ -28,30 +25,29 @@ func TestRevokingActorDuringRoleWriteCannotCommitStaleAuthority(t *testing.T) {
 	if err := s.AssignUserRole(ctx, local, email, role.Name); err != nil {
 		t.Fatal(err)
 	}
-	readActor := make(chan struct{})
-	continueWrite := make(chan struct{})
+	revoke, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = revoke.Rollback() }()
+	if _, err := revoke.ExecContext(ctx, `DELETE FROM role_permissions WHERE role_id = ?`, role.ID); err != nil {
+		t.Fatal(err)
+	}
 	result := make(chan error, 1)
 	go func() {
-		_, err := s.CreateRole(ctx, AccessContext{Email: email, IsSuperadmin: func(string) bool {
-			close(readActor)
-			<-continueWrite
-			return false
-		}}, RoleInput{Name: "Must not exist", Permissions: []string{}})
+		_, err := s.CreateRole(ctx, AccessContext{Email: email}, RoleInput{Name: "Must not exist", Permissions: []string{}})
 		result <- err
 	}()
-	select {
-	case <-readActor:
-	case err := <-result:
-		t.Fatalf("actor lookup did not reach the transaction barrier: %v", err)
+	revokeErr := revoke.Commit()
+	if revokeErr != nil {
+		_ = revoke.Rollback()
 	}
-	_, revokeErr := s.UpdateRole(ctx, local, role.ID, RoleInput{Name: role.Name, Permissions: []string{}})
-	close(continueWrite)
+	writeErr := <-result
 	if revokeErr != nil {
 		t.Fatal(revokeErr)
 	}
-	var busy *sqlite.Error
-	if err := <-result; !errors.As(err, &busy) || busy.Code() != sqlite3.SQLITE_BUSY_SNAPSHOT {
-		t.Fatalf("a stale write must fail closed at the SQLite snapshot boundary: %v", err)
+	if !errors.Is(writeErr, ErrForbidden) {
+		t.Fatalf("writer must authorize against committed revocation: %v", writeErr)
 	}
 	roles, err := s.GetRoles(ctx, local)
 	if err != nil {
