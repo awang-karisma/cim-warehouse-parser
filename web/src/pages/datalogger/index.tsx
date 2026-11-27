@@ -1,8 +1,9 @@
-import { createMemo, createResource, createSignal, Show } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, lazy, Show, Suspense } from 'solid-js';
 import { useSearchParams } from '@solidjs/router';
 import {
   IconChartLine,
   IconDatabase,
+  IconMap2,
   IconPlus,
   IconRefresh,
   IconSettings,
@@ -21,6 +22,9 @@ import { GraphTab } from './GraphTab';
 import { ImportTab } from './ImportTab';
 import { KpiCards } from './KpiCards';
 import { SessionsTab } from './SessionsTab';
+
+const ThermalMapTab = lazy(() => import('./ThermalMapTab'));
+
 export default function Datalogger() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -31,14 +35,28 @@ export default function Datalogger() {
   const [loadedIds, setLoadedIds] = createSignal<number[]>([]);
   const [loadedRecords, setLoadedRecords] = createSignal<Record<string, DataloggerRecord[]>>({});
   const [loadingBatch, setLoadingBatch] = createSignal(false);
+  const pendingRecords = new Map<number, Promise<void>>();
+
+  async function loadRecords(ids: readonly number[]) {
+    const missing = ids.filter((id) => !Object.hasOwn(loadedRecords(), id) && !pendingRecords.has(id));
+    if (missing.length) {
+      const request = getDataloggerRecordsBatch(missing).then(({ records }) => {
+        setLoadedRecords((current) => ({ ...current, ...Object.fromEntries(missing.map((id) => [id, records[String(id)] ?? []])) }));
+      }).finally(() => { for (const id of missing) pendingRecords.delete(id); });
+      for (const id of missing) pendingRecords.set(id, request);
+    }
+    await Promise.all(ids.map((id) => pendingRecords.get(id)));
+  }
 
   const activeTab = () => {
     const tab = searchParams.tab;
-    return tab === 'graph' || tab === 'import' || tab === 'config' ? tab : 'sessions';
+    return tab === 'graph' || tab === 'thermal' || tab === 'import' || tab === 'config' ? tab : 'sessions';
   };
+  const [thermalVisited, setThermalVisited] = createSignal(activeTab() === 'thermal');
+  createEffect(() => { if (activeTab() === 'thermal') setThermalVisited(true); });
 
   const setTab = (value: string) => {
-    setSearchParams({ tab: value }, { replace: true });
+    setSearchParams({ tab: value, sessions: undefined }, { replace: true });
   };
 
   const sessions = () => sessionsData()?.sessions ?? [];
@@ -57,9 +75,8 @@ export default function Datalogger() {
     if (ids.length === 0) return;
     setLoadingBatch(true);
     try {
-      const res = await getDataloggerRecordsBatch(ids);
+      await loadRecords(ids);
       setLoadedIds(ids);
-      setLoadedRecords(res.records);
       // Automatically switch to the Graph tab without scrolling!
       setTab('graph');
     } finally {
@@ -82,9 +99,8 @@ export default function Datalogger() {
     setSelectedIds([session.id]);
     setLoadingBatch(true);
     try {
-      const res = await getDataloggerRecordsBatch([session.id]);
+      await loadRecords([session.id]);
       setLoadedIds([session.id]);
-      setLoadedRecords(res.records);
       setTab('graph');
     } catch {
       setTab('sessions');
@@ -102,7 +118,7 @@ export default function Datalogger() {
         {/* Tabs with Refresh Button placed INLINE */}
         <Tabs value={activeTab()} onChange={setTab}>
           <div class="flex flex-wrap items-center justify-between gap-2.5">
-            <TabsList class="w-full justify-start overflow-x-auto sm:w-auto">
+            <TabsList class="h-auto w-full flex-wrap justify-start sm:w-auto">
               <TabsTrigger value="sessions" class="gap-1.5 text-xs sm:text-sm">
                 <IconDatabase class="size-4" />
                 <span>{t('datalogger.tabs.sessions')}</span>
@@ -113,11 +129,10 @@ export default function Datalogger() {
               <TabsTrigger value="graph" class="gap-1.5 text-xs sm:text-sm">
                 <IconChartLine class="size-4" />
                 <span>{t('datalogger.tabs.graph')}</span>
-                <Show when={loadedIds().length > 0}>
-                  <Badge variant="default" class="ml-1 font-mono text-[10px] tabular-nums">
-                    {loadedIds().length}
-                  </Badge>
-                </Show>
+              </TabsTrigger>
+              <TabsTrigger value="thermal" class="gap-1.5 text-xs sm:text-sm">
+                <IconMap2 class="size-4" aria-hidden="true" />
+                <span>{t('datalogger.tabs.thermal')}</span>
               </TabsTrigger>
               <TabsTrigger value="import" class="gap-1.5 text-xs sm:text-sm">
                 <IconPlus class="size-4" />
@@ -165,6 +180,17 @@ export default function Datalogger() {
               onGoToSessions={() => setTab('sessions')}
               onClearAllLoaded={handleClearAllLoaded}
             />
+          </TabsContent>
+
+          <TabsContent value="thermal" forceMount class={cn('mt-3', activeTab() !== 'thermal' && 'hidden')}>
+            <Show when={thermalVisited()}>
+              <Suspense fallback={<p class="text-sm text-muted-foreground" role="status">{t('thermal.loadingMap')}</p>}>
+                <ThermalMapTab active={activeTab() === 'thermal'}
+                  sessions={typeof searchParams.sessions === 'string' ? searchParams.sessions : ''}
+                  loadedIds={loadedIds()} records={loadedRecords()} loadRecords={loadRecords}
+                  onGoToImport={() => setTab('import')} />
+              </Suspense>
+            </Show>
           </TabsContent>
 
           <TabsContent

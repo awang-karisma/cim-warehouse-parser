@@ -160,7 +160,7 @@ export function SessionsTab(props: SessionsTabProps) {
                 <Show when={props.loadingBatch} fallback={<IconChartLine class="size-4" />}>
                   <IconLoader2 class="size-4 animate-spin" />
                 </Show>
-                {t('datalogger.sessions.loadSelectedBtn', { count: props.selectedIds.length })}
+                {t('datalogger.sessions.loadSelectedBtn')}
               </Button>
             </div>
           </div>

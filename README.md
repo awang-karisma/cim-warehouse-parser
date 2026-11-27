@@ -92,6 +92,10 @@ Automated order ingestion, normalization, and visualization system.
   - Dedicated tabbed Graph View with full-width `ZoomableTimeChart` (dual-axis zoom & pan), hardware Marked events (`M` flag) triangle overlay and accessible `<details>` list, active session pills, date range windowing, and per-session summary stats table with direct "View Raw" action links.
   - Dedicated single-session Raw Data log viewing and CSV file export at `/datalogger-records/:id`.
   - Technical reference (USB HID protocol, RC-5+ configuration & Quick Reset, firmware `0x38` quirks, Linux `udev` rules, schema, API): [`docs/datalogger.md`](docs/datalogger.md).
+  - **Thermal map (`/datalogger?tab=thermal`)** opens the floor or volume viewer. Use **Edit layout** to draw the room, partitions, and sensor positions, or to import/export a geometry-only version-1 `room-layout.json`.
+  - **Assign sessions** maps saved Data Logger sessions to sensors without modifying stored readings. To add readings, use the existing Data Logger **Import** tab and save them as a session first.
+  - **Load Selected** opens the graph and makes the same fetched readings available for sensor assignment. The thermal map prepares its sources only when opened.
+  - The map keeps a shared 1×, 10×, or 60× timeline and a fixed observed Celsius range. Spatial estimates use physical 3D distance; partitions are visual only. Geometry, assignments, and playhead survive switching Data Logger tabs. Layout editing and numeric readings still work without WebGL 2.
 - **Interactive Modern UI & API Docs**:
   - Single-Page Application built with SolidJS, Vite, Tailwind CSS v4, and Kobalte / SolidUI primitives.
   - Light, Dark, and System color themes with uniform status palettes.
@@ -101,7 +105,7 @@ Automated order ingestion, normalization, and visualization system.
     - Instant language switching via the header dropdown toggle (`LanguageToggle`) and dedicated Settings card.
     - Per-user locale preference persistence in `localStorage` (`warehouse-ui-locale:<email>`) and embedded SQLite database (`users.locale` via `PUT /api/v1/user/locale`).
     - Status badge text localizes dynamically while preserving exact status color mapping.
-  - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Flow, Delivery Timeline, Barcode Printer, Sync Manager, Search, and Settings.
+  - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Flow, Delivery Timeline, Barcode Printer, Data Logger, Sync Manager, Search, and Settings.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, interactive hover/focus tooltips for item notes, and multi-column client-side sorting.
   - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.
