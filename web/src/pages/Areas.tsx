@@ -89,7 +89,7 @@ export const Areas: Component = () => {
   });
 
   const [areaCustomers] = createResource(
-    () => auth.can('customer:read') && currentArea(),
+    () => auth.can('customer:read') && (currentArea() || false),
     (area) => getCustomers({ area, limit: 5 })
   );
 

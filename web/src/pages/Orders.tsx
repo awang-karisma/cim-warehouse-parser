@@ -226,6 +226,13 @@ export const Orders: Component = () => {
               </Select>
             </div>
             </Show>
+            <Show when={!auth.can('area:read') && filters.values.area()}>
+              {(area) => (
+                <Button type="button" variant="outline" size="sm" class="h-9" onClick={() => filters.setters.area('')}>
+                  {t('dashboard.area')}: {area()} · {t('deliveryFlow.clearFilter')}
+                </Button>
+              )}
+            </Show>
 
             <div class="w-full lg:w-auto lg:min-w-[150px]">
               <TextField value={filters.values.tanggal()} onChange={filters.setters.tanggal}>
