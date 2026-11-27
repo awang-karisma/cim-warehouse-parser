@@ -452,10 +452,10 @@ func (s *Storage) GetUserDirectory(ctx context.Context, access AccessContext) (*
 	return res, nil
 }
 
-func (s *Storage) AssignUserRole(ctx context.Context, access AccessContext, email, name string) error {
-	email, name = strings.TrimSpace(email), strings.TrimSpace(name)
-	if email == "" || name == "" || strings.EqualFold(name, string(model.RoleSuperadmin)) {
-		return fmt.Errorf("%w: email and an assignable role are required", ErrValidation)
+func (s *Storage) AssignUserRole(ctx context.Context, access AccessContext, email string, roleID int64) error {
+	email = strings.TrimSpace(email)
+	if email == "" || roleID <= 0 {
+		return fmt.Errorf("%w: email and an assignable role ID are required", ErrValidation)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -476,7 +476,7 @@ func (s *Storage) AssignUserRole(ctx context.Context, access AccessContext, emai
 	if !canManageUser(access, actor, target) {
 		return ErrForbidden
 	}
-	role, err := selectRole(ctx, tx, ` WHERE r.name = ?`, name)
+	role, err := selectRole(ctx, tx, ` WHERE r.id = ?`, roleID)
 	if errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("%w: unknown assignable role", ErrValidation)
 	}

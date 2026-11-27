@@ -283,11 +283,11 @@ export const updateUserLocale = (locale: string) => apiFetch<{ locale: string }>
   body: JSON.stringify({ locale }),
 });
 
-export const setUserRole = (email: string, role: string) =>
+export const setUserRole = (email: string, roleId: number) =>
   apiFetch<{ status: string }>(`/api/v1/admin/users/${encodeURIComponent(email)}/role`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({ role_id: roleId }),
   });
 
 export const deleteUser = (email: string) =>

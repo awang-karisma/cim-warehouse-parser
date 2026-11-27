@@ -145,12 +145,12 @@ func (s *Server) handleSetUserRole(c fiber.Ctx) error {
 		return err
 	}
 	var input struct {
-		Role string `json:"role"`
+		RoleID int64 `json:"role_id"`
 	}
 	if err := json.Unmarshal(c.Body(), &input); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
-	if err := s.store.AssignUserRole(c.Context(), a, email, input.Role); err != nil {
+	if err := s.store.AssignUserRole(c.Context(), a, email, input.RoleID); err != nil {
 		return adminError(c, err)
 	}
 	return c.JSON(StatusOKResponse{Status: string(ResultOK)})

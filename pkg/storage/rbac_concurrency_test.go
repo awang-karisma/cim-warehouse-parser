@@ -22,7 +22,7 @@ func TestRevokingActorDuringRoleWriteCannotCommitStaleAuthority(t *testing.T) {
 	if _, err := s.UpsertUser(ctx, email, "Delegate", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignUserRole(ctx, local, email, role.Name); err != nil {
+	if err := s.AssignUserRole(ctx, local, email, role.ID); err != nil {
 		t.Fatal(err)
 	}
 	revoke, err := s.db.BeginTx(ctx, nil)

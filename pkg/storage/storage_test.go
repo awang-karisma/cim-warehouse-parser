@@ -2556,12 +2556,12 @@ func TestUserCRUD(t *testing.T) {
 	}
 
 	local := storage.AccessContext{AuthDisabled: true}
-	if err := store.AssignUserRole(ctx, local, "missing@example.com", "user"); !errors.Is(err, storage.ErrNotFound) {
+	if err := store.AssignUserRole(ctx, local, "missing@example.com", 2); !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("missing role update should return ErrNotFound, got: %v", err)
 	}
 
 	// 3. Set role to 'user'
-	if err := store.AssignUserRole(ctx, local, "test@example.com", "user"); err != nil {
+	if err := store.AssignUserRole(ctx, local, "test@example.com", 2); err != nil {
 		t.Fatalf("AssignUserRole failed: %v", err)
 	}
 	uCheck, err := store.GetUserByEmail(ctx, "TEST@example.com")
@@ -2588,13 +2588,13 @@ func TestUserCRUD(t *testing.T) {
 	}
 
 	// 5. Invalid roles
-	if err := store.AssignUserRole(ctx, local, "test@example.com", "superadmin"); !errors.Is(err, storage.ErrValidation) {
+	if err := store.AssignUserRole(ctx, local, "test@example.com", 0); !errors.Is(err, storage.ErrValidation) {
 		t.Error("expected error setting role to 'superadmin', got nil")
 	}
-	if err := store.AssignUserRole(ctx, local, "test@example.com", "unknown"); !errors.Is(err, storage.ErrValidation) {
+	if err := store.AssignUserRole(ctx, local, "test@example.com", 999); !errors.Is(err, storage.ErrValidation) {
 		t.Error("expected error setting role to 'unknown', got nil")
 	}
-	if err := store.AssignUserRole(ctx, local, "nonexistent@example.com", "admin"); !errors.Is(err, storage.ErrNotFound) {
+	if err := store.AssignUserRole(ctx, local, "nonexistent@example.com", 3); !errors.Is(err, storage.ErrNotFound) {
 		t.Error("expected error setting role for non-existent user, got nil")
 	}
 

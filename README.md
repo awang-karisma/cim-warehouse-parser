@@ -375,7 +375,7 @@ Business endpoints are under `/api/v1`. A slash-separated pair of methods and ca
 
 `GET /api/v1/search` searches only categories covered by `order:read`, `item:read`, or `customer:read`. Explicit forbidden categories return 403; an all-category request still returns empty arrays and zero counts for excluded categories.
 
-`POST /api/v1/admin/roles` and `PUT /api/v1/admin/roles/{id}` accept `{name, description, permissions}`. Supply `[]` to clear grants; `*` and unknown grants are not assignable. Role metadata and grants save atomically; roles with assignees cannot be deleted. User assignments keep the existing `{role: string}` body. The list returns allowed target actions and assignable role IDs/names without requiring `role:read`.
+`POST /api/v1/admin/roles` and `PUT /api/v1/admin/roles/{id}` accept `{name, description, permissions}`. Supply `[]` to clear grants; `*` and unknown grants are not assignable. Role metadata and grants save atomically; roles with assignees cannot be deleted. User assignments accept `{role_id: number}` using IDs from the user directory (the approval target is the built-in `user`, ID 2). Role IDs are not reused after deletion. The list returns allowed target actions and assignable role IDs/names without requiring `role:read`.
 
 Browser-local capabilities: `barcode:print` allows local label work; `logger_device:read` allows connecting and pulling readings; `logger_device:write` additionally allows hardware configuration/reset/format/display writes only with read access and an active connection. These control actions in this app, not use of hardware by other software.
 

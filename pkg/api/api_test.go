@@ -1840,7 +1840,7 @@ func TestAuthAndRBAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create normal user: %v", err)
 	}
-	if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", "user"); err != nil {
+	if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", 2); err != nil {
 		t.Fatalf("failed to set user role: %v", err)
 	}
 	normalUser.Role = "user"
@@ -1849,7 +1849,7 @@ func TestAuthAndRBAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create admin user: %v", err)
 	}
-	if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", "admin"); err != nil {
+	if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", 3); err != nil {
 		t.Fatalf("failed to set admin role: %v", err)
 	}
 	adminUser.Role = "admin"
@@ -2133,7 +2133,7 @@ func TestAuthAndRBAC(t *testing.T) {
 	// 10. Database-backed role change applies immediately to existing session
 	t.Run("database-backed role change applies immediately to existing session", func(t *testing.T) {
 		// Demote admin to user in database
-		if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", "user"); err != nil {
+		if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", 2); err != nil {
 			t.Fatalf("failed to demote admin: %v", err)
 		}
 
@@ -2174,12 +2174,12 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 
 		// Restore admin role in DB
-		if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", "admin"); err != nil {
+		if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", 3); err != nil {
 			t.Fatalf("failed to restore admin: %v", err)
 		}
 
 		// Promote user to admin in database
-		if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", "admin"); err != nil {
+		if err := store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", 3); err != nil {
 			t.Fatalf("failed to promote user: %v", err)
 		}
 
@@ -2204,7 +2204,7 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 
 		// Revert user role back to "user"
-		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", "user")
+		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", 2)
 	})
 
 	// 11. Profile update in database immediately reflected in /auth/me
@@ -2244,7 +2244,7 @@ func TestAuthAndRBAC(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create temp user: %v", err)
 		}
-		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "tempuser@example.com", "user")
+		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "tempuser@example.com", 2)
 		tempUser.Role = "user"
 		tempToken, _ := auth.GenerateToken(jwtSecret, tempUser, superEmails)
 
@@ -2298,7 +2298,7 @@ func TestAuthAndRBAC(t *testing.T) {
 			t.Fatalf("failed to create guest target: %v", err)
 		}
 
-		approveBody := strings.NewReader(`{"role": "user"}`)
+		approveBody := strings.NewReader(`{"role_id": 2}`)
 		reqApprove, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget@example.com/role", approveBody)
 		reqApprove.Header.Set("Content-Type", "application/json")
 		reqApprove.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
@@ -2316,7 +2316,7 @@ func TestAuthAndRBAC(t *testing.T) {
 
 		// Admin can assign a peer admin independently of guest approval.
 		_, _ = store.UpsertUser(ctx, "guesttarget2@example.com", "Guest Target 2", "")
-		reqApproveAdmin, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget2@example.com/role", strings.NewReader(`{"role": "admin"}`))
+		reqApproveAdmin, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget2@example.com/role", strings.NewReader(`{"role_id": 3}`))
 		reqApproveAdmin.Header.Set("Content-Type", "application/json")
 		reqApproveAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
 		respApproveAdmin, _ := srv.App().Test(reqApproveAdmin)
@@ -2325,7 +2325,7 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 
 		// Admin can reassign an approved account.
-		reqChangeUser, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget@example.com/role", strings.NewReader(`{"role": "admin"}`))
+		reqChangeUser, _ := http.NewRequest("PUT", "/api/v1/admin/users/guesttarget@example.com/role", strings.NewReader(`{"role_id": 3}`))
 		reqChangeUser.Header.Set("Content-Type", "application/json")
 		reqChangeUser.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
 		respChangeUser, _ := srv.App().Test(reqChangeUser)
@@ -2356,7 +2356,7 @@ func TestAuthAndRBAC(t *testing.T) {
 
 		// Admin can delete a peer admin.
 		_, _ = store.UpsertUser(ctx, "otheradmin@example.com", "Other Admin", "")
-		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "otheradmin@example.com", "admin")
+		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "otheradmin@example.com", 3)
 		reqDelOtherAdmin, _ := http.NewRequest("DELETE", "/api/v1/admin/users/otheradmin@example.com", nil)
 		reqDelOtherAdmin.AddCookie(&http.Cookie{Name: "warehouse_session", Value: adminToken})
 		respDelOtherAdmin, _ := srv.App().Test(reqDelOtherAdmin)
@@ -2390,9 +2390,9 @@ func TestAuthAndRBAC(t *testing.T) {
 
 		// Superadmin can assign user and admin roles to non-superadmin targets
 		_, _ = store.UpsertUser(ctx, "supertestuser@example.com", "Super Test", "")
-		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "supertestuser@example.com", "user")
+		_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "supertestuser@example.com", 2)
 
-		reqSuperPromote, _ := http.NewRequest("PUT", "/api/v1/admin/users/supertestuser@example.com/role", strings.NewReader(`{"role": "admin"}`))
+		reqSuperPromote, _ := http.NewRequest("PUT", "/api/v1/admin/users/supertestuser@example.com/role", strings.NewReader(`{"role_id": 3}`))
 		reqSuperPromote.Header.Set("Content-Type", "application/json")
 		reqSuperPromote.AddCookie(&http.Cookie{Name: "warehouse_session", Value: superToken})
 		respSuperPromote, _ := srv.App().Test(reqSuperPromote)
@@ -2401,7 +2401,7 @@ func TestAuthAndRBAC(t *testing.T) {
 		}
 
 		// Target not found returns 404 for role update and delete
-		reqNotFoundRole, _ := http.NewRequest("PUT", "/api/v1/admin/users/notfound@example.com/role", strings.NewReader(`{"role": "user"}`))
+		reqNotFoundRole, _ := http.NewRequest("PUT", "/api/v1/admin/users/notfound@example.com/role", strings.NewReader(`{"role_id": 2}`))
 		reqNotFoundRole.Header.Set("Content-Type", "application/json")
 		reqNotFoundRole.AddCookie(&http.Cookie{Name: "warehouse_session", Value: superToken})
 		respNotFoundRole, _ := srv.App().Test(reqNotFoundRole)
@@ -2546,10 +2546,10 @@ func TestWorkdayPoliciesRBAC(t *testing.T) {
 
 	guestUser, _ := store.UpsertUser(ctx, "guest@example.com", "Guest", "")
 	normalUser, _ := store.UpsertUser(ctx, "user@example.com", "User", "")
-	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", "user")
+	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", 2)
 	normalUser.Role = "user"
 	adminUser, _ := store.UpsertUser(ctx, "admin@example.com", "Admin", "")
-	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", "admin")
+	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", 3)
 	adminUser.Role = "admin"
 
 	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)
@@ -2920,10 +2920,10 @@ func TestPageDesignsRBAC(t *testing.T) {
 
 	guestUser, _ := store.UpsertUser(ctx, "guest@example.com", "Guest", "")
 	normalUser, _ := store.UpsertUser(ctx, "user@example.com", "User", "")
-	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", "user")
+	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", 2)
 	normalUser.Role = "user"
 	adminUser, _ := store.UpsertUser(ctx, "admin@example.com", "Admin", "")
-	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", "admin")
+	_ = store.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", 3)
 	adminUser.Role = "admin"
 
 	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)
@@ -3524,10 +3524,10 @@ func TestDashboardOperationsAPI(t *testing.T) {
 	guestUser, _ := authStore.UpsertUser(ctx, "guest@example.com", "Guest", "")
 	normalUser, _ := authStore.UpsertUser(ctx, "user@example.com", "User", "")
 	adminUser, _ := authStore.UpsertUser(ctx, "admin@example.com", "Admin", "")
-	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, normalUser.Email, string(model.RoleUser)); err != nil {
+	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, normalUser.Email, 2); err != nil {
 		t.Fatal(err)
 	}
-	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, adminUser.Email, string(model.RoleAdmin)); err != nil {
+	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, adminUser.Email, 3); err != nil {
 		t.Fatal(err)
 	}
 	normalUser.Role = string(model.RoleUser)
@@ -3680,10 +3680,10 @@ func TestDashboardPressureAPI(t *testing.T) {
 	guestUser, _ := authStore.UpsertUser(ctx, "guest@example.com", "Guest", "")
 	normalUser, _ := authStore.UpsertUser(ctx, "user@example.com", "User", "")
 	adminUser, _ := authStore.UpsertUser(ctx, "admin@example.com", "Admin", "")
-	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, normalUser.Email, string(model.RoleUser)); err != nil {
+	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, normalUser.Email, 2); err != nil {
 		t.Fatal(err)
 	}
-	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, adminUser.Email, string(model.RoleAdmin)); err != nil {
+	if err := authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, adminUser.Email, 3); err != nil {
 		t.Fatal(err)
 	}
 	normalUser.Role = string(model.RoleUser)
@@ -4271,10 +4271,10 @@ func TestDataloggerProfileEndpoints(t *testing.T) {
 
 	guestUser, _ := authStore.UpsertUser(ctx, "guest@example.com", "Guest", "")
 	normalUser, _ := authStore.UpsertUser(ctx, "user@example.com", "User", "")
-	_ = authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", "user")
+	_ = authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "user@example.com", 2)
 	normalUser.Role = "user"
 	adminUser, _ := authStore.UpsertUser(ctx, "admin@example.com", "Admin", "")
-	_ = authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", "admin")
+	_ = authStore.AssignUserRole(ctx, storage.AccessContext{AuthDisabled: true}, "admin@example.com", 3)
 	adminUser.Role = "admin"
 
 	guestToken, _ := auth.GenerateToken(jwtSecret, guestUser, nil)

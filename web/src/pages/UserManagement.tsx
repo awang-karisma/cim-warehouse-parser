@@ -66,13 +66,14 @@ export const UserManagement: Component = () => {
 
   const handleRoleChange = async (targetUser: User, newRole: string, approve = false) => {
     if (updatingEmail()) return;
+    const roleId = approve ? 2 : roleChoices().find((role) => role.name === newRole)?.id;
     if (approve) {
       if (!targetUser.actions.approve || newRole !== USER_ROLE.USER || !auth.canAny('user:create', 'user:update')) return;
-    } else if (!targetUser.actions.assign || !auth.can('user:update') || !roleChoices().some((role) => role.name === newRole)) return;
+    } else if (!targetUser.actions.assign || !auth.can('user:update') || !roleId) return;
     clearNotifications();
     setUpdatingEmail(targetUser.email);
     try {
-      await setUserRole(targetUser.email, newRole);
+      await setUserRole(targetUser.email, roleId!);
       setActionSuccess(t('userManagement.roleSaved', { email: targetUser.email, role: newRole }));
       await auth.refetch();
       if (auth.can('user:read')) await refetch();

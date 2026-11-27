@@ -65,7 +65,7 @@ func TestUserRoleCutover(t *testing.T) {
 		t.Fatalf("initial grants: %d (%v)", grants, err)
 	}
 	recovery := AccessContext{Email: "recovery@example.com", IsSuperadmin: func(email string) bool { return email == "recovery@example.com" }}
-	if err := s.AssignUserRole(ctx, recovery, "old-admin@example.com", "admin"); err != nil {
+	if err := s.AssignUserRole(ctx, recovery, "old-admin@example.com", 3); err != nil {
 		t.Fatal(err)
 	}
 	input := RoleInput{Name: "Picker", Permissions: []string{"delivery:pick"}}
@@ -73,7 +73,7 @@ func TestUserRoleCutover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignUserRole(ctx, recovery, "user@example.com", "picker"); err != nil {
+	if err := s.AssignUserRole(ctx, recovery, "user@example.com", role.ID); err != nil {
 		t.Fatal(err)
 	}
 	input.Name = "Picker West"
@@ -104,5 +104,73 @@ func TestUserRoleCutover(t *testing.T) {
 	}
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM role_permissions`).Scan(&grants); err != nil || grants != 1 {
 		t.Fatalf("grants after reopening: %d (%v)", grants, err)
+	}
+}
+
+func TestUserRoleCutoverAddsMissingLocale(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pre-locale.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL,
+		name TEXT NOT NULL, picture TEXT NOT NULL, role TEXT NOT NULL,
+		created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL
+	);
+	INSERT INTO users VALUES (7,'legacy@example.test','Legacy','','user','2026-01-01','2026-01-02');`)
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	user, err := s.GetUserByEmail(t.Context(), "legacy@example.test")
+	if err != nil || user == nil || user.ID != 7 || user.Locale != "id" || user.Role != "user" {
+		t.Fatalf("legacy profile not migrated with the default locale: %+v (%v)", user, err)
+	}
+}
+
+func TestRoleIDUpgradePreservesAssignmentsAndGrants(t *testing.T) {
+	path := "file:" + filepath.Join(t.TempDir(), "rbac-preview.db") + "?_pragma=foreign_keys(1)"
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE roles (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		description TEXT NOT NULL DEFAULT '', is_system INTEGER NOT NULL);
+	CREATE TABLE role_permissions (role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+		permission TEXT NOT NULL, PRIMARY KEY(role_id, permission));
+	CREATE TABLE users ` + usersSchema + `;
+	INSERT INTO roles (id, name, is_system) VALUES (1,'guest',1),(2,'user',1),(3,'admin',1),(7,'Picker',0);
+	INSERT INTO role_permissions VALUES (7,'delivery:pick');
+	INSERT INTO users (email, role_id) VALUES ('picker@example.test', 7);`)
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := t.Context()
+	var permission string
+	if err := s.db.QueryRow(`SELECT permission FROM users JOIN role_permissions USING (role_id) WHERE users.email = 'picker@example.test'`).Scan(&permission); err != nil || permission != "delivery:pick" {
+		t.Fatalf("assignment or grant lost: %q (%v)", permission, err)
+	}
+	local := AccessContext{AuthDisabled: true}
+	if err := s.AssignUserRole(ctx, local, "picker@example.test", userRoleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteRole(ctx, local, 7); err != nil {
+		t.Fatal(err)
+	}
+	role, err := s.CreateRole(ctx, local, RoleInput{Name: "Picker", Permissions: []string{}})
+	if err != nil || role.ID <= 7 {
+		t.Fatalf("replacement must have a higher ID: %+v (%v)", role, err)
 	}
 }
