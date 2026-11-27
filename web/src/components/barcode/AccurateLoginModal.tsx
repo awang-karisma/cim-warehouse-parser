@@ -1,8 +1,9 @@
-import { type Component, createEffect, createSignal, For, Show } from 'solid-js';
+import { type Component, createEffect, createSignal, For, on, Show } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import {
   authError,
+  closeAccurateLogin,
   databases,
   handleLogin,
   handleSelectDatabase,
@@ -10,7 +11,6 @@ import {
   isLoginModalOpen,
   loadAccurateDatabases,
   pendingChallengeId,
-  setIsLoginModalOpen,
   status,
 } from '~/stores/accurateAuth';
 import {
@@ -29,12 +29,10 @@ export const AccurateLoginModal: Component = () => {
   const { t } = useI18n();
   const auth = useAuth();
   const canSelect = () => auth.can('accurate:read') && auth.can('accurate:update');
-  const showDatabases = () => canSelect() && databases().length > 0;
-  createEffect(() => {
-    if (isLoginModalOpen() && canSelect() && (status().connected || !auth.can('accurate:create'))) {
-      void loadAccurateDatabases(auth.can);
-    }
-  });
+  const showDatabases = () => canSelect() && !pendingChallengeId() && !isAuthLoading() && databases().length > 0;
+  createEffect(on(() => isLoginModalOpen() && canSelect() && (status().connected || !auth.can('accurate:create')), (load) => {
+    if (load && !pendingChallengeId() && !isAuthLoading()) void loadAccurateDatabases(auth.can);
+  }));
   const [otp, setOtp] = createSignal('');
 
   const onRelogin = async (e: Event) => {
@@ -49,7 +47,7 @@ export const AccurateLoginModal: Component = () => {
 
   const handleClose = () => {
     setOtp('');
-    setIsLoginModalOpen(false);
+    closeAccurateLogin();
   };
 
   return (

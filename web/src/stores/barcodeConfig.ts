@@ -149,7 +149,7 @@ export function clearServerDesigns(): void {
   selectPreset('tj-108');
 }
 export async function refetchDesigns(): Promise<PageDesign[]> {
-  const generation = designGeneration;
+  const generation = ++designGeneration;
   const designs = (await getPageDesigns()).designs;
   if (generation !== designGeneration) return [];
   setServerDesigns(designs);

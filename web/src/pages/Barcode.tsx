@@ -29,7 +29,8 @@ import {
 import {
   refreshStatus,
   setIsLoginModalOpen,
-  status
+  status,
+  tenantRevision,
 } from '~/stores/accurateAuth';
 import {
   barcodeHeight,
@@ -136,7 +137,7 @@ export const Barcode: Component = () => {
     setIsEditing(false);
     setIsCreating(true);
     setPresetKey('custom');
-    setCustomConfig({ ...base, name: '' });
+    setCustomConfig({ ...base, name: auth.can('design:create') ? '' : t('barcode.customLabel') });
     setStatusMessage(null);
   };
 
@@ -149,7 +150,7 @@ export const Barcode: Component = () => {
   };
 
   const startEditing = () => {
-    if (!auth.can('design:update') || !auth.can('design:read')) return;
+    if (!auth.canAny('design:create', 'design:update') || !auth.can('design:read')) return;
     setIsCreating(false);
     setIsEditing(true);
     setPresetDraftActive(true);
@@ -373,6 +374,19 @@ export const Barcode: Component = () => {
   const [isSearching, setIsSearching] = createSignal(false);
   const [isPopupOpen, setIsPopupOpen] = createSignal(false);
   const [highlightedIndex, setHighlightedIndex] = createSignal(-1);
+
+  createEffect(() => {
+    tenantRevision();
+    searchRequestId++;
+    clearTimeout(debounceTimer);
+    setSearchResults([]);
+    setSearchMessage(null);
+    setIsSearching(false);
+    setIsPopupOpen(false);
+    setHighlightedIndex(-1);
+    setIsSearchOpen(false);
+    setIsTransactionOpen(false);
+  });
 
   onMount(() => {
     void refreshStatus(auth.can);
@@ -950,7 +964,7 @@ export const Barcode: Component = () => {
                       &nbsp;
                     </label>
                     <div class="grid grid-cols-3 gap-1.5">
-                      <Show when={auth.can('design:read') && auth.can('design:update')}>
+                      <Show when={auth.can('design:read') && auth.canAny('design:create', 'design:update')}>
                       <Button
                         type="button"
                         variant={isEditing() ? 'secondary' : 'outline'}
@@ -1022,7 +1036,7 @@ export const Barcode: Component = () => {
 
 
                     {/* Design Name */}
-                    <Show when={auth.canAny('design:create', 'design:update')}>
+                    <Show when={isCreating() ? auth.can('design:create') : auth.canAny('design:create', 'design:update')}>
                       <div>
                         <label class="block text-muted-foreground text-[10px]">{t('barcode.designName')}</label>
                         <input
@@ -1463,9 +1477,11 @@ export const Barcode: Component = () => {
       </Card>
 
       <Show when={canManageAccurate()}><AccurateLoginModal /></Show>
-      <Show when={auth.can('accurate:read')}>
-        <ItemSearchDrawer isOpen={isSearchOpen()} onClose={() => setIsSearchOpen(false)} />
-        <TransactionDrawer isOpen={isTransactionOpen()} onClose={() => setIsTransactionOpen(false)} />
+      <Show when={canLookup() && tenantRevision()} keyed>
+        {(_revision) => <>
+          <ItemSearchDrawer isOpen={isSearchOpen()} onClose={() => setIsSearchOpen(false)} />
+          <TransactionDrawer isOpen={isTransactionOpen()} onClose={() => setIsTransactionOpen(false)} />
+        </>}
       </Show>
 
       {/* Delete Confirmation Alert Dialog */}
