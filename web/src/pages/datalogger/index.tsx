@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createResource, createSignal, lazy, Show, Suspense } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, lazy, onCleanup, Show, Suspense } from 'solid-js';
 import { useSearchParams } from '@solidjs/router';
 import {
   IconChartLine,
@@ -9,6 +9,7 @@ import {
   IconSettings,
 } from '@tabler/icons-solidjs';
 import { getDataloggerRecordsBatch, getDataloggerSessions } from '~/api';
+import { useAuth } from '~/auth';
 import { createDataloggerDeviceSession } from '~/components/datalogger/device-session';
 import { PageTransition } from '~/components/PageTransition';
 import { Badge } from '~/components/ui/badge';
@@ -28,8 +29,17 @@ const ThermalMapTab = lazy(() => import('./ThermalMapTab'));
 export default function Datalogger() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [sessionsData, { refetch }] = createResource(() => getDataloggerSessions());
-  const device = createDataloggerDeviceSession();
+  const auth = useAuth();
+  const canRead = () => auth.can('logger_session:read');
+  const canImport = () => auth.canAny('logger_session:create', 'logger_device:read');
+  const canDevice = () => auth.can('logger_device:read');
+  const [sessionsData, { refetch }] = createResource(canRead, () => getDataloggerSessions());
+  const device = createDataloggerDeviceSession(undefined, {
+    canRead: canDevice,
+    canWrite: () => canDevice() && auth.can('logger_device:write'),
+  });
+  let disposed = false;
+  onCleanup(() => { disposed = true; });
 
   const [selectedIds, setSelectedIds] = createSignal<number[]>([]);
   const [loadedIds, setLoadedIds] = createSignal<number[]>([]);
@@ -38,28 +48,32 @@ export default function Datalogger() {
   const pendingRecords = new Map<number, Promise<void>>();
 
   async function loadRecords(ids: readonly number[]) {
+    if (!canRead() || disposed) return;
     const missing = ids.filter((id) => !Object.hasOwn(loadedRecords(), id) && !pendingRecords.has(id));
     if (missing.length) {
       const request = getDataloggerRecordsBatch(missing).then(({ records }) => {
-        setLoadedRecords((current) => ({ ...current, ...Object.fromEntries(missing.map((id) => [id, records[String(id)] ?? []])) }));
+        if (!disposed && canRead()) setLoadedRecords((current) => ({ ...current, ...Object.fromEntries(missing.map((id) => [id, records[String(id)] ?? []])) }));
       }).finally(() => { for (const id of missing) pendingRecords.delete(id); });
       for (const id of missing) pendingRecords.set(id, request);
     }
     await Promise.all(ids.map((id) => pendingRecords.get(id)));
   }
 
+  const tabAllowed = (tab: string) => tab === 'import' ? canImport() : tab === 'config' ? canDevice() : canRead();
   const activeTab = () => {
-    const tab = searchParams.tab;
-    return tab === 'graph' || tab === 'thermal' || tab === 'import' || tab === 'config' ? tab : 'sessions';
+    const requested = searchParams.tab;
+    const tab = requested === 'graph' || requested === 'thermal' || requested === 'import' || requested === 'config' ? requested : 'sessions';
+    return tabAllowed(tab) ? tab : ['sessions', 'graph', 'thermal', 'import', 'config'].find(tabAllowed) ?? 'import';
   };
   const [thermalVisited, setThermalVisited] = createSignal(activeTab() === 'thermal');
   createEffect(() => { if (activeTab() === 'thermal') setThermalVisited(true); });
 
   const setTab = (value: string) => {
+    if (!tabAllowed(value)) return;
     setSearchParams({ tab: value, sessions: undefined }, { replace: true });
   };
 
-  const sessions = () => sessionsData()?.sessions ?? [];
+  const sessions = () => canRead() ? sessionsData()?.sessions ?? [] : [];
 
   const loadedSessions = createMemo(() => {
     const idSet = new Set(loadedIds());
@@ -71,11 +85,13 @@ export default function Datalogger() {
   };
 
   const handleLoadSelected = async () => {
+    if (!canRead() || disposed) return;
     const ids = selectedIds();
     if (ids.length === 0) return;
     setLoadingBatch(true);
     try {
       await loadRecords(ids);
+      if (disposed || !canRead()) return;
       setLoadedIds(ids);
       // Automatically switch to the Graph tab without scrolling!
       setTab('graph');
@@ -95,11 +111,14 @@ export default function Datalogger() {
   };
 
   const handleSessionSaved = async (session: DataloggerSession) => {
+    if (disposed || !canRead()) return;
     await refetch();
+    if (disposed || !canRead()) return;
     setSelectedIds([session.id]);
     setLoadingBatch(true);
     try {
       await loadRecords([session.id]);
+      if (disposed || !canRead()) return;
       setLoadedIds([session.id]);
       setTab('graph');
     } catch {
@@ -113,12 +132,13 @@ export default function Datalogger() {
     <PageTransition>
       <div class="w-full space-y-4 p-3.5 sm:p-4 md:p-6 min-w-0">
         {/* Dashboard View On Top: Always-visible KPI Cards without top banner text */}
-        <KpiCards sessions={sessions()} />
+        <Show when={canRead()}><KpiCards sessions={sessions()} /></Show>
 
         {/* Tabs with Refresh Button placed INLINE */}
         <Tabs value={activeTab()} onChange={setTab}>
           <div class="flex flex-wrap items-center justify-between gap-2.5">
             <TabsList class="h-auto w-full flex-wrap justify-start sm:w-auto">
+              <Show when={canRead()}>
               <TabsTrigger value="sessions" class="gap-1.5 text-xs sm:text-sm">
                 <IconDatabase class="size-4" />
                 <span>{t('datalogger.tabs.sessions')}</span>
@@ -134,17 +154,23 @@ export default function Datalogger() {
                 <IconMap2 class="size-4" aria-hidden="true" />
                 <span>{t('datalogger.tabs.thermal')}</span>
               </TabsTrigger>
+              </Show>
+              <Show when={canImport()}>
               <TabsTrigger value="import" class="gap-1.5 text-xs sm:text-sm">
                 <IconPlus class="size-4" />
                 <span>{t('datalogger.tabs.import')}</span>
               </TabsTrigger>
+              </Show>
+              <Show when={canDevice()}>
               <TabsTrigger value="config" class="gap-1.5 text-xs sm:text-sm">
                 <IconSettings class="size-4" />
                 <span>{t('datalogger.tabs.config')}</span>
               </TabsTrigger>
+              </Show>
             </TabsList>
 
             {/* Refresh button inline with the tabs */}
+            <Show when={canRead()}>
             <Button
               variant="outline"
               size="sm"
@@ -155,8 +181,10 @@ export default function Datalogger() {
               <IconRefresh class="size-3.5" />
               <span>{t('common.refresh')}</span>
             </Button>
+            </Show>
           </div>
 
+          <Show when={canRead()}>
           <TabsContent value="sessions" class="mt-3">
             <SessionsTab
               sessions={sessions()}
@@ -192,7 +220,9 @@ export default function Datalogger() {
               </Suspense>
             </Show>
           </TabsContent>
+          </Show>
 
+          <Show when={canImport()}>
           <TabsContent
             value="import"
             forceMount
@@ -200,7 +230,9 @@ export default function Datalogger() {
           >
             <ImportTab device={device} onSessionSaved={handleSessionSaved} />
           </TabsContent>
+          </Show>
 
+          <Show when={canDevice()}>
           <TabsContent
             value="config"
             forceMount
@@ -212,6 +244,7 @@ export default function Datalogger() {
               onSwitchToImport={() => setTab('import')}
             />
           </TabsContent>
+          </Show>
         </Tabs>
       </div>
     </PageTransition>

@@ -799,7 +799,37 @@ func (s *Server) handleSearch(ctx context.Context, input *SearchInput) (*SearchO
 	if s.store == nil {
 		return nil, huma.Error503ServiceUnavailable("storage service not available")
 	}
-	res, err := s.store.SearchAll(ctx, input.Q, input.Type, input.Limit)
+	access := accessFromContext(ctx)
+	if access == nil {
+		return nil, huma.Error401Unauthorized("authentication required")
+	}
+	var allowed storage.SearchCategories
+	if access.principal.Can(model.PermOrderRead) {
+		allowed |= storage.SearchOrdersCategory
+	}
+	if access.principal.Can(model.PermItemRead) {
+		allowed |= storage.SearchItemsCategory
+	}
+	if access.principal.Can(model.PermCustomerRead) {
+		allowed |= storage.SearchCustomersCategory
+	}
+	var requested storage.SearchCategories
+	switch storage.SearchType(input.Type) {
+	case "", storage.SearchTypeAll:
+		requested = allowed
+	case storage.SearchTypeOrders:
+		requested = storage.SearchOrdersCategory
+	case storage.SearchTypeItems:
+		requested = storage.SearchItemsCategory
+	case storage.SearchTypeCustomers:
+		requested = storage.SearchCustomersCategory
+	default:
+		return nil, huma.Error400BadRequest("invalid search type")
+	}
+	if requested == 0 || requested&allowed != requested {
+		return nil, huma.Error403Forbidden("insufficient permissions")
+	}
+	res, err := s.store.SearchAll(ctx, input.Q, requested, input.Limit)
 	if err != nil {
 		return nil, huma.Error500InternalServerError(err.Error())
 	}
@@ -862,9 +892,6 @@ func (s *Server) handleSystem(ctx context.Context, input *struct{}) (*SystemOutp
 }
 
 func (s *Server) handleExportItems(c fiber.Ctx) error {
-	if err := s.requireRole(c, string(model.RoleUser)); err != nil {
-		return err
-	}
 	if s.store == nil {
 		return c.Status(fiber.StatusServiceUnavailable).SendString("storage service not available")
 	}
@@ -945,9 +972,6 @@ func (s *Server) handleExportItems(c fiber.Ctx) error {
 	return writer.Error()
 }
 func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
-	if err := s.requireRole(c, string(model.RoleUser)); err != nil {
-		return err
-	}
 	if s.store == nil {
 		return c.Status(fiber.StatusServiceUnavailable).SendString("storage service not available")
 	}
@@ -965,9 +989,6 @@ func (s *Server) handleExportCustomerAliases(c fiber.Ctx) error {
 }
 
 func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
-	if err := s.requireRole(c, string(model.RoleAdmin)); err != nil {
-		return err
-	}
 	if s.store == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
 	}
@@ -1037,47 +1058,75 @@ func (s *Server) handleImportCustomerAliases(c fiber.Ctx) error {
 }
 
 func (s *Server) handleSyncSSE(c fiber.Ctx) error {
-	if err := s.requireRole(c, string(model.RoleUser)); err != nil {
-		return err
+	access := accessFromContext(c.Context())
+	if access == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
 	}
 	if s.worker == nil {
 		return c.Status(fiber.StatusServiceUnavailable).SendString("worker service not available")
 	}
 
 	c.Set("Content-Type", "text/event-stream")
-	c.Set("Cache-Control", "no-cache")
+	c.Set("Cache-Control", "no-store")
 	c.Set("Connection", "keep-alive")
 	c.Set("X-Accel-Buffering", "no")
 
-	ctx := c.Context()
+	identity, expiresAt, userID := access.identity, access.expiresAt, access.principal.User.ID
+	identity.Email = strings.Clone(identity.Email)
 
 	return c.SendStreamWriter(func(w *bufio.Writer) {
 		ch := s.worker.Subscribe()
 		defer s.worker.Unsubscribe(ch)
 
-		// Send initial status event
-		ws := s.worker.Status()
-		initEvt := worker.SyncEvent{
-			Status: ws.Status,
+		heartbeat := time.NewTicker(15 * time.Second)
+		defer heartbeat.Stop()
+		var expiry <-chan time.Time
+		if !identity.AuthDisabled {
+			timer := time.NewTimer(time.Until(expiresAt))
+			defer timer.Stop()
+			expiry = timer.C
 		}
-		initData, _ := json.Marshal(initEvt)
-		_, _ = fmt.Fprintf(w, "event: sync\ndata: %s\n\n", initData)
-		if err := w.Flush(); err != nil {
+		allowed := func() bool {
+			if identity.AuthDisabled {
+				return true
+			}
+			remaining := time.Until(expiresAt)
+			if remaining <= 0 {
+				return false
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), min(remaining, 5*time.Second))
+			defer cancel()
+			p, err := s.resolveCurrentUser(ctx, identity)
+			return err == nil && p != nil && p.User.ID == userID && p.Can(model.PermSyncRead) && time.Now().Before(expiresAt)
+		}
+		send := func(evt worker.SyncEvent) bool {
+			if !allowed() {
+				return false
+			}
+			data, err := json.Marshal(evt)
+			if err != nil {
+				return false
+			}
+			_, err = fmt.Fprintf(w, "event: sync\ndata: %s\n\n", data)
+			return err == nil && w.Flush() == nil
+		}
+		if !send(worker.SyncEvent{Status: s.worker.Status().Status}) {
 			return
 		}
-
 		for {
 			select {
 			case evt, ok := <-ch:
-				if !ok {
+				if !ok || !send(evt) {
 					return
 				}
-				data, _ := json.Marshal(evt)
-				_, _ = fmt.Fprintf(w, "event: sync\ndata: %s\n\n", data)
-				if err := w.Flush(); err != nil {
+			case <-heartbeat.C:
+				if !allowed() {
 					return
 				}
-			case <-ctx.Done():
+				if _, err := w.WriteString(": keep-alive\n\n"); err != nil || w.Flush() != nil {
+					return
+				}
+			case <-expiry:
 				return
 			}
 		}
@@ -1545,24 +1594,23 @@ type SetLocaleOutput struct {
 }
 
 func (s *Server) handleSetUserLocale(ctx context.Context, input *SetLocaleInput) (*SetLocaleOutput, error) {
-	if s.store == nil {
-		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	access := accessFromContext(ctx)
+	if access == nil {
+		return nil, huma.Error401Unauthorized("authentication required")
 	}
 	locale := strings.ToLower(strings.TrimSpace(input.Body.Locale))
 	if model.Locale(locale) != model.LocaleEnglish && model.Locale(locale) != model.LocaleIndonesian {
 		return nil, huma.Error400BadRequest("invalid locale: must be 'en' or 'id'")
 	}
-	claims := claimsFromContext(ctx)
-	var email string
-	if claims != nil {
-		email = claims.Email
-	}
-	if email == "" {
+	if access.identity.AuthDisabled {
 		return &SetLocaleOutput{Body: struct {
 			Locale string `json:"locale"`
 		}{Locale: locale}}, nil
 	}
-	if err := s.store.UpdateUserLocale(ctx, email, locale); err != nil {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if err := s.store.UpdateUserLocale(ctx, access.identity.Email, locale); err != nil {
 		return nil, huma.Error500InternalServerError("failed to update locale", err)
 	}
 	return &SetLocaleOutput{Body: struct {

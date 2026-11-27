@@ -1,6 +1,7 @@
 import { Show, batch, createEffect, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { IconCheck, IconDatabase, IconEdit } from '@tabler/icons-solidjs';
 import { createStore, reconcile, unwrap } from 'solid-js/store';
+import { useAuth } from '~/auth';
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from '~/components/ui/alert-dialog';
 import { Button } from '~/components/ui/button';
 import { SessionMappingsDialog } from '~/components/thermal-map/SessionMappingsDialog';
@@ -24,6 +25,7 @@ export default function ThermalMapTab(props: {
   onGoToImport: () => void;
 }) {
   const { t } = useI18n();
+  const auth = useAuth();
   const [layout, setLayout] = createStore(emptyLayout());
   const [selection, setSelection] = createSignal<Selection>();
   const [confirmation, setConfirmation] = createSignal<Confirmation>();
@@ -283,7 +285,7 @@ export default function ThermalMapTab(props: {
       </Show>
       <SessionMappingsDialog open={mappingsOpen()} onOpenChange={setMappingsOpen} sensors={layout.sensors} staging={staging} mappedCount={data().bySensor.size}
         onEdit={() => { setMappingsOpen(false); changeEditing(true); }}
-        onGoToImport={() => { setMappingsOpen(false); props.onGoToImport(); }}
+        onGoToImport={auth.canAny('logger_session:create', 'logger_device:read') ? () => { if (auth.canAny('logger_session:create', 'logger_device:read')) { setMappingsOpen(false); props.onGoToImport(); } } : undefined}
         onApply={(series) => { replaceData(series); setMappingsOpen(false); }} />
       <AlertDialog open={!!confirmation()} onOpenChange={(open) => { if (!open) setConfirmation(undefined); }}>
         <AlertDialogContent>

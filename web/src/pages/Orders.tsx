@@ -4,6 +4,7 @@ import { ORDER_STATUS } from '~/domain';
 
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import { A, useNavigate, useSearchParams } from '@solidjs/router';
 import { ItemProgress } from '~/components/ItemProgress';
 import {
@@ -133,7 +134,8 @@ export const Orders: Component = () => {
     },
   });
 
-  const [areasData] = createResource(getAreas);
+  const auth = useAuth();
+  const [areasData] = createResource(() => auth.can('area:read'), getAreas);
 
   const queryParams = createMemo(() => ({
     limit: filters.values.limit(),
@@ -206,6 +208,7 @@ export const Orders: Component = () => {
               </TextField>
             </div>
 
+            <Show when={auth.can('area:read')}>
             <div class="w-full lg:w-auto lg:min-w-[180px] flex flex-col gap-1">
               <label class="text-xs font-semibold text-muted-foreground">{t('dashboard.area')}</label>
               <Select<string>
@@ -222,6 +225,7 @@ export const Orders: Component = () => {
                 <SelectContent />
               </Select>
             </div>
+            </Show>
 
             <div class="w-full lg:w-auto lg:min-w-[150px]">
               <TextField value={filters.values.tanggal()} onChange={filters.setters.tanggal}>

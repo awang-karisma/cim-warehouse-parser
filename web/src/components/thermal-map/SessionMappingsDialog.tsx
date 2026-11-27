@@ -18,7 +18,7 @@ export function SessionMappingsDialog(props: {
   staging: ThermalSources;
   mappedCount: number;
   onEdit: () => void;
-  onGoToImport: () => void;
+  onGoToImport?: () => void;
   onApply: (series: ReadonlyMap<string, Series>) => void;
 }) {
   const { t } = useI18n();
@@ -96,7 +96,7 @@ export function SessionMappingsDialog(props: {
               </>}
             </Show>
           </Show>
-          <p class="text-xs text-muted-foreground">{t('thermal.newReadings')} <Button variant="link" class="h-auto px-0 text-xs" onClick={props.onGoToImport}>{t('thermal.goToImport')}</Button></p>
+          <Show when={props.onGoToImport}><p class="text-xs text-muted-foreground">{t('thermal.newReadings')} <Button variant="link" class="h-auto px-0 text-xs" onClick={() => props.onGoToImport?.()}>{t('thermal.goToImport')}</Button></p></Show>
         </section>
         <section class="min-w-0 space-y-2">
           <h3 class="text-sm font-semibold">{t('thermal.assignments')}</h3>

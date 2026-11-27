@@ -22,6 +22,7 @@ import {
   IconX,
 } from '@tabler/icons-solidjs';
 import { getPurchaseOrders, subscribeSyncEvents } from '~/api';
+import { useAuth } from '~/auth';
 import { Badge } from '~/components/Badge';
 import { DataTable } from '~/components/DataTable';
 import { DataTablePagination } from '~/components/data-table-pagination';
@@ -65,6 +66,7 @@ function isStockClient(name: string): boolean {
 
 export const PurchaseOrders: Component = () => {
   const { t, formatDate } = useI18n();
+  const auth = useAuth();
   const [searchDraft, setSearchDraft] = createSignal('');
   const [dockFilterOpen, setDockFilterOpen] = createSignal(false);
   let debounceTimer: number | undefined;
@@ -136,14 +138,14 @@ export const PurchaseOrders: Component = () => {
 
   onMount(() => {
     setSearchDraft(filters.values.q());
-    const events = subscribeSyncEvents((event) => {
-      if (event.status.toUpperCase() === SYNC_STATUS.SUCCESS) {
+    const events = auth.can('sync:read') ? subscribeSyncEvents((event) => {
+      if (auth.can('sync:read') && event.status.toUpperCase() === SYNC_STATUS.SUCCESS) {
         void refetch();
       }
-    });
+    }) : undefined;
     onCleanup(() => {
       window.clearTimeout(debounceTimer);
-      events.close();
+      events?.close();
     });
   });
 

@@ -1,6 +1,4 @@
-import { ROUTES } from '~/routes';
-
-import { USER_ROLE } from '~/domain';
+import { canAccessRoute, ROUTES } from '~/routes';
 
 import { type Component, createSignal, createResource, createMemo, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
@@ -32,6 +30,7 @@ import {
   deleteCustomerAlias,
   getAreas,
   getCustomerAliasesExportUrl,
+  downloadFile,
   importCustomerAliasesFile,
   type AliasImportResult,
 } from '~/api';
@@ -60,13 +59,10 @@ import { Skeleton } from '~/components/ui/skeleton';
 export const CustomerAliases: Component = () => {
   const { t } = useI18n();
   const auth = useAuth();
-  const isAdmin = () => {
-    const role = auth.user()?.role;
-	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
-  };
+  const canWrite = () => auth.can('alias:write');
 
   const [aliasesData, { refetch: refetchAliases }] = createResource(getCustomerAliases);
-  const [areasData] = createResource(getAreas);
+  const [areasData] = createResource(() => auth.can('area:read'), (allowed) => allowed ? getAreas() : undefined);
 
   // Filter & Search states
   const [search, setSearch] = createSignal('');
@@ -187,6 +183,7 @@ export const CustomerAliases: Component = () => {
 
   // Handle inline quick-add on a specific card
   const handleInlineAddSubmit = async (grp: CustomerAliasGroup) => {
+    if (!canWrite()) return;
     const val = inlineAddValue().trim();
     if (!val) {
       setActiveInlineAdd(null);
@@ -215,6 +212,7 @@ export const CustomerAliases: Component = () => {
   // Modal Add submit
   const handleAddSubmit = async (e: Event) => {
     e.preventDefault();
+    if (!canWrite()) return;
     const a = modalAliasInput().trim();
     const c = modalCanonicalInput().trim();
     if (!a || !c) {
@@ -244,6 +242,7 @@ export const CustomerAliases: Component = () => {
   // Group save
   const handleSaveGroup = async (e: Event) => {
     e.preventDefault();
+    if (!canWrite()) return;
     const grp = editGroup();
     if (!grp) return;
     const newCanonical = editCanonical().trim();
@@ -262,6 +261,7 @@ export const CustomerAliases: Component = () => {
     setEditGroupError('');
     try {
       for (const alias of grp.aliases) {
+        if (!canWrite()) return;
         await setCustomerAlias(alias, newCanonical, newArea);
       }
       setShowEditGroupDialog(false);
@@ -276,10 +276,12 @@ export const CustomerAliases: Component = () => {
   // Single alias save
   const handleSaveSingleAlias = async (e: Event) => {
     e.preventDefault();
+    if (!canWrite()) return;
     const original = editAliasOriginal();
     const spelling = editAliasSpelling().trim();
     const canonical = editAliasCanonical().trim();
     const area = editAliasArea().trim() || undefined;
+    if (spelling !== original && !auth.can('alias:delete')) return;
 
     if (!spelling || !canonical) {
       setEditAliasError(t('customerAliases.bothRequiredError'));
@@ -295,6 +297,7 @@ export const CustomerAliases: Component = () => {
     try {
       if (spelling !== original) {
         await deleteCustomerAlias(original);
+        if (!canWrite()) return;
       }
       await setCustomerAlias(spelling, canonical, area);
       setShowEditAliasDialog(false);
@@ -308,6 +311,7 @@ export const CustomerAliases: Component = () => {
 
   // Delete alias
   const confirmDeleteAlias = async () => {
+    if (!auth.can('alias:delete')) return;
     const alias = aliasToDelete();
     if (!alias) return;
     setIsDeleting(true);
@@ -325,6 +329,7 @@ export const CustomerAliases: Component = () => {
 
   // Import
   const handleConfirmImport = async () => {
+    if (!auth.can('alias:import')) return;
     const file = pendingFile();
     if (!file) return;
     setIsImporting(true);
@@ -345,13 +350,14 @@ export const CustomerAliases: Component = () => {
     }
   };
 
-  const handleExportJSON = () => {
-    const a = document.createElement('a');
-    a.href = getCustomerAliasesExportUrl();
-    a.download = 'customer-aliases.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  const handleExportJSON = async () => {
+    if (!auth.can('alias:read') || !auth.can('alias:export')) return;
+    setPageError('');
+    try {
+      await downloadFile(getCustomerAliasesExportUrl(), 'customer-aliases.json');
+    } catch (err: unknown) {
+      setPageError(err instanceof Error ? err.message : t('common.error'));
+    }
   };
 
   // Helper avatar color class generator based on initial
@@ -381,6 +387,7 @@ export const CustomerAliases: Component = () => {
 
         {/* Global Action Buttons */}
         <div class="flex items-center gap-2 flex-wrap">
+          <Show when={auth.can('alias:read') && auth.can('alias:export')}>
           <Button
             type="button"
             variant="outline"
@@ -392,14 +399,16 @@ export const CustomerAliases: Component = () => {
             <IconDownload class="size-4" />
             <span>{t('customerAliases.exportJson')}</span>
           </Button>
+          </Show>
 
-          <Show when={isAdmin()}>
+          <Show when={auth.can('alias:import')}>
             <input
               type="file"
               accept=".json,application/json"
               ref={fileInputRef}
               class="hidden"
               onChange={(e) => {
+                if (!auth.can('alias:import')) return;
                 const file = e.currentTarget.files?.[0];
                 if (file) {
                   setPendingFile(file);
@@ -414,12 +423,14 @@ export const CustomerAliases: Component = () => {
               variant="outline"
               size="sm"
               class="gap-1.5 h-9 text-xs"
-              onClick={() => fileInputRef?.click()}
+              onClick={() => { if (auth.can('alias:import')) fileInputRef?.click(); }}
               disabled={isImporting()}
             >
               <IconUpload class="size-4" />
               <span>{t('customerAliases.importJson')}</span>
             </Button>
+          </Show>
+          <Show when={canWrite()}>
 
             <Button
               type="button"
@@ -513,9 +524,11 @@ export const CustomerAliases: Component = () => {
         <AlertTitle class="text-xs font-semibold">{t('customerAliases.syncNoticeTitle')}</AlertTitle>
         <AlertDescription class="text-xs text-muted-foreground mt-0.5">
           {t('customerAliases.syncNoticeDesc')}{' '}
-			<A href={ROUTES.sync} class="underline text-foreground font-medium hover:text-primary">
-            {t('nav.syncManager')}
-          </A>
+          <Show when={canAccessRoute(auth, ROUTES.sync)}>
+            <A href={ROUTES.sync} class="underline text-foreground font-medium hover:text-primary">
+              {t('nav.syncManager')}
+            </A>
+          </Show>
           .
         </AlertDescription>
       </Alert>
@@ -748,7 +761,7 @@ export const CustomerAliases: Component = () => {
                           </div>
                         </div>
 
-                        <Show when={isAdmin()}>
+                        <Show when={canWrite()}>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -787,8 +800,9 @@ export const CustomerAliases: Component = () => {
                                 }`}
                               >
                                 <span>{al}</span>
-                                <Show when={isAdmin()}>
-                                  <div class="hidden group-hover:flex items-center gap-0.5 -mr-1 pl-1 border-l border-border/50">
+                                <Show when={canWrite() || auth.can('alias:delete')}>
+                                  <div class="flex items-center gap-0.5 -mr-1 pl-1 border-l border-border/50">
+                                    <Show when={canWrite()}>
                                     <button
                                       type="button"
                                       class="p-0.5 text-muted-foreground hover:text-primary"
@@ -804,6 +818,8 @@ export const CustomerAliases: Component = () => {
                                     >
                                       <IconEdit class="size-3" />
                                     </button>
+                                    </Show>
+                                    <Show when={auth.can('alias:delete')}>
                                     <button
                                       type="button"
                                       class="p-0.5 text-muted-foreground hover:text-destructive"
@@ -812,6 +828,7 @@ export const CustomerAliases: Component = () => {
                                     >
                                       <IconTrash class="size-3" />
                                     </button>
+                                    </Show>
                                   </div>
                                 </Show>
                               </div>
@@ -820,7 +837,7 @@ export const CustomerAliases: Component = () => {
                         </For>
 
                         {/* Dashed "+ Add" variant pill / inline input */}
-                        <Show when={isAdmin()}>
+                        <Show when={canWrite()}>
                           <Show
                             when={isInlineAddingThis()}
                             fallback={
@@ -943,7 +960,7 @@ export const CustomerAliases: Component = () => {
                 <AreaCombobox
                   value={modalAreaInput()}
                   onChange={setModalAreaInput}
-                  areas={() => areasData()?.areas}
+                  areas={() => auth.can('area:read') ? areasData()?.areas : undefined}
                   placeholder={t('customerAliases.areaPlaceholder')}
                   class="w-full"
                   disabled={isModalAdding()}
@@ -955,7 +972,7 @@ export const CustomerAliases: Component = () => {
               <Button type="button" variant="outline" size="sm" onClick={() => setShowAddModal(false)} disabled={isModalAdding()}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" size="sm" disabled={isModalAdding()} class="gap-1.5">
+              <Button type="submit" size="sm" disabled={isModalAdding() || !canWrite()} class="gap-1.5">
                 <Show when={isModalAdding()} fallback={t('customerAliases.createCustomerBtn')}>
                   <span class="flex items-center gap-1.5">
                     <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}
@@ -997,7 +1014,7 @@ export const CustomerAliases: Component = () => {
                 <AreaCombobox
                   value={editArea()}
                   onChange={setEditArea}
-                  areas={() => areasData()?.areas}
+                  areas={() => auth.can('area:read') ? areasData()?.areas : undefined}
                   placeholder={t('customerAliases.areaPlaceholder')}
                   class="w-full"
                 />
@@ -1007,7 +1024,7 @@ export const CustomerAliases: Component = () => {
               <Button type="button" variant="outline" size="sm" onClick={() => setShowEditGroupDialog(false)} disabled={isEditingGroup()}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" size="sm" disabled={isEditingGroup()}>
+              <Button type="submit" size="sm" disabled={isEditingGroup() || !canWrite()}>
                 <Show when={isEditingGroup()} fallback={t('customerAliases.saveGroupBtn')}>
                   <span class="flex items-center gap-1.5">
                     <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}
@@ -1041,7 +1058,7 @@ export const CustomerAliases: Component = () => {
             <div class="space-y-3">
               <TextField value={editAliasSpelling()} onChange={setEditAliasSpelling} class="w-full">
                 <TextFieldLabel class="text-xs font-semibold">{t('customerAliases.variantNameLabel')}</TextFieldLabel>
-                <TextFieldInput placeholder={t('customerAliases.sourceSpellingPlaceholder')} class="h-9 w-full" />
+                <TextFieldInput placeholder={t('customerAliases.sourceSpellingPlaceholder')} class="h-9 w-full" disabled={!auth.can('alias:delete')} />
               </TextField>
 
               <TextField value={editAliasCanonical()} onChange={setEditAliasCanonical} class="w-full">
@@ -1054,7 +1071,7 @@ export const CustomerAliases: Component = () => {
                 <AreaCombobox
                   value={editAliasArea()}
                   onChange={setEditAliasArea}
-                  areas={() => areasData()?.areas}
+                  areas={() => auth.can('area:read') ? areasData()?.areas : undefined}
                   placeholder={t('customerAliases.areaPlaceholder')}
                   class="w-full"
                 />
@@ -1065,7 +1082,7 @@ export const CustomerAliases: Component = () => {
               <Button type="button" variant="outline" size="sm" onClick={() => setShowEditAliasDialog(false)} disabled={isEditingAlias()}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" size="sm" disabled={isEditingAlias()}>
+              <Button type="submit" size="sm" disabled={isEditingAlias() || !canWrite() || (editAliasSpelling().trim() !== editAliasOriginal() && !auth.can('alias:delete'))}>
                 <Show when={isEditingAlias()} fallback={t('customers.saveAlias')}>
                   <span class="flex items-center gap-1.5">
                     <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}
@@ -1093,7 +1110,7 @@ export const CustomerAliases: Component = () => {
             <Button variant="outline" size="sm" disabled={isDeleting()} onClick={() => setAliasToDelete('')}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" size="sm" disabled={isDeleting()} onClick={confirmDeleteAlias}>
+            <Button variant="destructive" size="sm" disabled={isDeleting() || !auth.can('alias:delete')} onClick={confirmDeleteAlias}>
               <Show when={isDeleting()} fallback={t('customerAliases.deleteAlias')}>
                 <span class="flex items-center gap-1.5">
                   <IconLoader2 class="size-3.5 animate-spin" /> {t('common.deleting')}
@@ -1172,7 +1189,7 @@ export const CustomerAliases: Component = () => {
             <Button
               variant={importMode() === 'replace' ? 'destructive' : 'default'}
               size="sm"
-              disabled={isImporting() || !pendingFile()}
+              disabled={isImporting() || !pendingFile() || !auth.can('alias:import')}
               onClick={handleConfirmImport}
             >
               {isImporting() ? t('customerAliases.importing') : t('customerAliases.confirmImport', { mode: importMode() === 'replace' ? t('customerAliases.replaceMode') : t('customerAliases.mergeMode') })}

@@ -1,5 +1,6 @@
-import { type Component, createSignal, For, Show } from 'solid-js';
+import { type Component, createEffect, createSignal, For, Show } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import {
   authError,
   databases,
@@ -7,6 +8,7 @@ import {
   handleSelectDatabase,
   isAuthLoading,
   isLoginModalOpen,
+  loadAccurateDatabases,
   pendingChallengeId,
   setIsLoginModalOpen,
   status,
@@ -25,13 +27,23 @@ import { IconAlertTriangle, IconDatabase, IconKey, IconLoader2 } from '@tabler/i
 
 export const AccurateLoginModal: Component = () => {
   const { t } = useI18n();
+  const auth = useAuth();
+  const canSelect = () => auth.can('accurate:read') && auth.can('accurate:update');
+  const showDatabases = () => canSelect() && databases().length > 0;
+  createEffect(() => {
+    if (isLoginModalOpen() && canSelect() && (status().connected || !auth.can('accurate:create'))) {
+      void loadAccurateDatabases(auth.can);
+    }
+  });
   const [otp, setOtp] = createSignal('');
 
   const onRelogin = async (e: Event) => {
     e.preventDefault();
-    const success = await handleLogin(otp());
+    if (!auth.can('accurate:create') || isAuthLoading()) return;
+    const success = await handleLogin(auth.can, otp());
     if (success) {
       setOtp('');
+      if (!canSelect()) handleClose();
     }
   };
 
@@ -41,12 +53,12 @@ export const AccurateLoginModal: Component = () => {
   };
 
   return (
-    <Dialog open={isLoginModalOpen()} onOpenChange={(open) => !open && handleClose()}>
+    <Dialog open={isLoginModalOpen() && (auth.can('accurate:create') || canSelect())} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent class="max-w-md">
         <DialogHeader>
           <DialogTitle class="flex items-center gap-2 text-base">
             <Show
-              when={databases().length > 0 && !status().connected}
+              when={showDatabases()}
               fallback={
                 <Show when={pendingChallengeId()} fallback={<IconKey class="size-5 text-primary" />}>
                   <IconKey class="size-5 text-amber-500" />
@@ -55,14 +67,14 @@ export const AccurateLoginModal: Component = () => {
             >
               <IconDatabase class="size-5 text-sky-500" />
             </Show>
-            {databases().length > 0 && !status().connected
+            {showDatabases()
               ? t('barcode.selectDatabase')
               : pendingChallengeId()
               ? t('barcode.twoFactorTitle')
               : t('barcode.accurateConnection')}
           </DialogTitle>
           <DialogDescription>
-            {databases().length > 0 && !status().connected
+            {showDatabases()
               ? t('barcode.selectDatabaseDesc')
               : pendingChallengeId()
               ? t('barcode.totpDesc')
@@ -80,8 +92,9 @@ export const AccurateLoginModal: Component = () => {
 
         {/* Database Selection */}
         <Show
-          when={databases().length > 0 && !status().connected}
+          when={showDatabases()}
           fallback={
+            <Show when={auth.can('accurate:create')} fallback={<DialogFooter><Button variant="outline" onClick={handleClose}>{t('common.close')}</Button></DialogFooter>}>
             <Show
               when={pendingChallengeId()}
               fallback={
@@ -136,6 +149,7 @@ export const AccurateLoginModal: Component = () => {
                 </DialogFooter>
               </form>
             </Show>
+            </Show>
           }
         >
           <div class="space-y-3 py-2">
@@ -147,7 +161,7 @@ export const AccurateLoginModal: Component = () => {
                 {(db) => (
                   <button
                     type="button"
-                    onClick={() => void handleSelectDatabase(db.id)}
+                    onClick={() => canSelect() && void handleSelectDatabase(auth.can, db.id)}
                     disabled={isAuthLoading()}
                     class="w-full text-left p-3 rounded-lg border bg-card hover:bg-accent hover:text-accent-foreground transition-colors flex items-center justify-between group"
                   >

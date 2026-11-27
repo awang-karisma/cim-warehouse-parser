@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import {
   IconAlertCircle,
@@ -11,6 +11,7 @@ import {
   IconX,
 } from '@tabler/icons-solidjs';
 import { deleteDataloggerSession, renameDataloggerSession } from '~/api';
+import { useAuth } from '~/auth';
 import { DataTable } from '~/components/DataTable';
 import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert';
 import { Badge } from '~/components/ui/badge';
@@ -47,6 +48,9 @@ interface SessionsTabProps {
 
 export function SessionsTab(props: SessionsTabProps) {
   const { t } = useI18n();
+  const auth = useAuth();
+  let disposed = false;
+  onCleanup(() => { disposed = true; });
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
 
   // Filter & Pagination state
@@ -88,6 +92,7 @@ export function SessionsTab(props: SessionsTabProps) {
   };
 
   const handleRenameSubmit = async (id: number) => {
+    if (!auth.can('logger_session:update')) return;
     const next = renameDraft().trim();
     if (!next) return;
     setErrorMsg(null);
@@ -95,7 +100,7 @@ export function SessionsTab(props: SessionsTabProps) {
     try {
       await renameDataloggerSession(id, next);
       setRenamingId(null);
-      props.onMutated();
+      if (!disposed && auth.can('logger_session:read')) props.onMutated();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
     } finally {
@@ -104,6 +109,7 @@ export function SessionsTab(props: SessionsTabProps) {
   };
 
   const handleDelete = async (session: DataloggerSession) => {
+    if (!auth.can('logger_session:delete')) return;
     if (
       !window.confirm(
         t('datalogger.sessions.deleteConfirm', {
@@ -118,7 +124,7 @@ export function SessionsTab(props: SessionsTabProps) {
     setBusyId(session.id);
     try {
       await deleteDataloggerSession(session.id);
-      props.onMutated();
+      if (!disposed && auth.can('logger_session:read')) props.onMutated();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
     } finally {
@@ -188,7 +194,7 @@ export function SessionsTab(props: SessionsTabProps) {
                         ? t('datalogger.sessions.noSessionsStored')
                         : t('datalogger.sessions.noSessionsOverlap')}
                     </div>
-                    <Show when={props.sessions.length === 0}>
+                    <Show when={props.sessions.length === 0 && auth.canAny('logger_session:create', 'logger_device:read')}>
                       <Button size="sm" onClick={props.onGoToImport}>
                         {t('datalogger.sessions.importNewSession')}
                       </Button>
@@ -320,18 +326,22 @@ export function SessionsTab(props: SessionsTabProps) {
                               >
                                 <IconDatabase class="size-3.5" />
                               </A>
+                              <Show when={auth.can('logger_session:update')}>
                               <Button
                                 size="icon"
                                 variant="ghost"
                                 class="size-8"
                                 title={t('datalogger.sessions.renameTooltip')}
                                 onClick={() => {
+                                  if (!auth.can('logger_session:update')) return;
                                   setRenamingId(session.id);
                                   setRenameDraft(session.name);
                                 }}
                               >
                                 <IconEdit class="size-3.5" />
                               </Button>
+                              </Show>
+                              <Show when={auth.can('logger_session:delete')}>
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -342,6 +352,7 @@ export function SessionsTab(props: SessionsTabProps) {
                               >
                                 <IconTrash class="size-3.5" />
                               </Button>
+                              </Show>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -475,18 +486,22 @@ export function SessionsTab(props: SessionsTabProps) {
                           >
                             <IconDatabase class="size-3.5" />
                           </A>
+                          <Show when={auth.can('logger_session:update')}>
                           <Button
                             size="icon"
                             variant="ghost"
                             class="size-7"
                             title={t('datalogger.sessions.renameTooltip')}
                             onClick={() => {
+                              if (!auth.can('logger_session:update')) return;
                               setRenamingId(session.id);
                               setRenameDraft(session.name);
                             }}
                           >
                             <IconEdit class="size-3.5" />
                           </Button>
+                          </Show>
+                          <Show when={auth.can('logger_session:delete')}>
                           <Button
                             size="icon"
                             variant="ghost"
@@ -497,6 +512,7 @@ export function SessionsTab(props: SessionsTabProps) {
                           >
                             <IconTrash class="size-3.5" />
                           </Button>
+                          </Show>
                         </div>
                       </div>
 

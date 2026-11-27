@@ -1,5 +1,6 @@
-import { type Component, createEffect, createSignal, For, Show } from 'solid-js';
+import { type Component, createEffect, createSignal, onCleanup, For, Show } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import * as api from '~/api';
 import { handleSessionInvalidated } from '~/stores/accurateAuth';
 import { addNormalizedItems } from '~/stores/barcodeItems';
@@ -30,6 +31,9 @@ interface TransactionDrawerProps {
 
 export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   const { t } = useI18n();
+  const auth = useAuth();
+  let mounted = true;
+  onCleanup(() => { mounted = false; });
   const [sources, setSources] = createSignal<AccurateSourceInfo[]>([]);
   const [selectedSource, setSelectedSource] = createSignal<string>('');
   const [documents, setDocuments] = createSignal<AccurateDocumentHeader[]>([]);
@@ -49,13 +53,13 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   let detailRequestToken = 0;
 
   createEffect(() => {
-    if (props.isOpen && sources().length === 0) {
+    if (props.isOpen && auth.can('accurate:read') && sources().length === 0) {
       void (async () => {
         try {
           const list = await api.getAccurateSources();
-          setSources(list);
+          if (mounted && auth.can('accurate:read')) setSources(list);
         } catch (err) {
-          setError(err instanceof Error ? err.message : t('barcode.fetchSourcesFailed'));
+          if (mounted) setError(err instanceof Error ? err.message : t('barcode.fetchSourcesFailed'));
         }
       })();
     }
@@ -71,7 +75,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   };
 
   const fetchDocuments = async (sourceId: string, page = 1) => {
-    if (!sourceId) return;
+    if (!sourceId || !mounted || !props.isOpen || !auth.can('accurate:read')) return;
 
     const token = ++listRequestToken;
     setIsLoading(true);
@@ -88,13 +92,13 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
         page,
         pageSize: 20,
       });
-      if (token !== listRequestToken) return;
+      if (!mounted || !auth.can('accurate:read') || token !== listRequestToken) return;
       setDocuments(res.documents);
       setPagination(res.pagination);
     } catch (err) {
-      if (token !== listRequestToken) return;
+      if (!mounted || !auth.can('accurate:read') || token !== listRequestToken) return;
       if (err instanceof api.ApiError && err.status === 401) {
-        handleSessionInvalidated(err.message);
+        handleSessionInvalidated(auth.can('accurate:create'), err.message);
       }
       setError(err instanceof Error ? err.message : t('barcode.loadDocumentsFailed'));
     } finally {
@@ -105,6 +109,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   };
 
   const handleSelectDoc = async (doc: AccurateDocumentHeader) => {
+    if (!mounted || !props.isOpen || !auth.can('accurate:read')) return;
     const currentSource = selectedSource();
     setSelectedDoc(doc);
     setIsLoading(true);
@@ -115,13 +120,13 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
     const token = ++detailRequestToken;
     try {
       const items = await api.getAccurateSourceDocumentItems(currentSource, doc.id);
-      if (token !== detailRequestToken || selectedSource() !== currentSource) return;
+      if (!mounted || !auth.can('accurate:read') || token !== detailRequestToken || selectedSource() !== currentSource) return;
       setDocItems(items);
       setSelectedItemIndices(new Set(items.map((_, i) => i)));
     } catch (err) {
-      if (token !== detailRequestToken || selectedSource() !== currentSource) return;
+      if (!mounted || !auth.can('accurate:read') || token !== detailRequestToken || selectedSource() !== currentSource) return;
       if (err instanceof api.ApiError && err.status === 401) {
-        handleSessionInvalidated(err.message);
+        handleSessionInvalidated(auth.can('accurate:create'), err.message);
       }
       setError(err instanceof Error ? err.message : t('barcode.loadDocItemsFailed'));
     } finally {
@@ -132,6 +137,7 @@ export const TransactionDrawer: Component<TransactionDrawerProps> = (props) => {
   };
 
   const handleAddItems = () => {
+    if (!mounted || !props.isOpen || !auth.can('accurate:read')) return;
     const selected = docItems().filter((_, i) => selectedItemIndices().has(i));
     addNormalizedItems(selected);
     setSelectedDoc(null);

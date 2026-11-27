@@ -34,6 +34,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '~/components/ui/avatar';
 import { IconLogout } from '@tabler/icons-solidjs';
 import { PageTransition } from '~/components/PageTransition';
 import { Spinner } from '~/components/Spinner';
+import { WorkspaceAccess } from '~/components/WorkspaceAccess';
 export const App: Component<RouteSectionProps> = (props) => {
   const location = useLocation();
 
@@ -56,6 +57,8 @@ export const App: Component<RouteSectionProps> = (props) => {
 		if (path.startsWith(ROUTES.sync)) return t('nav.syncManager');
 		if (path.startsWith(ROUTES.settings)) return t('nav.settings');
 		if (path.startsWith(ROUTES.users)) return t('nav.userManagement');
+		if (path.startsWith(ROUTES.roles)) return t('nav.roleManagement');
+		if (path === ROUTES.search) return t('nav.search');
 		if (path.startsWith(ROUTES.privacy)) return t('nav.privacyPolicy');
 		if (path.startsWith(ROUTES.terms)) return t('nav.termsOfService');
 		return t('routes.console');
@@ -70,7 +73,7 @@ export const App: Component<RouteSectionProps> = (props) => {
 		fallback={<PageTransition>{location.pathname === ROUTES.privacy ? <Privacy /> : <Terms />}</PageTransition>}
 	>
     <Show
-      when={!auth.loading() || currentUser() !== undefined}
+      when={!auth.loading()}
       fallback={
         <div class="min-h-screen w-full flex items-center justify-center bg-background">
           <div class="flex flex-col items-center gap-3">
@@ -80,7 +83,8 @@ export const App: Component<RouteSectionProps> = (props) => {
         </div>
       }
     >
-      <Show when={currentUser() !== null} fallback={<Login />}>
+      <Show when={!auth.failed()} fallback={<div class="grid min-h-dvh place-items-center bg-background p-4"><WorkspaceAccess kind="unavailable" /></div>}>
+      <Show when={currentUser()} fallback={<Login />}>
 		<Show when={currentUser()?.role !== USER_ROLE.GUEST} fallback={<PendingApproval />}>
           <SidebarProvider style={{ '--sidebar-width': '16rem' } as Record<string, string>}>
             <AppSidebar />
@@ -151,6 +155,7 @@ export const App: Component<RouteSectionProps> = (props) => {
             </SidebarInset>
           </SidebarProvider>
         </Show>
+      </Show>
       </Show>
     </Show>
     </Show>

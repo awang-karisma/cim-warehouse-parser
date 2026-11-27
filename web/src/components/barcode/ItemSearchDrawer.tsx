@@ -1,5 +1,6 @@
-import { type Component, createSignal, For, Show } from 'solid-js';
+import { type Component, createSignal, onCleanup, For, Show } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import * as api from '~/api';
 import { handleSessionInvalidated } from '~/stores/accurateAuth';
 import { addNormalizedItems } from '~/stores/barcodeItems';
@@ -28,6 +29,9 @@ interface ItemSearchDrawerProps {
 
 export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
   const { t } = useI18n();
+  const auth = useAuth();
+  let mounted = true;
+  onCleanup(() => { mounted = false; });
   const [query, setQuery] = createSignal('');
   const [items, setItems] = createSignal<AccurateInventoryItem[]>([]);
   const [pagination, setPagination] = createSignal<AccuratePagination>({ page: 1, pageCount: 1, pageSize: 50, rowCount: 0 });
@@ -36,15 +40,18 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
   const [error, setError] = createSignal<string | null>(null);
 
   const fetchItems = async (page = 1) => {
+    if (!mounted || !props.isOpen || !auth.can('accurate:read')) return;
     setIsLoading(true);
     setError(null);
     try {
       const res = await api.searchAccurateItems({ q: query(), page, pageSize: 50 });
+      if (!mounted || !auth.can('accurate:read')) return;
       setItems(res.items);
       setPagination(res.pagination);
     } catch (err) {
+      if (!mounted || !auth.can('accurate:read')) return;
       if (err instanceof api.ApiError && err.status === 401) {
-        handleSessionInvalidated(err.message);
+        handleSessionInvalidated(auth.can('accurate:create'), err.message);
       }
       setError(err instanceof Error ? err.message : t('barcode.searchItemsFailed'));
     } finally {
@@ -71,6 +78,7 @@ export const ItemSearchDrawer: Component<ItemSearchDrawerProps> = (props) => {
   };
 
   const handleAddSelected = () => {
+    if (!mounted || !props.isOpen || !auth.can('accurate:read')) return;
     const selected = items().filter((it) => selectedIds().has(it.id));
     const normalized: AccurateNormalizedItem[] = selected.map((it) => ({
       itemId: it.id,

@@ -1,4 +1,4 @@
-import { createSignal, createResource, createEffect } from 'solid-js';
+import { createSignal, createEffect } from 'solid-js';
 import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE } from '~/domain';
 import { getPageDesigns } from '~/api';
 import { loadLayoutFromDesign, resetLayout } from '~/stores/labelLayout';
@@ -140,9 +140,21 @@ let lastAppliedDesignSignature = '';
 export function setPresetDraftActive(active: boolean): void { presetDraftActive = active; }
 
 
-export const [serverDesigns, { refetch: refetchDesigns }] = createResource(
-  () => getPageDesigns().then((r) => r.designs)
-);
+export const [serverDesigns, setServerDesigns] = createSignal<PageDesign[]>([]);
+let designGeneration = 0;
+export function clearServerDesigns(): void {
+  designGeneration++;
+  setServerDesigns([]);
+  presetDraftActive = false;
+  selectPreset('tj-108');
+}
+export async function refetchDesigns(): Promise<PageDesign[]> {
+  const generation = designGeneration;
+  const designs = (await getPageDesigns()).designs;
+  if (generation !== designGeneration) return [];
+  setServerDesigns(designs);
+  return designs;
+}
 
 export function toPresetConfig(d: PageDesign): PresetConfig {
   return {

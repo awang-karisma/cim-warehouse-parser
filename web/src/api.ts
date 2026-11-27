@@ -21,6 +21,8 @@ import type {
   PaginatedDeliveries,
   DeliveryStats,
   UsersResponse,
+  Role,
+  RoleInput,
   WorkdayPoliciesResponse,
   AccurateStatus,
   AccurateDatabase,
@@ -45,6 +47,7 @@ import type {
   DataloggerProfilesResponse,
   PurchaseOrderListResponse,
 } from './types';
+import type { Permission } from './permissions.generated';
 
 export class ApiError extends Error {
   status: number;
@@ -66,8 +69,24 @@ function qs(params?: Record<string, string | number | boolean | undefined>): str
   return searchParams.toString();
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(path, options);
+let apiSession = new AbortController();
+let onAuthorizationFailure: ((status: 401 | 403) => void) | undefined;
+
+export function observeAuthorizationFailures(listener: (status: 401 | 403) => void) {
+  onAuthorizationFailure = listener;
+  return () => { if (onAuthorizationFailure === listener) onAuthorizationFailure = undefined; };
+}
+
+export function discardApiSession() {
+  apiSession.abort();
+  apiSession = new AbortController();
+}
+
+async function apiResponse(path: string, options?: RequestInit): Promise<Response> {
+  const session = apiSession.signal;
+  const signal = options?.signal ? AbortSignal.any([session, options.signal]) : session;
+  const res = await fetch(path, { ...options, signal });
+  signal.throwIfAborted();
   if (!res.ok) {
     const errorText = await res.text();
     let message = errorText;
@@ -77,9 +96,34 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       else if (parsed?.error) message = parsed.error;
       else if (parsed?.title) message = parsed.title;
     } catch {}
+    signal.throwIfAborted();
+    if (res.status === 401 || res.status === 403) {
+      // Accurate can reject its own shared credentials while the warehouse session remains valid.
+      const upstreamAuth = res.status === 401 && path.startsWith('/api/v1/accurate/') && message !== 'authentication required';
+      onAuthorizationFailure?.(upstreamAuth ? 403 : res.status);
+    }
     throw new ApiError(message || `HTTP ${res.status}: ${res.statusText}`, res.status);
   }
-  return res.json() as Promise<T>;
+  return res;
+}
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const session = apiSession.signal;
+  const result = await (await apiResponse(path, options)).json() as T;
+  session.throwIfAborted();
+  return result;
+}
+
+export async function downloadFile(path: string, filename: string) {
+  const session = apiSession.signal;
+  const blob = await (await apiResponse(path)).blob();
+  session.throwIfAborted();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export const getStats = () => apiFetch<Stats>('/api/v1/stats');
@@ -222,6 +266,22 @@ export const importCustomerAliasesFile = (file: File, mode: 'merge' | 'replace' 
 
 
 export const getUsers = () => apiFetch<UsersResponse>('/api/v1/admin/users');
+
+export const getPermissions = () => apiFetch<{ permissions: Permission[] }>('/api/v1/admin/permissions');
+export const getRoles = () => apiFetch<{ roles: Role[] }>('/api/v1/admin/roles');
+export const saveRole = (id: number | undefined, input: RoleInput) =>
+  apiFetch<{ role: Role }>(id === undefined ? '/api/v1/admin/roles' : `/api/v1/admin/roles/${id}`, {
+    method: id === undefined ? 'POST' : 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+export const deleteRole = (id: number) => apiFetch<{ status: string }>(`/api/v1/admin/roles/${id}`, { method: 'DELETE' });
+
+export const updateUserLocale = (locale: string) => apiFetch<{ locale: string }>('/api/v1/user/locale', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ locale }),
+});
 
 export const setUserRole = (email: string, role: string) =>
   apiFetch<{ status: string }>(`/api/v1/admin/users/${encodeURIComponent(email)}/role`, {

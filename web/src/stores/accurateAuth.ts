@@ -3,6 +3,19 @@ import { ACCURATE_LOGIN_STATUS } from '~/domain';
 import { createSignal } from 'solid-js';
 import * as api from '~/api';
 import type { AccurateDatabase, AccurateStatus } from '~/types';
+import type { AuthContextValue } from '~/auth';
+
+type Can = AuthContextValue['can'];
+let generation = 0;
+export function clearAccurateState(): void {
+  generation++;
+  setStatus({ enabled: false, connected: false });
+  setDatabases([]);
+  setIsAuthLoading(false);
+  setAuthError(null);
+  setIsLoginModalOpen(false);
+  setPendingChallengeId(null);
+}
 
 export const [status, setStatus] = createSignal<AccurateStatus>({
   enabled: false,
@@ -14,16 +27,20 @@ export const [authError, setAuthError] = createSignal<string | null>(null);
 export const [isLoginModalOpen, setIsLoginModalOpen] = createSignal(false);
 export const [pendingChallengeId, setPendingChallengeId] = createSignal<string | null>(null);
 
-export async function refreshStatus(): Promise<void> {
+export async function refreshStatus(can: Can): Promise<void> {
+  if (!can('accurate:read')) return;
+  const current = generation;
   try {
     const s = await api.getAccurateStatus();
-    setStatus(s);
+    if (current === generation && can('accurate:read')) setStatus(s);
   } catch {
-    setStatus({ enabled: false, connected: false });
+    if (current === generation) setStatus({ enabled: false, connected: false });
   }
 }
 
-export async function handleLogin(otpParam?: string): Promise<boolean> {
+export async function handleLogin(can: Can, otpParam?: string): Promise<boolean> {
+  if (!can('accurate:create')) return false;
+  const current = generation;
   setIsAuthLoading(true);
   setAuthError(null);
 
@@ -32,6 +49,7 @@ export async function handleLogin(otpParam?: string): Promise<boolean> {
       challengeId: pendingChallengeId() ?? undefined,
       otp: otpParam || undefined,
     });
+    if (current !== generation || !can('accurate:create')) return false;
 
 	if (res.status === ACCURATE_LOGIN_STATUS.MFA_REQUIRED && res.challengeId) {
       setPendingChallengeId(res.challengeId);
@@ -40,18 +58,24 @@ export async function handleLogin(otpParam?: string): Promise<boolean> {
     }
 
     setPendingChallengeId(null);
-    // Fetch accessible databases immediately
+    if (!can('accurate:read') || !can('accurate:update')) {
+      await refreshStatus(can);
+      if (current !== generation) return false;
+      setIsAuthLoading(false);
+      return true;
+    }
     const dbs = await api.getAccurateDatabases();
+    if (current !== generation || !can('accurate:read')) return false;
     setDatabases(dbs);
-
-    // If only one database is available, select it automatically
-    if (dbs.length === 1) {
-      await handleSelectDatabase(dbs[0].id);
+    if (dbs.length === 1 && can('accurate:update')) {
+      await handleSelectDatabase(can, dbs[0].id);
+      if (current !== generation) return false;
     }
 
     setIsAuthLoading(false);
     return true; // Authenticated
   } catch (err) {
+    if (current !== generation) return false;
     setIsAuthLoading(false);
     const msg = err instanceof Error ? err.message : 'Login failed';
     setAuthError(msg);
@@ -59,14 +83,18 @@ export async function handleLogin(otpParam?: string): Promise<boolean> {
   }
 }
 
-export async function handleSelectDatabase(dbId: number): Promise<boolean> {
+export async function handleSelectDatabase(can: Can, dbId: number): Promise<boolean> {
+  if (!can('accurate:update')) return false;
+  const current = generation;
   setIsAuthLoading(true);
   setAuthError(null);
 
   try {
     const res = await api.selectAccurateDatabase({ id: dbId });
+    if (current !== generation || !can('accurate:update')) return false;
     if (res.success) {
-      await refreshStatus();
+      await refreshStatus(can);
+      if (current !== generation || !can('accurate:update')) return false;
       setIsLoginModalOpen(false);
       setIsAuthLoading(false);
       return true;
@@ -74,6 +102,7 @@ export async function handleSelectDatabase(dbId: number): Promise<boolean> {
     setIsAuthLoading(false);
     return false;
   } catch (err) {
+    if (current !== generation) return false;
     setIsAuthLoading(false);
     const msg = err instanceof Error ? err.message : 'Failed to select database';
     setAuthError(msg);
@@ -81,8 +110,19 @@ export async function handleSelectDatabase(dbId: number): Promise<boolean> {
   }
 }
 
-export function handleSessionInvalidated(message?: string): void {
+export async function loadAccurateDatabases(can: Can): Promise<void> {
+  if (!can('accurate:read') || !can('accurate:update')) return;
+  const current = generation;
+  try {
+    const list = await api.getAccurateDatabases();
+    if (current === generation && can('accurate:read') && can('accurate:update')) setDatabases(list);
+  } catch (error) {
+    if (current === generation) setAuthError(error instanceof Error ? error.message : 'Failed to list databases');
+  }
+}
+
+export function handleSessionInvalidated(canReconnect: boolean, message?: string): void {
   setStatus((prev) => ({ ...prev, connected: false }));
   setAuthError(message || 'Your Accurate session was invalidated or expired. Please sign in again.');
-  setIsLoginModalOpen(true);
+  setIsLoginModalOpen(canReconnect);
 }

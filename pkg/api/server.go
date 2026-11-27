@@ -1,13 +1,10 @@
 package api
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/adapter"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/session"
-	"github.com/awang-karisma/warehouse-parser/pkg/auth"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
@@ -28,67 +25,6 @@ import (
 	"strings"
 	"time"
 )
-
-type contextKey string
-
-const authClaimsKey contextKey = "auth_claims"
-
-func claimsFromContext(ctx context.Context) *auth.Claims {
-	if ctx == nil {
-		return nil
-	}
-	if claims, ok := ctx.Value(authClaimsKey).(*auth.Claims); ok {
-		return claims
-	}
-	return nil
-}
-
-func roleLevel(role string) int {
-	switch model.UserRole(strings.ToLower(strings.TrimSpace(role))) {
-	case model.RoleSuperadmin:
-		return 4
-	case model.RoleAdmin:
-		return 3
-	case model.RoleUser:
-		return 2
-	case model.RoleGuest:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func hasMinRole(userRole, minRole string) bool {
-	return roleLevel(userRole) >= roleLevel(minRole)
-}
-
-// requireRole validates that the request has at least minRole permissions.
-// If auth is disabled (claims is nil), returns nil (allow).
-func requireRole(c fiber.Ctx, minRole string) error {
-	claims, ok := c.Locals("user").(*auth.Claims)
-	if !ok || claims == nil {
-		return nil
-	}
-	if !hasMinRole(claims.Role, minRole) {
-		return fiber.NewError(fiber.StatusForbidden, "insufficient permissions")
-	}
-	return nil
-}
-
-// requireRole validates that the request has at least minRole permissions.
-func (s *Server) requireRole(c fiber.Ctx, minRole string) error {
-	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
-		return nil
-	}
-	claims, ok := c.Locals("user").(*auth.Claims)
-	if !ok || claims == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
-	}
-	if !hasMinRole(claims.Role, minRole) {
-		return fiber.NewError(fiber.StatusForbidden, "insufficient permissions")
-	}
-	return nil
-}
 
 // Config holds dependencies for creating an API Server.
 type Config struct {
@@ -111,6 +47,7 @@ type Server struct {
 	accurateSession  *session.Manager
 	accurateRegistry *adapter.Registry
 	startTime        time.Time
+	policyRoutes     map[string]struct{}
 }
 
 // New creates and initializes a new Fiber v3 API Server with middlewares and routes.
@@ -159,28 +96,35 @@ func New(cfg Config) *Server {
 		accurateProvider: cfg.AccurateProvider,
 		accurateSession:  cfg.AccurateSession,
 		accurateRegistry: cfg.AccurateRegistry,
+		policyRoutes:     make(map[string]struct{}),
 	}
-	app.Use(s.authMiddleware)
 	humaAPI.UseMiddleware(s.humaAuthMiddleware)
 
 	s.registerOperations()
 	// Raw Fiber routes
-	app.Get("/api/v1/items/export", s.handleExportItems)
-	app.Get("/api/v1/sync/events", s.handleSyncSSE)
-	app.Get("/api/v1/customer-aliases/export", s.handleExportCustomerAliases)
-	app.Post("/api/v1/customer-aliases/import", s.handleImportCustomerAliases)
+	s.registerRaw(http.MethodGet, "/api/v1/items/export", allOf(model.PermItemRead, model.PermItemExport), s.handleExportItems)
+	s.registerRaw(http.MethodGet, "/api/v1/sync/events", allOf(model.PermSyncRead), s.handleSyncSSE)
+	s.registerRaw(http.MethodGet, "/api/v1/customer-aliases/export", allOf(model.PermAliasRead, model.PermAliasExport), s.handleExportCustomerAliases)
+	s.registerRaw(http.MethodPost, "/api/v1/customer-aliases/import", allOf(model.PermAliasImport), s.handleImportCustomerAliases)
 
 	// Auth routes (raw Fiber routes)
-	app.Get("/auth/config", s.handleAuthConfig)
-	app.Post("/auth/google/callback", s.handleGoogleCallback)
-	app.Get("/auth/me", s.handleAuthMe)
-	app.Post("/auth/logout", s.handleLogout)
+	s.registerRaw(http.MethodGet, "/auth/config", publicPolicy, s.handleAuthConfig)
+	s.registerRaw(http.MethodPost, "/auth/google/callback", publicPolicy, s.handleGoogleCallback)
+	s.registerRaw(http.MethodGet, "/auth/me", publicPolicy, s.handleAuthMe)
+	s.registerRaw(http.MethodPost, "/auth/logout", publicPolicy, s.handleLogout)
 
 	// Admin routes (raw Fiber routes)
-	app.Get("/api/v1/admin/users", s.handleListUsers)
-	app.Put("/api/v1/admin/users/:email/role", s.handleSetUserRole)
-	app.Delete("/api/v1/admin/users/:email", s.handleDeleteUser)
-	app.Post("/api/v1/admin/clear-database", s.handleClearDatabase)
+	s.registerRaw(http.MethodGet, "/api/v1/admin/users", allOf(model.PermUserRead), s.handleListUsers)
+	s.registerRaw(http.MethodPut, "/api/v1/admin/users/:email/role", anyOf(model.PermUserCreate, model.PermUserUpdate), s.handleSetUserRole)
+	s.registerRaw(http.MethodDelete, "/api/v1/admin/users/:email", allOf(model.PermUserDelete), s.handleDeleteUser)
+	s.registerRaw(http.MethodPost, "/api/v1/admin/clear-database", allOf(model.PermDatabaseClear), s.handleClearDatabase)
+	s.registerRaw(http.MethodGet, "/api/v1/admin/permissions", allOf(model.PermRoleRead), s.handleListPermissions)
+	s.registerRaw(http.MethodGet, "/api/v1/admin/roles", allOf(model.PermRoleRead), s.handleListRoles)
+	s.registerRaw(http.MethodPost, "/api/v1/admin/roles", allOf(model.PermRoleCreate), s.handleCreateRole)
+	s.registerRaw(http.MethodPut, "/api/v1/admin/roles/:id", allOf(model.PermRoleUpdate), s.handleUpdateRole)
+	s.registerRaw(http.MethodDelete, "/api/v1/admin/roles/:id", allOf(model.PermRoleDelete), s.handleDeleteRole)
+	s.verifyPolicyCoverage()
+	s.policyRoutes = nil
 	return s
 }
 
@@ -264,7 +208,7 @@ func (s *Server) SetupStaticFS(distFS fs.FS) {
 }
 
 func (s *Server) registerOperations() {
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, publicPolicy, huma.Operation{
 		OperationID: "health-check",
 		Method:      http.MethodGet,
 		Path:        "/health",
@@ -273,7 +217,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"system"},
 	}, s.handleHealth)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermSyncRead), huma.Operation{
 		OperationID: "get-worker-status",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/status",
@@ -282,17 +226,16 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"worker"},
 	}, s.handleStatus)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermSyncTrigger), huma.Operation{
 		OperationID: "trigger-sync",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/sync",
 		Summary:     "Trigger manual sync",
 		Description: "Trigger an immediate synchronization from remote data source into local storage (force=true)",
 		Tags:        []string{"worker"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSync)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermOrderRead), huma.Operation{
 		OperationID: "list-orders",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/orders",
@@ -301,7 +244,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"orders"},
 	}, s.handleListOrders)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermOrderRead), huma.Operation{
 		OperationID: "get-order-by-id",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/orders/{id}",
@@ -310,7 +253,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"orders"},
 	}, s.handleGetOrderByID)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermItemRead), huma.Operation{
 		OperationID: "list-items",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/items",
@@ -319,7 +262,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"items"},
 	}, s.handleListItems)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermTimelineRead), huma.Operation{
 		OperationID: "list-deliveries",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/deliveries",
@@ -327,7 +270,7 @@ func (s *Server) registerOperations() {
 		Description: "Timeline shipment feed returning individual delivery shipments joined to source items",
 		Tags:        []string{"deliveries"},
 	}, s.handleListDeliveries)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermTimelineRead), huma.Operation{
 		OperationID: "get-delivery-stats",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/deliveries/stats",
@@ -336,7 +279,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"deliveries"},
 	}, s.handleGetDeliveryStats)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDashboardRead), huma.Operation{
 		OperationID: "get-stats",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/stats",
@@ -344,52 +287,47 @@ func (s *Server) registerOperations() {
 		Description: "Get aggregated summary statistics of orders and items",
 		Tags:        []string{"stats"},
 	}, s.handleGetStats)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDashboardRead), huma.Operation{
 		OperationID: "get-dashboard-summary",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/dashboard/summary",
 		Summary:     "Get date-ranged dashboard summary",
 		Description: "Aggregates dashboard orders, line items, and daily order volume by order placement date",
 		Tags:        []string{"dashboard"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDashboardSummary)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDashboardRead), huma.Operation{
 		OperationID: "get-dashboard-status-trend",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/dashboard/status-trend",
 		Summary:     "Get historical order status trend",
 		Description: "Returns the latest successful sync snapshot for each observed WITA calendar day",
 		Tags:        []string{"dashboard"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDashboardStatusTrend)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDashboardRead), huma.Operation{
 		OperationID: "get-dashboard-status-changes",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/dashboard/status-changes",
 		Summary:     "Get daily order status changes",
 		Description: "Counts orders first observed or ending in a different status on each successful WITA observation day",
 		Tags:        []string{"dashboard"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDashboardStatusChanges)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDashboardRead), huma.Operation{
 		OperationID: "get-dashboard-operations",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/dashboard/operations",
 		Summary:     "Get operational warehouse metrics",
 		Description: "Returns active backlog orders, shelf-ready items, and active delivery runs",
 		Tags:        []string{"dashboard"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDashboardOperations)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDashboardRead), huma.Operation{
 		OperationID: "get-dashboard-pressure",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/dashboard/pressure",
 		Summary:     "Get order-date-filtered pressure metrics",
 		Description: "Returns ranked areas and customers with unfinished items and average policy-calculated lead time",
 		Tags:        []string{"dashboard"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDashboardPressure)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermSyncRead), huma.Operation{
 		OperationID: "list-sync-history",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/sync/history",
@@ -398,7 +336,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"worker"},
 	}, s.handleListSyncHistory)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermCustomerRead), huma.Operation{
 		OperationID: "list-customers",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/customers",
@@ -407,7 +345,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"customers"},
 	}, s.handleListCustomers)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAreaRead), huma.Operation{
 		OperationID: "list-areas",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/areas",
@@ -416,7 +354,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"areas"},
 	}, s.handleListAreas)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, anyOf(model.PermOrderRead, model.PermItemRead, model.PermCustomerRead), huma.Operation{
 		OperationID: "search",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/search",
@@ -425,7 +363,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"search"},
 	}, s.handleSearch)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermSystemRead), huma.Operation{
 		OperationID: "get-config",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/config",
@@ -434,7 +372,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"system"},
 	}, s.handleConfig)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermSystemRead), huma.Operation{
 		OperationID: "get-system-info",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/system",
@@ -443,7 +381,7 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"system"},
 	}, s.handleSystem)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAliasRead), huma.Operation{
 		OperationID: "get-customer-aliases",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/customer-aliases",
@@ -452,464 +390,417 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"customers"},
 	}, s.handleGetCustomerAliases)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAliasWrite), huma.Operation{
 		OperationID: "set-customer-alias",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/customer-aliases",
 		Summary:     "Set customer alias",
 		Description: "Create or update a customer name alias mapping",
 		Tags:        []string{"customers"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSetCustomerAlias)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAliasDelete), huma.Operation{
 		OperationID: "delete-customer-alias",
 		Method:      http.MethodDelete,
 		Path:        "/api/v1/customer-aliases/{alias}",
 		Summary:     "Delete customer alias",
 		Description: "Delete a customer name alias mapping",
 		Tags:        []string{"customers"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeleteCustomerAlias)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermWorkdayRead), huma.Operation{
 		OperationID: "get-workday-policies",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/workday-policies",
 		Summary:     "Get workday policies",
 		Description: "Get chronological history of effective workday schedules for lead-time calculation",
 		Tags:        []string{"config"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetWorkdayPolicies)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermWorkdayUpdate), huma.Operation{
 		OperationID: "set-workday-policy",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/workday-policies",
 		Summary:     "Set workday policy",
 		Description: "Set or replace active workdays effective from current local date and recalculate lead times",
 		Tags:        []string{"config"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleSetWorkdayPolicy)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, selfServicePolicy, huma.Operation{
 		OperationID: "set-user-locale",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/user/locale",
 		Summary:     "Update user locale",
 		Description: "Persist the current user's preferred language locale ('en' or 'id')",
 		Tags:        []string{"user"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleSetUserLocale)
 
 	// Custom Page Designs Endpoints
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDesignRead), huma.Operation{
 		OperationID: "get-page-designs",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/page-designs",
 		Summary:     "List page designs",
 		Description: "Get all custom page designs for barcode label printing",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetPageDesigns)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDesignCreate), huma.Operation{
 		OperationID: "create-page-design",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/page-designs",
 		Summary:     "Create page design",
 		Description: "Create a new custom page design for barcode label printing",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleCreatePageDesign)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDesignUpdate), huma.Operation{
 		OperationID: "update-page-design",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/page-designs/{id}",
 		Summary:     "Update page design",
 		Description: "Update an existing custom page design",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleUpdatePageDesign)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDesignDelete), huma.Operation{
 		OperationID: "delete-page-design",
 		Method:      http.MethodDelete,
 		Path:        "/api/v1/page-designs/{id}",
 		Summary:     "Delete page design",
 		Description: "Delete a custom page design",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeletePageDesign)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermPresetRead), huma.Operation{
 		OperationID: "get-label-layout-presets",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/label-layout-presets",
 		Summary:     "List label layout presets",
 		Description: "List reusable barcode label element arrangements",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetLabelLayoutPresets)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermPresetCreate), huma.Operation{
 		OperationID: "create-label-layout-preset",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/label-layout-presets",
 		Summary:     "Create label layout preset",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleCreateLabelLayoutPreset)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermPresetUpdate), huma.Operation{
 		OperationID: "update-label-layout-preset",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/label-layout-presets/{id}",
 		Summary:     "Update label layout preset",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleUpdateLabelLayoutPreset)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermPresetDelete), huma.Operation{
 		OperationID: "delete-label-layout-preset",
 		Method:      http.MethodDelete,
 		Path:        "/api/v1/label-layout-presets/{id}",
 		Summary:     "Delete label layout preset",
 		Tags:        []string{"barcode"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeleteLabelLayoutPreset)
 
 	// Delivery Flow Endpoints
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryRead), huma.Operation{
 		OperationID: "get-delivery-candidates",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/delivery-flow/candidates",
 		Summary:     "List delivery candidates",
 		Description: "Get candidate orders containing unfinished items for delivery planning",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDeliveryCandidates)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDriverRead), huma.Operation{
 		OperationID: "list-delivery-drivers",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/delivery-drivers",
 		Summary:     "List delivery drivers",
 		Description: "Get all delivery drivers",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDeliveryDrivers)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDriverCreate), huma.Operation{
 		OperationID: "create-delivery-driver",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/delivery-drivers",
 		Summary:     "Create delivery driver",
 		Description: "Create a new delivery driver",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleCreateDeliveryDriver)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDriverUpdate), huma.Operation{
 		OperationID: "update-delivery-driver",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/delivery-drivers/{id}",
 		Summary:     "Update delivery driver",
 		Description: "Update an existing delivery driver",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleUpdateDeliveryDriver)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDriverDelete), huma.Operation{
 		OperationID: "delete-delivery-driver",
 		Method:      http.MethodDelete,
 		Path:        "/api/v1/delivery-drivers/{id}",
 		Summary:     "Delete delivery driver",
 		Description: "Delete a delivery driver",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleDeleteDeliveryDriver)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryRead), huma.Operation{
 		OperationID: "list-delivery-runs",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/delivery-runs",
 		Summary:     "List delivery runs",
 		Description: "Get planned delivery runs matching optional filters",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDeliveryRuns)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryRead), huma.Operation{
 		OperationID: "get-delivery-run",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/delivery-runs/{id}",
 		Summary:     "Get delivery run",
 		Description: "Get details and items of a specific delivery run",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDeliveryRunByID)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryCreate), huma.Operation{
 		OperationID: "create-delivery-run",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/delivery-runs",
 		Summary:     "Create delivery run",
 		Description: "Create a new delivery run with items",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleCreateDeliveryRun)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryUpdate), huma.Operation{
 		OperationID: "update-delivery-run",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/delivery-runs/{id}",
 		Summary:     "Update delivery run",
 		Description: "Update an existing delivery run and its items",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleUpdateDeliveryRun)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryUpdate), huma.Operation{
 		OperationID: "update-delivery-run-status",
 		Method:      http.MethodPatch,
 		Path:        "/api/v1/delivery-runs/{id}/status",
 		Summary:     "Update delivery run status",
 		Description: "Update the status of an existing delivery run",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleUpdateDeliveryRunStatus)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryUpdate), huma.Operation{
 		OperationID: "update-delivery-run-driver",
 		Method:      http.MethodPatch,
 		Path:        "/api/v1/delivery-runs/{id}/driver",
 		Summary:     "Update delivery run driver",
 		Description: "Update the assigned driver for an existing delivery run",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleUpdateDeliveryRunDriver)
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryPick), huma.Operation{
 		OperationID: "toggle-delivery-run-item-pick",
 		Method:      http.MethodPatch,
 		Path:        "/api/v1/delivery-runs/{id}/items/{item_id}/pick",
 		Summary:     "Toggle delivery run item pick",
 		Description: "Toggle the picked status of an item within a delivery run",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleToggleDeliveryRunItemPick)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermDeliveryDelete), huma.Operation{
 		OperationID: "delete-delivery-run",
 		Method:      http.MethodDelete,
 		Path:        "/api/v1/delivery-runs/{id}",
 		Summary:     "Delete delivery run",
 		Description: "Delete a delivery run and its items",
 		Tags:        []string{"delivery-flow"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleDeleteDeliveryRun)
 
 	// Accurate Online Integration Endpoints
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateRead), huma.Operation{
 		OperationID: "get-accurate-status",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/accurate/status",
 		Summary:     "Get Accurate Online integration status",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateStatus)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateCreate), huma.Operation{
 		OperationID: "accurate-login",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/accurate/login",
 		Summary:     "Login or submit MFA for Accurate Online",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateLogin)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateDelete), huma.Operation{
 		OperationID: "accurate-logout",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/accurate/logout",
 		Summary:     "Log out from Accurate Online session",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateLogout)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateRead), huma.Operation{
 		OperationID: "get-accurate-databases",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/accurate/databases",
 		Summary:     "List accessible Accurate databases",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateDatabases)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateUpdate), huma.Operation{
 		OperationID: "select-accurate-database",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/accurate/database",
 		Summary:     "Select and open Accurate database",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateSelectDatabase)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateRead), huma.Operation{
 		OperationID: "search-accurate-items",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/accurate/items",
 		Summary:     "Search items from Accurate inventory",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateItems)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateRead), huma.Operation{
 		OperationID: "get-accurate-sources",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/accurate/sources",
 		Summary:     "List registered Accurate transaction sources",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateSources)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateRead), huma.Operation{
 		OperationID: "get-accurate-source-documents",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/accurate/sources/{source}/documents",
 		Summary:     "List documents for an Accurate transaction source",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateSourceDocuments)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermAccurateRead), huma.Operation{
 		OperationID: "get-accurate-source-document-items",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/accurate/sources/{source}/documents/{id}/items",
 		Summary:     "Get line items for an Accurate source document",
 		Tags:        []string{"accurate"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleAccurateSourceDocumentItems)
 
 	// Elitech Data Logger endpoints
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerSessionRead), huma.Operation{
 		OperationID: "list-datalogger-sessions",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/datalogger/sessions",
 		Summary:     "List datalogger sessions",
 		Description: "List stored Elitech temperature/humidity data logger sessions",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDataloggerSessions)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerSessionRead), huma.Operation{
 		OperationID: "get-datalogger-session",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/datalogger/sessions/{id}",
 		Summary:     "Get datalogger session",
 		Description: "Get metadata for a single datalogger session",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDataloggerSession)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerSessionRead), huma.Operation{
 		OperationID: "get-datalogger-records",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/datalogger/sessions/{id}/records",
 		Summary:     "Get datalogger session records",
 		Description: "Get timestamped readings for a single datalogger session",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDataloggerRecords)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerSessionRead), huma.Operation{
 		OperationID: "get-datalogger-records-batch",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/datalogger/records/batch",
 		Summary:     "Batch fetch datalogger records",
 		Description: "Fetch timestamped readings grouped by session ID for multi-session comparison",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDataloggerRecordsBatch)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerSessionCreate), huma.Operation{
 		OperationID: "create-datalogger-session",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/datalogger/sessions",
 		Summary:     "Create datalogger session",
 		Description: "Save a new datalogger session and its readings",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleCreateDataloggerSession)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerSessionDelete), huma.Operation{
 		OperationID: "delete-datalogger-session",
 		Method:      http.MethodDelete,
 		Path:        "/api/v1/datalogger/sessions/{id}",
 		Summary:     "Delete datalogger session",
 		Description: "Delete a datalogger session and its associated readings",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeleteDataloggerSession)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerSessionUpdate), huma.Operation{
 		OperationID: "rename-datalogger-session",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/datalogger/sessions/{id}/name",
 		Summary:     "Rename datalogger session",
 		Description: "Rename an existing datalogger session",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleRenameDataloggerSession)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerProfileRead), huma.Operation{
 		OperationID: "list-datalogger-profiles",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/datalogger/profiles",
 		Summary:     "List datalogger configuration profiles",
 		Description: "List saved reusable Elitech data logger configuration profiles",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleGetDataloggerProfiles)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerProfileCreate), huma.Operation{
 		OperationID: "create-datalogger-profile",
 		Method:      http.MethodPost,
 		Path:        "/api/v1/datalogger/profiles",
 		Summary:     "Create datalogger configuration profile",
 		Description: "Create a reusable Elitech data logger configuration profile",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleCreateDataloggerProfile)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerProfileUpdate), huma.Operation{
 		OperationID: "update-datalogger-profile",
 		Method:      http.MethodPut,
 		Path:        "/api/v1/datalogger/profiles/{id}",
 		Summary:     "Update datalogger configuration profile",
 		Description: "Update an existing Elitech data logger configuration profile",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleUpdateDataloggerProfile)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermLoggerProfileDelete), huma.Operation{
 		OperationID: "delete-datalogger-profile",
 		Method:      http.MethodDelete,
 		Path:        "/api/v1/datalogger/profiles/{id}",
 		Summary:     "Delete datalogger configuration profile",
 		Description: "Delete an existing Elitech data logger configuration profile",
 		Tags:        []string{"datalogger"},
-		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeleteDataloggerProfile)
 
-	huma.Register(s.humaAPI, huma.Operation{
+	registerOperation(s, allOf(model.PermPurchaseOrderRead), huma.Operation{
 		OperationID: "list-purchase-orders",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/purchase-orders",
 		Summary:     "List purchase order items",
 		Description: "List normalized items from the PERMINTAAN PEMBELIAN sheet with filtering, sorting, pagination, and stats",
 		Tags:        []string{"purchase-orders"},
-		Metadata:    map[string]any{"minRole": "user"},
 	}, s.handleListPurchaseOrders)
 }
 
@@ -925,116 +816,4 @@ func clearSessionCookie(c fiber.Ctx) {
 		MaxAge:   -1,
 		Expires:  time.Now().Add(-1 * time.Hour),
 	})
-}
-
-// resolveCurrentUser looks up the user by email in the database and returns a copy of claims
-// with the latest email, name, picture, and effective role.
-func (s *Server) resolveCurrentUser(ctx context.Context, claims *auth.Claims) (*auth.Claims, bool, error) {
-	if claims == nil {
-		return nil, false, nil
-	}
-	if s.store == nil {
-		return nil, false, errors.New("storage service not available")
-	}
-	user, err := s.store.GetUserByEmail(ctx, claims.Email)
-	if err != nil {
-		return nil, false, err
-	}
-	if user == nil {
-		return nil, false, nil
-	}
-
-	refreshed := *claims
-	refreshed.Email = user.Email
-	refreshed.Name = user.Name
-	refreshed.Picture = user.Picture
-	refreshed.Role = user.Role
-	refreshed.Locale = user.Locale
-	if s.appConfig != nil && s.appConfig.IsSuperadmin(user.Email) {
-		refreshed.Role = "superadmin"
-	}
-
-	return &refreshed, true, nil
-}
-
-// authMiddleware verifies the warehouse_session cookie for protected routes.
-func (s *Server) authMiddleware(c fiber.Ctx) error {
-	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
-		return c.Next()
-	}
-
-	p := c.Path()
-	if strings.HasPrefix(p, "/auth/") || p == "/auth" ||
-		p == "/health" || strings.HasPrefix(p, "/health/") ||
-		strings.HasPrefix(p, "/docs") ||
-		strings.HasPrefix(p, "/openapi") ||
-		(!strings.HasPrefix(p, "/api/") && p != "/api") {
-		return c.Next()
-	}
-
-	cookie := c.Cookies("warehouse_session")
-	if cookie == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
-	}
-
-	claims, err := auth.ValidateToken(s.appConfig.JWTSecret, cookie)
-	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
-	}
-
-	if s.store == nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage service not available"})
-	}
-
-	refreshedClaims, found, err := s.resolveCurrentUser(c.Context(), claims)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("failed to resolve user: %v", err)})
-	}
-	if !found {
-		clearSessionCookie(c)
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
-	}
-
-	c.Locals("user", refreshedClaims)
-	c.SetContext(context.WithValue(c.Context(), authClaimsKey, refreshedClaims))
-	return c.Next()
-}
-
-// humaAuthMiddleware enforces minimum role authorization for Huma operations.
-func (s *Server) humaAuthMiddleware(ctx huma.Context, next func(huma.Context)) {
-	if s.appConfig == nil || s.appConfig.GoogleClientID == "" {
-		next(ctx)
-		return
-	}
-
-	op := ctx.Operation()
-	if op == nil {
-		next(ctx)
-		return
-	}
-
-	if !strings.HasPrefix(op.Path, "/api/v1/") {
-		next(ctx)
-		return
-	}
-
-	minRole := "user"
-	if op.Metadata != nil {
-		if r, ok := op.Metadata["minRole"].(string); ok && r != "" {
-			minRole = r
-		}
-	}
-
-	claims := claimsFromContext(ctx.Context())
-	if claims == nil {
-		_ = huma.WriteErr(s.humaAPI, ctx, http.StatusUnauthorized, "authentication required")
-		return
-	}
-
-	if !hasMinRole(claims.Role, minRole) {
-		_ = huma.WriteErr(s.humaAPI, ctx, http.StatusForbidden, "insufficient permissions")
-		return
-	}
-
-	next(ctx)
 }

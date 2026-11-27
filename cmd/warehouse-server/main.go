@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,6 +32,12 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load configuration: %v", err)
+	}
+
+	if cfg.GoogleClientID != "" && !slices.ContainsFunc(strings.Split(cfg.SuperadminEmails, ","), func(email string) bool {
+		return strings.TrimSpace(email) != ""
+	}) {
+		log.Fatal("SUPERADMIN_EMAILS must include a recovery account when authentication is enabled")
 	}
 
 	// 2. Ensure DB directory exists and initialize SQLite storage

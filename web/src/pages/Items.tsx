@@ -1,12 +1,13 @@
-import { orderDetailPath } from '~/routes';
+import { ROUTES, canAccessRoute, orderDetailPath } from '~/routes';
 
 import { ORDER_STATUS, STOCK_STATUS } from '~/domain';
 
-import { type Component, createResource, Show, For, createMemo } from 'solid-js';
+import { type Component, createResource, createSignal, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import { A } from '@solidjs/router';
 import { IconDownload } from '@tabler/icons-solidjs';
-import { getItems } from '../api';
+import { downloadFile, getItems } from '~/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
   TableHeader,
@@ -37,6 +38,9 @@ const VALID_STATUS_ORDERS = [ORDER_STATUS.UNFINISHED, ORDER_STATUS.COMPLETE, ORD
 const STATUS_BARANG_OPTIONS = ['All', STOCK_STATUS.PROCESSING_ORDER, STOCK_STATUS.WAREHOUSE, STOCK_STATUS.EMPTY, STOCK_STATUS.VENDOR_DELIVERY, STOCK_STATUS.DONE, 'OTHER'] as const;
 export const Items: Component = () => {
   const { t } = useI18n();
+  const auth = useAuth();
+  const [exportError, setExportError] = createSignal('');
+  const [exporting, setExporting] = createSignal(false);
   const filters = createUrlFilter({
     customer: {
       key: 'customer',
@@ -187,6 +191,19 @@ export const Items: Component = () => {
     return `/api/v1/items/export?${p.toString()}`;
   };
 
+  const exportCsv = async () => {
+    if (!auth.can('item:read') || !auth.can('item:export') || exporting()) return;
+    setExportError('');
+    setExporting(true);
+    try {
+      await downloadFile(getExportUrl(), 'items.csv');
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : t('items.exportCsv'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div class="flex flex-1 flex-col gap-6">
       {/* Filter Toolbar (Tasks Example Pattern) */}
@@ -279,10 +296,11 @@ export const Items: Component = () => {
               {data()?.total !== undefined ? t('items.totalItems', { count: data()!.total.toLocaleString() }) : t('items.title')}
             </CardDescription>
           </div>
+          <Show when={auth.can('item:export')}>
           <Button
-            as="a"
-            href={getExportUrl()}
-            download="items.csv"
+            type="button"
+            disabled={exporting()}
+            onClick={() => void exportCsv()}
             variant="outline"
             size="sm"
             class="gap-1.5 self-start sm:self-auto"
@@ -290,7 +308,9 @@ export const Items: Component = () => {
             <IconDownload class="size-4" />
             <span>{t('items.exportCsv')}</span>
           </Button>
+          </Show>
         </CardHeader>
+        <Show when={exportError()}><p role="alert" class="px-4 pb-3 text-sm text-destructive">{exportError()}</p></Show>
         <CardContent class="p-4 md:p-6 pt-0 space-y-4">
           <DataTable>
               <TableHeader>
@@ -390,10 +410,10 @@ export const Items: Component = () => {
                           </TableCell>
                           <TableCell>
                             <Show
-                              when={item.order_id}
+                              when={item.order_id && canAccessRoute(auth, ROUTES.orderDetailPattern)}
                               fallback={
                                 <span class="font-mono text-xs text-muted-foreground">
-                                  {item.order_number || item.ecatalog_number || '-'}
+                                  {item.order_number || item.ecatalog_number || item.order_id || '-'}
                                 </span>
                               }
                             >

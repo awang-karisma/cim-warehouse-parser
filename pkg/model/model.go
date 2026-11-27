@@ -191,14 +191,15 @@ func (o *Order) UnmarshalJSON(data []byte) error {
 
 // User represents an authenticated system user.
 type User struct {
-	ID        int64     `json:"id"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	Picture   string    `json:"picture"`
-	Role      string    `json:"role"`
-	Locale    string    `json:"locale"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	Email       string    `json:"email"`
+	Name        string    `json:"name"`
+	Picture     string    `json:"picture"`
+	Role        string    `json:"role"`
+	Locale      string    `json:"locale"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Permissions []string  `json:"permissions,omitempty"`
 }
 
 // WorkdayPolicy defines an active workday schedule effective from a specific calendar date (YYYY-MM-DD).

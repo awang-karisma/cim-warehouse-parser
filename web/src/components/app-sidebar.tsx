@@ -1,5 +1,5 @@
-import { USER_ROLE, SYNC_STATUS } from '~/domain';
-import { ROUTES } from '~/routes';
+import { SYNC_STATUS } from '~/domain';
+import { ROUTES, canAccessRoute, type WorkspaceRoute } from '~/routes';
 import { type Component, For, Show, createMemo, createSignal, onMount, onCleanup, createResource } from 'solid-js';
 import { getStatus, getConfig, triggerSync } from '~/api';
 import { cn } from '~/lib/utils';
@@ -21,6 +21,7 @@ import {
   IconSettings,
   IconThermometer,
   IconUserCog,
+  IconShieldCog,
   IconLoader2,
   type IconProps,
 } from '@tabler/icons-solidjs';
@@ -42,7 +43,7 @@ import {
 import { Button } from '~/components/ui/button';
 
 interface NavItem {
-  href: string;
+  href: WorkspaceRoute;
   label: string;
   icon: Component<IconProps>;
   exact?: boolean;
@@ -88,16 +89,17 @@ function formatCountdown(ms: number): string {
 const SyncStatusFooter: Component = () => {
   const { t, formatRelativeTime } = useI18n();
   const auth = useAuth();
-  const [status, { refetch: refetchStatus }] = createResource(getStatus);
-  const [config] = createResource(getConfig);
+  const [status, { refetch: refetchStatus }] = createResource(() => auth.can('sync:read'), getStatus);
+  const [config] = createResource(() => auth.can('sync:read') && auth.can('system:read'), getConfig);
   const [now, setNow] = createSignal(Date.now());
   const [isSyncing, setIsSyncing] = createSignal(false);
   const [syncError, setSyncError] = createSignal<string | null>(null);
   const [syncFeedback, setSyncFeedback] = createSignal<string | null>(null);
 
   onMount(() => {
+    if (!auth.can('sync:read')) return;
     const pollTimer = setInterval(() => {
-      refetchStatus();
+      if (auth.can('sync:read')) void refetchStatus();
     }, 30000);
     const tickTimer = setInterval(() => {
       setNow(Date.now());
@@ -108,14 +110,10 @@ const SyncStatusFooter: Component = () => {
     });
   });
 
-  const canTriggerSync = () => {
-    if (auth.authConfig()?.auth_enabled === false) return true;
-    const role = auth.user()?.role;
-    return role === 'admin' || role === 'superadmin';
-  };
+  const canTriggerSync = () => auth.can('sync:trigger');
 
   const handleManualSync = async () => {
-    if (isSyncing()) return;
+    if (!canTriggerSync() || isSyncing()) return;
 
     setIsSyncing(true);
     setSyncError(null);
@@ -123,14 +121,14 @@ const SyncStatusFooter: Component = () => {
     try {
       await triggerSync();
       try {
-        await refetchStatus();
+        if (auth.can('sync:read')) await refetchStatus();
       } catch {
         setSyncFeedback(t('sync.statusRefreshFailed'));
       }
       setNow(Date.now());
     } catch (err: unknown) {
       setSyncError(err instanceof Error ? err.message : t('sync.triggerSyncFailed'));
-      void refetchStatus();
+      if (auth.can('sync:read')) void refetchStatus();
     } finally {
       setIsSyncing(false);
     }
@@ -147,6 +145,7 @@ const SyncStatusFooter: Component = () => {
 
   const dotColorClass = createMemo(() => {
     const date = lastSyncDate();
+    if (!config()) return 'bg-muted-foreground';
     if (!date || isNaN(date.getTime())) return 'bg-red-500';
     const diff = now() - date.getTime();
     if (diff <= parsedInterval()) return 'bg-emerald-500';
@@ -216,8 +215,9 @@ const SyncStatusFooter: Component = () => {
     <SidebarFooter class="p-3 text-xs text-muted-foreground group-data-[collapsible=icon]:p-1">
       <div
         class="flex items-center gap-2 px-2 py-1 group-data-[collapsible=icon]:gap-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-        title={tooltipTitle()}
+        title={auth.can('sync:read') ? tooltipTitle() : buttonLabel()}
       >
+        <Show when={auth.can('sync:read')}>
         <div class="flex min-w-0 flex-1 items-center gap-2 group-data-[collapsible=icon]:flex-none">
           <span
             class={cn(
@@ -233,6 +233,7 @@ const SyncStatusFooter: Component = () => {
             </span>
           </div>
         </div>
+        </Show>
         <Show when={canTriggerSync()}>
           <Button
             type="button"
@@ -266,14 +267,10 @@ export const AppSidebar: Component = () => {
       setOpenMobile(false);
     }
   };
-	const isPrivileged = createMemo(() => {
-		const role = auth.user()?.role;
-		return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
-	});
 
-  const currentNavGroups = createMemo<NavGroup[]>(() => [
+  const currentNavGroups = createMemo<NavGroup[]>(() => ([
 		{ label: t('navGroups.overview'), items: [
-			{ href: ROUTES.root, label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
+			{ href: ROUTES.dashboard, label: t('nav.dashboard'), icon: IconLayoutDashboard, exact: true },
 		] },
 		{ label: t('navGroups.operations'), items: [
 			{ href: ROUTES.orders, label: t('nav.orders'), icon: IconClipboardList },
@@ -294,9 +291,13 @@ export const AppSidebar: Component = () => {
 	{ label: t('navGroups.administration'), items: [
 		{ href: ROUTES.sync, label: t('nav.syncManager'), icon: IconRefresh },
 		{ href: ROUTES.settings, label: t('nav.settings'), icon: IconSettings },
-		...(isPrivileged() ? [{ href: ROUTES.users, label: t('nav.userManagement'), icon: IconUserCog }] : []),
+		{ href: ROUTES.users, label: t('nav.userManagement'), icon: IconUserCog },
+		{ href: ROUTES.roles, label: t('nav.roleManagement'), icon: IconShieldCog },
 	] },
-  ]);
+  ] satisfies NavGroup[]).map((group) => ({
+    ...group,
+    items: group.items.filter((item) => canAccessRoute(auth, item.href)),
+  })).filter((group) => group.items.length > 0));
 
 	const isActive = (item: NavItem) => item.exact
 		? location.pathname === ROUTES.root || location.pathname === ROUTES.dashboard
@@ -344,7 +345,9 @@ export const AppSidebar: Component = () => {
         )}</For>
       </SidebarContent>
 
-      <SyncStatusFooter />
+      <Show when={auth.canAny('sync:read', 'sync:trigger') && auth.accessKey()} keyed>
+        {(_key) => <SyncStatusFooter />}
+      </Show>
       <SidebarRail />
     </Sidebar>
   );

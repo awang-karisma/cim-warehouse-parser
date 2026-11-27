@@ -1,7 +1,8 @@
-import { ROUTES, orderDetailPath } from '~/routes';
+import { ROUTES, canAccessRoute, orderDetailPath } from '~/routes';
 
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import { A } from '@solidjs/router';
 import {
   IconSearch,
@@ -32,6 +33,8 @@ type SearchType = (typeof VALID_TYPES)[number];
 
 export const Search: Component = () => {
   const { t } = useI18n();
+  const auth = useAuth();
+  const canSearchType = (type: SearchType) => type === 'all' || canAccessRoute(auth, ROUTES[type]);
   const filters = createUrlFilter({
     q: {
       key: 'q',
@@ -47,6 +50,7 @@ export const Search: Component = () => {
       serialize: (v) => (v === 'all' ? null : v),
     },
   });
+  const activeType = () => canSearchType(filters.values.type()) ? filters.values.type() : 'all';
 
   const activeParams = createMemo(() => {
     const q = filters.debouncedValues.q().trim();
@@ -65,7 +69,7 @@ export const Search: Component = () => {
     return (res.orders?.total || 0) + (res.items?.total || 0) + (res.customers?.total || 0);
   });
   const currentTabCount = createMemo(() => {
-    const type = filters.values.type();
+    const type = activeType();
     if (type === 'orders') return data()?.orders?.total || 0;
     if (type === 'items') return data()?.items?.total || 0;
     if (type === 'customers') return data()?.customers?.total || 0;
@@ -140,22 +144,28 @@ export const Search: Component = () => {
 
       {/* Tabs Filter Bar (Tasks faceted pattern) */}
       <Tabs
-        value={filters.values.type()}
-        onChange={(val) => filters.setters.type(val as SearchType)}
+        value={activeType()}
+        onChange={(val) => { if (VALID_TYPES.includes(val as SearchType) && canSearchType(val as SearchType)) filters.setters.type(val as SearchType); }}
         class="w-full"
       >
         <div class="w-full overflow-x-auto pb-1 mb-4">
           <TabsList class="inline-flex w-max">
             <TabsTrigger value="all">{t('searchPage.allResults', { count: totalMatches() })}</TabsTrigger>
+            <Show when={canSearchType('orders')}>
             <TabsTrigger value="orders">
               {t('searchPage.ordersTab', { count: data()?.orders?.total || 0 })}
             </TabsTrigger>
+            </Show>
+            <Show when={canSearchType('items')}>
             <TabsTrigger value="items">
               {t('searchPage.lineItemsTab', { count: data()?.items?.total || 0 })}
             </TabsTrigger>
+            </Show>
+            <Show when={canSearchType('customers')}>
             <TabsTrigger value="customers">
               {t('searchPage.customersTab', { count: data()?.customers?.total || 0 })}
             </TabsTrigger>
+            </Show>
           </TabsList>
         </div>
 
@@ -184,11 +194,11 @@ export const Search: Component = () => {
             <CardContent class="p-12 text-center text-muted-foreground">
               <p>
                 {t('searchPage.noResultsFound', {
-                  type: filters.values.type() === 'all'
+                  type: activeType() === 'all'
                     ? t('searchPage.results')
-                    : filters.values.type() === 'orders'
+                    : activeType() === 'orders'
                     ? t('searchPage.orders')
-                    : filters.values.type() === 'items'
+                    : activeType() === 'items'
                     ? t('searchPage.items')
                     : t('searchPage.customers'),
                   query: filters.debouncedValues.q(),
@@ -202,7 +212,7 @@ export const Search: Component = () => {
         <Show
           when={
             !data.loading &&
-            (filters.values.type() === 'all' || filters.values.type() === 'orders') &&
+            canSearchType('orders') && (activeType() === 'all' || activeType() === 'orders') &&
             data()?.orders &&
             data()!.orders.results.length > 0
           }
@@ -287,7 +297,7 @@ export const Search: Component = () => {
         <Show
           when={
             !data.loading &&
-            (filters.values.type() === 'all' || filters.values.type() === 'items') &&
+            canSearchType('items') && (activeType() === 'all' || activeType() === 'items') &&
             data()?.items &&
             data()!.items.results.length > 0
           }
@@ -361,7 +371,7 @@ export const Search: Component = () => {
         <Show
           when={
             !data.loading &&
-            (filters.values.type() === 'all' || filters.values.type() === 'customers') &&
+            canSearchType('customers') && (activeType() === 'all' || activeType() === 'customers') &&
             data()?.customers &&
             data()!.customers.results.length > 0
           }
@@ -399,6 +409,7 @@ export const Search: Component = () => {
                           <span class="font-medium">{cust.total_orders}</span>
                         </div>
                       </div>
+                      <Show when={canAccessRoute(auth, ROUTES.orders)}>
                       <div class="pt-3 border-t mt-2">
                         <Button
                           as={A}
@@ -410,6 +421,7 @@ export const Search: Component = () => {
                           {t('searchPage.viewCustomerOrders')}
                         </Button>
                       </div>
+                      </Show>
                     </Card>
                   )}
                 </For>

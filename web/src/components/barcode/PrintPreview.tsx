@@ -2,6 +2,7 @@ import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE } from '~/domain
 
 import { type Component, createEffect, For, onCleanup, Show } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import JsBarcode from 'jsbarcode';
 import qrcode from 'qrcode-generator';
 import { DATAMatrix } from 'datamatrix-svg-ts';
@@ -79,6 +80,7 @@ function resolveSheetDimensions(cfg: PresetConfig) {
 }
 export const PrintPreview: Component = () => {
   const { t, intlLocale } = useI18n();
+  const auth = useAuth();
   const selectedItems = () => items().filter((it) => it.selected);
 
   // Expand list based on qtyMode (single vs multiply)
@@ -212,7 +214,7 @@ export const PrintPreview: Component = () => {
           </span>
           <Button
             size="sm"
-            onClick={() => window.print()}
+            onClick={() => auth.can('barcode:print') && window.print()}
             disabled={expandedItems().length === 0}
             class="h-8 shadow-sm"
           >

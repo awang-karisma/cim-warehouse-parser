@@ -1,4 +1,5 @@
-import type { BarcodeHeight, BarcodeSymbology, DataloggerStartMode, DeliveryRunStatus, FontSize, QtyMode, UserRole } from "~/domain";
+import type { BarcodeHeight, BarcodeSymbology, DataloggerStartMode, DeliveryRunStatus, FontSize, QtyMode } from "~/domain";
+import type { Permission } from '~/permissions.generated';
 export type { BarcodeHeight, DataloggerStartMode, DeliveryRunStatus, FontSize, QtyMode } from "~/domain";
 
 export interface OrderItem {
@@ -270,13 +271,27 @@ export interface User {
   email: string;
   name: string;
   picture: string;
-  role: UserRole;
+  role: string;
   created_at: string;
   updated_at: string;
+  actions: { approve: boolean; assign: boolean; delete: boolean };
 }
 
 export interface UsersResponse {
   users: User[];
+  assignable_roles: Array<{ id: number; name: string }>;
+}
+
+export interface RoleInput {
+  name: string;
+  description: string;
+  permissions: Permission[];
+}
+
+export interface Role extends RoleInput {
+  id: number;
+  is_system: boolean;
+  actions: { update: boolean; delete: boolean };
 }
 
 export interface WorkdayPolicy {

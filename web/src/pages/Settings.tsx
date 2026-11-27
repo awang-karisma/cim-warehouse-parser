@@ -1,4 +1,4 @@
-import { DELIVERY_RUN_STATUS, LOCALE, USER_ROLE, WEEKDAY_NAME } from '~/domain';
+import { DELIVERY_RUN_STATUS, LOCALE, WEEKDAY_NAME } from '~/domain';
 
 import { type Component, createSignal, createResource, createEffect, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
@@ -47,24 +47,22 @@ import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { Badge as UiBadge } from '~/components/ui/badge';
 import { TableSkeleton } from '~/components/TableSkeleton';
+import { AccurateSettings } from '~/components/AccurateSettings';
 export const Settings: Component = () => {
   const { t, locale, setLocale } = useI18n();
   const { colorMode, setColorMode } = useColorMode();
-  const [system] = createResource(getSystemInfo);
-  const [config] = createResource(getConfig);
-  const [status, { refetch: refetchStatus }] = createResource(getStatus);
   const auth = useAuth();
-  const isAdmin = () => {
-    const role = auth.user()?.role;
-	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
-  };
+  const [system] = createResource(() => auth.can('system:read'), getSystemInfo);
+  const [config] = createResource(() => auth.can('system:read'), getConfig);
+  const canSeeStatus = () => auth.can('system:read') && auth.can('sync:read');
+  const [status, { refetch: refetchStatus }] = createResource(canSeeStatus, getStatus);
   const [showClearDbDialog, setShowClearDbDialog] = createSignal(false);
   const [isClearingDb, setIsClearingDb] = createSignal(false);
   const [clearDbMsg, setClearDbMsg] = createSignal<string | null>(null);
   const [clearDbError, setClearDbError] = createSignal<string | null>(null);
 
 
-  const [policiesData, { refetch: refetchPolicies }] = createResource(getWorkdayPolicies);
+  const [policiesData, { refetch: refetchPolicies }] = createResource(() => auth.can('workday:read'), getWorkdayPolicies);
 	const ALL_WEEKDAYS: string[] = [WEEKDAY_NAME.MONDAY, WEEKDAY_NAME.TUESDAY, WEEKDAY_NAME.WEDNESDAY, WEEKDAY_NAME.THURSDAY, WEEKDAY_NAME.FRIDAY, WEEKDAY_NAME.SATURDAY, WEEKDAY_NAME.SUNDAY];
 	const [selectedDays, setSelectedDays] = createSignal<string[]>([
 		WEEKDAY_NAME.MONDAY, WEEKDAY_NAME.TUESDAY, WEEKDAY_NAME.WEDNESDAY, WEEKDAY_NAME.THURSDAY, WEEKDAY_NAME.FRIDAY, WEEKDAY_NAME.SATURDAY,
@@ -91,11 +89,7 @@ export const Settings: Component = () => {
     }
   });
 
-  const canEditLeadTime = () => {
-    if (auth.authConfig()?.auth_enabled === false) return true;
-    const role = auth.user()?.role;
-	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
-  };
+  const canEditLeadTime = () => auth.can('workday:update');
 
   const toggleWeekday = (day: string) => {
     if (!canEditLeadTime() || isSavingPolicy()) return;
@@ -115,7 +109,7 @@ export const Settings: Component = () => {
     setPolicySaveSuccess(null);
     try {
       const res = await setWorkdayPolicy(selectedDays());
-      await refetchPolicies();
+      if (auth.can('workday:read')) await refetchPolicies();
       const updated = res.policies;
       const latest = updated && updated.length > 0 ? updated[updated.length - 1] : null;
       setPolicySaveSuccess(t('settings.workdaysSavedSuccess', { date: latest?.effective_from || 'today' }));
@@ -130,13 +124,13 @@ export const Settings: Component = () => {
   const [resyncMsg, setResyncMsg] = createSignal('');
 
   const handleForceResync = async () => {
-    if (resyncing()) return;
+    if (!auth.can('sync:trigger') || resyncing()) return;
     setResyncing(true);
     setResyncMsg(t('settings.triggeringResync'));
     try {
       const res = await triggerSync();
       setResyncMsg(t('settings.resyncFinished', { msg: res.message || 'Success' }));
-      refetchStatus();
+      if (canSeeStatus()) void refetchStatus();
     } catch (err: unknown) {
       setResyncMsg(err instanceof Error ? err.message : t('settings.resyncError'));
     } finally {
@@ -222,6 +216,7 @@ export const Settings: Component = () => {
       </Card>
 
       {/* 2-Column: Server Runtime + Sync Config */}
+      <Show when={auth.can('system:read')}>
       <div class="grid gap-6 lg:grid-cols-2 items-stretch">
         {/* Server Runtime Info Card */}
         <Card class="flex flex-col justify-between">
@@ -316,6 +311,7 @@ export const Settings: Component = () => {
                   </span>
                 </Show>
               </div>
+              <Show when={auth.can('sync:read')}>
               <Separator />
               <div class="flex justify-between items-center text-sm py-1">
                 <span class="text-xs text-muted-foreground">{t('settings.workerStatus')}</span>
@@ -325,12 +321,15 @@ export const Settings: Component = () => {
                   </span>
                 </Show>
               </div>
+              </Show>
             </CardContent>
           </div>
         </Card>
       </div>
+      </Show>
 
       {/* Lead Time Workdays Policy Card */}
+      <Show when={auth.canAny('workday:read', 'workday:update')}>
       <Card>
         <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
           <IconCalendar class="size-5 text-primary" />
@@ -348,7 +347,7 @@ export const Settings: Component = () => {
                 {t('settings.configuredWorkdays')}
               </span>
               <Show when={!canEditLeadTime()}>
-                <span class="text-xs text-muted-foreground">{t('settings.viewOnlyAdminRequired')}</span>
+                <span class="text-xs text-muted-foreground">{t('roleManagement.readOnly')}</span>
               </Show>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
@@ -407,6 +406,7 @@ export const Settings: Component = () => {
             </div>
           </Show>
 
+          <Show when={auth.can('workday:read')}>
           <div class="space-y-3 pt-2">
             <div>
               <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -453,10 +453,17 @@ export const Settings: Component = () => {
               </TableBody>
             </DataTable>
           </div>
+          </Show>
         </CardContent>
       </Card>
+      </Show>
+
+      <Show when={auth.canAny('accurate:read', 'accurate:create', 'accurate:delete')}>
+        <AccurateSettings />
+      </Show>
 
       {/* Database Diagnostics Table Card */}
+      <Show when={auth.can('system:read')}>
       <Card>
         <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
           <IconDatabase class="size-5 text-primary" />
@@ -497,8 +504,10 @@ export const Settings: Component = () => {
           </DataTable>
         </CardContent>
       </Card>
+      </Show>
 
       {/* Maintenance Operations Card */}
+      <Show when={auth.canAny('sync:trigger', 'database:clear')}>
       <Card>
         <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
           <IconTool class="size-5 text-primary" />
@@ -508,6 +517,7 @@ export const Settings: Component = () => {
           </div>
         </CardHeader>
         <CardContent class="space-y-4">
+          <Show when={auth.can('sync:trigger')}>
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border bg-muted/20">
             <div>
               <h4 class="text-sm font-semibold">{t('settings.forceResyncTitle')}</h4>
@@ -525,6 +535,7 @@ export const Settings: Component = () => {
               <span>{resyncing() ? t('sync.syncing') : t('settings.forceResyncBtn')}</span>
             </Button>
           </div>
+          </Show>
 
           <Show when={resyncMsg()}>
             <div class="p-3 rounded-md bg-muted text-xs font-medium">
@@ -532,7 +543,7 @@ export const Settings: Component = () => {
             </div>
           </Show>
 
-          <Show when={isAdmin()}>
+          <Show when={auth.can('database:clear')}>
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border border-destructive/20 bg-destructive/5">
               <div>
                 <h4 class="text-sm font-semibold text-destructive">{t('settings.clearDbTitle')}</h4>
@@ -562,10 +573,11 @@ export const Settings: Component = () => {
           </Show>
         </CardContent>
       </Card>
+      </Show>
 
       {/* Clear Database Alert Dialog */}
       <AlertDialog
-        open={showClearDbDialog()}
+        open={auth.can('database:clear') && showClearDbDialog()}
         onOpenChange={(open) => {
           if (!open) setShowClearDbDialog(false);
         }}
@@ -584,6 +596,7 @@ export const Settings: Component = () => {
               size="sm"
               disabled={isClearingDb()}
               onClick={async () => {
+                if (!auth.can('database:clear') || isClearingDb()) return;
                 setIsClearingDb(true);
                 setClearDbMsg(null);
                 setClearDbError(null);
@@ -591,7 +604,7 @@ export const Settings: Component = () => {
                   await clearDatabase();
                   setClearDbMsg(t('settings.clearDbSuccess'));
                   setShowClearDbDialog(false);
-                  refetchStatus();
+                  if (canSeeStatus()) void refetchStatus();
                 } catch (err: unknown) {
                   setClearDbError(err instanceof Error ? err.message : t('settings.clearDbError'));
                 } finally {

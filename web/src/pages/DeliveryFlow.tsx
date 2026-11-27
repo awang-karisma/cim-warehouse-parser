@@ -1,12 +1,14 @@
 import { DELIVERY_RUN_STATUS, ORDER_STATUS, STOCK_STATUS } from '~/domain';
 
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import {
   type Component,
   createSignal,
   createMemo,
   createResource,
   createEffect,
+  onCleanup,
   on,
   Show,
   For,
@@ -146,6 +148,9 @@ interface AreaGroupSummary {
 }
 export const DeliveryFlow: Component = () => {
   const { t, formatDate } = useI18n();
+  const auth = useAuth();
+  let disposed = false;
+  onCleanup(() => { disposed = true; });
   const getRunStatusLabel = (status: string) => {
     switch (status) {
       case 'ALL':
@@ -176,7 +181,7 @@ export const DeliveryFlow: Component = () => {
     on(
       () => searchParams.tab,
       (tab) => {
-        if (tab === 'configure' && draftItems().size > 0) {
+        if (tab === 'configure' && auth.can('delivery:create') && draftItems().size > 0) {
           batch(() => {
             setSelectedRunId(null);
             setRunsEditAll(true);
@@ -189,9 +194,9 @@ export const DeliveryFlow: Component = () => {
   const [dockFilterOpen, setDockFilterOpen] = createSignal(false);
 
   // Backend resources
-  const [candidatesData, { refetch: refetchCandidates }] = createResource(getDeliveryCandidates);
-  const [driversData, { refetch: refetchDrivers }] = createResource(getDeliveryDrivers);
-  const [runsData, { refetch: refetchRuns, mutate: mutateRuns }] = createResource(() => getDeliveryRuns());
+  const [candidatesData, { refetch: refetchCandidates }] = createResource(() => auth.can('delivery:read'), getDeliveryCandidates);
+  const [driversData, { refetch: refetchDrivers }] = createResource(() => auth.can('driver:read'), getDeliveryDrivers);
+  const [runsData, { refetch: refetchRuns, mutate: mutateRuns }] = createResource(() => auth.can('delivery:read'), () => getDeliveryRuns());
 
   // Filters & toolbar state
   const [searchTerm, setSearchTerm] = createSignal('');
@@ -384,6 +389,7 @@ export const DeliveryFlow: Component = () => {
 
   // Toggle item selection in draft
   const toggleItemSelection = (order: Order, item: OrderItem) => {
+    if (!auth.can('delivery:create')) return;
     const key = makeItemKey(order, item);
     const next = new Map(draftItems());
     if (next.has(key)) {
@@ -402,6 +408,7 @@ export const DeliveryFlow: Component = () => {
 
   // Order-level select toggle
   const toggleOrderSelection = (order: Order) => {
+    if (!auth.can('delivery:create')) return;
     const eligible = (order.items || []).filter((it) => isItemEligible(it));
     const next = new Map(draftItems());
     const allSelected = eligible.every((it) => next.has(makeItemKey(order, it)));
@@ -429,6 +436,7 @@ export const DeliveryFlow: Component = () => {
 
   // Quick select Ready in Order
   const selectReadyInOrder = (order: Order) => {
+    if (!auth.can('delivery:create')) return;
     const readyItems = (order.items || []).filter(
 		(it) => isItemEligible(it) && (it.status_barang || '').trim().toUpperCase() === STOCK_STATUS.WAREHOUSE
     );
@@ -450,6 +458,7 @@ export const DeliveryFlow: Component = () => {
 
   // Quick select Ready in Area
   const selectReadyInArea = (area: string) => {
+    if (!auth.can('delivery:create')) return;
     const targetOrders = candidateOrders().filter((o) => (o.area?.trim() || 'Unassigned') === area);
     const next = new Map(draftItems());
     for (const ord of targetOrders) {
@@ -491,6 +500,7 @@ export const DeliveryFlow: Component = () => {
     };
   });
   const removeDraftItem = (key: string) => {
+    if (!auth.can('delivery:create')) return;
     setDraftItems((prev) => {
       const next = new Map(prev);
       next.delete(key);
@@ -499,6 +509,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const isDraft = () => selectedRunId() === null && draftItems().size > 0;
+  const canEditWorkspace = () => auth.can(isDraft() ? 'delivery:create' : 'delivery:update');
   const pickedRun = createMemo<DeliveryRun | null>(() => {
     if (isDraft()) return null;
     const runs = runsData()?.runs || [];
@@ -585,6 +596,7 @@ export const DeliveryFlow: Component = () => {
   // Persist saved run updates cleanly
   const latestRunSaveSeq = new Map<number, number>();
   const persistSavedRun = async (run: DeliveryRun, patch: Partial<DeliveryRun>, refetchCands = false) => {
+    if (!auth.can('delivery:update')) return;
     if (!run.id) return;
     const runId = run.id;
     const payload: DeliveryRun = {
@@ -617,6 +629,7 @@ export const DeliveryFlow: Component = () => {
     });
     try {
       const res = await updateDeliveryRun(runId, payload);
+      if (disposed) return;
       if (latestRunSaveSeq.get(runId) === saveSeq && res?.run) {
         mutateRuns((prev) => {
           if (!prev) return prev;
@@ -626,10 +639,10 @@ export const DeliveryFlow: Component = () => {
           };
         });
       }
-      if (refetchCands) refetchCandidates();
+      if (!disposed && refetchCands) refetchCandidates();
     } catch (err) {
       console.error('Failed to update delivery run:', err);
-      if (latestRunSaveSeq.get(runId) === saveSeq) {
+      if (!disposed && latestRunSaveSeq.get(runId) === saveSeq) {
         refetchRuns();
       }
     }
@@ -637,6 +650,7 @@ export const DeliveryFlow: Component = () => {
 
   // Save Draft Delivery Run
   const handleSaveRun = async () => {
+    if (!auth.can('delivery:create')) return;
     setPlannerError('');
     const dName = driverName().trim() || t('deliveryFlow.unassigned');
     const dDate = deliveryDate().trim();
@@ -686,6 +700,7 @@ export const DeliveryFlow: Component = () => {
       };
 
       const res = await createDeliveryRun(payload);
+      if (disposed) return;
       const savedRun = res.run;
 
       batch(() => {
@@ -715,6 +730,7 @@ export const DeliveryFlow: Component = () => {
   // Driver CRUD handlers
   const handleAddDriver = async (e: Event) => {
     e.preventDefault();
+    if (!auth.can(driverToEdit() ? 'driver:update' : 'driver:create')) return;
     setDriverModalError('');
     const name = newDriverName().trim();
     if (!name) {
@@ -728,7 +744,7 @@ export const DeliveryFlow: Component = () => {
           name,
           phone: newDriverPhone().trim(),
           vehicle: newDriverVehicle().trim(),
-          active: true,
+          active: driverToEdit()!.active,
         });
       } else {
         await createDeliveryDriver({
@@ -738,6 +754,7 @@ export const DeliveryFlow: Component = () => {
           active: true,
         });
       }
+      if (disposed) return;
       setNewDriverName('');
       setNewDriverPhone('');
       setNewDriverVehicle('');
@@ -751,8 +768,10 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleDeleteDriverClick = async (id: number) => {
+    if (!auth.can('driver:delete')) return;
     try {
       await deleteDeliveryDriver(id);
+      if (disposed) return;
       if (selectedDriverId() === id) {
         setSelectedDriverId(null);
         setDriverName('');
@@ -765,6 +784,7 @@ export const DeliveryFlow: Component = () => {
 
   // Driver reassignment on active runs
   const handleReassignDriver = async (runId: number, driverIdStr: string) => {
+    if (!auth.can('delivery:update') || !auth.can('driver:read')) return;
     try {
       let updatedRun: DeliveryRun | undefined;
       if (!driverIdStr) {
@@ -785,6 +805,7 @@ export const DeliveryFlow: Component = () => {
           updatedRun = res.run;
         }
       }
+      if (disposed) return;
       if (updatedRun) {
         mutateRuns((prev) =>
           prev
@@ -835,8 +856,10 @@ export const DeliveryFlow: Component = () => {
   });
 
   const handleTogglePick = async (runId: number, itemId: number, currentPicked: boolean) => {
+    if (!auth.can('delivery:pick')) return;
     try {
       const res = await toggleDeliveryRunItemPick(runId, itemId, !currentPicked);
+      if (disposed) return;
       if (res?.run) {
         mutateRuns((prev) =>
           prev
@@ -852,8 +875,10 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleStatusChange = async (runId: number, newStatus: DeliveryRunStatus) => {
+    if (!auth.can('delivery:update')) return;
     try {
       const res = await updateDeliveryRunStatus(runId, newStatus);
+      if (disposed) return;
       if (res?.run) {
         mutateRuns((prev) =>
           prev
@@ -1077,6 +1102,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const openDraftInRuns = () => {
+    if (!auth.can('delivery:create')) return;
     batch(() => {
       setDockFilterOpen(false);
       setSelectedRunId(null);
@@ -1105,6 +1131,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleAssignRunDriver = async (driverId: number | null) => {
+    if (!canEditWorkspace() || !auth.can('driver:read')) return;
     if (isDraft()) {
       if (driverId === null) {
         setSelectedDriverId(null);
@@ -1124,6 +1151,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleUpdateRunDate = (date: string) => {
+    if (!canEditWorkspace()) return;
     if (isDraft()) {
       setDeliveryDate(date);
       return;
@@ -1133,6 +1161,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleUpdateRunTitle = (title: string) => {
+    if (!canEditWorkspace()) return;
     if (isDraft()) {
       setRunTitle(title);
       return;
@@ -1142,6 +1171,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleUpdateRunNotes = (notes: string) => {
+    if (!canEditWorkspace()) return;
     if (isDraft()) {
       setRunNotes(notes);
       return;
@@ -1151,6 +1181,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleUpdateItemQty = (item: WorkspaceItem, qty: number) => {
+    if (!canEditWorkspace()) return;
     const maxQty = item.belum_terkirim > 0 ? item.belum_terkirim : qty;
     const clamped = Math.max(1, Math.min(maxQty, Math.round(qty)));
     if (isDraft()) {
@@ -1171,6 +1202,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleUpdateItemNote = (item: WorkspaceItem, note: string) => {
+    if (!canEditWorkspace()) return;
     if (isDraft()) {
       setDraftItems((prev) => {
         const next = new Map(prev);
@@ -1189,6 +1221,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleRemoveWorkspaceItem = (item: WorkspaceItem) => {
+    if (!canEditWorkspace()) return;
     if (isDraft()) {
       removeDraftItem(item.key);
       return;
@@ -1201,6 +1234,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const handleFillOrderRemaining = (orderId: string) => {
+    if (!canEditWorkspace()) return;
     if (isDraft()) {
       setDraftItems((prev) => {
         const next = new Map(prev);
@@ -1225,6 +1259,7 @@ export const DeliveryFlow: Component = () => {
   };
 
   const confirmDeleteOrDiscard = async () => {
+    if (!auth.can(isDraft() ? 'delivery:create' : 'delivery:delete')) return;
     if (isDraft()) {
       batch(() => {
         setDraftItems(new Map());
@@ -1241,6 +1276,7 @@ export const DeliveryFlow: Component = () => {
     setIsDeletingRun(true);
     try {
       await deleteDeliveryRun(run.id);
+      if (disposed) return;
       setDeleteDialogOpen(false);
       if (selectedRunId() === run.id) {
         setSelectedRunId(null);
@@ -1374,6 +1410,7 @@ export const DeliveryFlow: Component = () => {
                   <div class="flex items-center justify-between mt-1 text-[10px]">
                     <span class="text-muted-foreground tabular-nums">{t('deliveryFlow.ordersCount', { count: grp.orders.length })}</span>
                     <button
+                      disabled={!auth.can('delivery:create')}
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1422,7 +1459,7 @@ export const DeliveryFlow: Component = () => {
             <Button
               size="sm"
               onClick={openDraftInRuns}
-              disabled={draftStats().totalItems === 0}
+              disabled={!auth.can('delivery:create') || draftStats().totalItems === 0}
               class="w-full text-xs h-9 font-semibold gap-1.5"
             >
               <span>{t('deliveryFlow.setQuantitiesAndDispatch')}</span>
@@ -1450,6 +1487,7 @@ export const DeliveryFlow: Component = () => {
           <div class="flex items-center gap-2 min-w-0">
             <input
               type="checkbox"
+              disabled={!auth.can('delivery:create')}
               checked={orderAllSelected()}
               onChange={() => toggleOrderSelection(props.order)}
               class="size-4 rounded text-primary shrink-0"
@@ -1478,6 +1516,7 @@ export const DeliveryFlow: Component = () => {
           <Button
             variant="outline"
             size="sm"
+            disabled={!auth.can('delivery:create')}
             onClick={() => selectReadyInOrder(props.order)}
             class="text-[10px] h-6 px-2 gap-1 shrink-0"
           >
@@ -1514,6 +1553,7 @@ export const DeliveryFlow: Component = () => {
                     <td class="py-2.5 px-2.5 w-8 text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
+                        disabled={!auth.can('delivery:create')}
                         checked={isSelected()}
                         onChange={() => toggleItemSelection(props.order, item)}
                         class="size-4 rounded text-primary focus:ring-ring cursor-pointer align-middle"
@@ -1642,7 +1682,7 @@ export const DeliveryFlow: Component = () => {
             <div class="space-y-1">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t('deliveryFlow.selectRegion')}</span>
-                <Show when={selectedAreaFilter()}>
+                <Show when={selectedAreaFilter() && auth.can('delivery:create')}>
                   <button
                     type="button"
                     onClick={() => {
@@ -1698,7 +1738,7 @@ export const DeliveryFlow: Component = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setDraftItems(new Map())}
+              onClick={() => { if (auth.can('delivery:create')) setDraftItems(new Map()); }}
               class="h-6.5 px-2 text-[11px] text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive gap-1 rounded-lg"
             >
               <IconTrash class="size-3" />
@@ -1727,7 +1767,7 @@ export const DeliveryFlow: Component = () => {
           </Button>
           <Button
             size="sm"
-            disabled={draftStats().totalItems === 0}
+            disabled={!auth.can('delivery:create') || draftStats().totalItems === 0}
             onClick={openDraftInRuns}
             class="text-xs h-10 gap-1.5 rounded-xl font-semibold"
           >
@@ -1947,10 +1987,11 @@ export const DeliveryFlow: Component = () => {
 
     return (
       <div class="grid min-w-0 gap-3.5">
+        <Show when={auth.can('driver:read')}>
         <section class="min-w-0 space-y-2" aria-label={t('deliveryFlow.driverWorkload')}>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h3 class="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t('deliveryFlow.driverWorkload')}</h3>
-            <Button type="button" variant="outline" size="sm" class="h-8 lg:h-7 px-2 text-xs gap-1" onClick={() => setShowDriverModal(true)}>
+            <Button type="button" variant="outline" size="sm" class="h-8 lg:h-7 px-2 text-xs gap-1" onClick={() => { if (auth.can('driver:read')) setShowDriverModal(true); }}>
               <IconUsers class="size-3.5" aria-hidden="true" />
               <span>{t('deliveryFlow.roster')}</span>
             </Button>
@@ -2018,12 +2059,14 @@ export const DeliveryFlow: Component = () => {
             </Button>
           </Show>
         </section>
+        </Show>
 
         <label class="grid min-w-0 gap-1 text-xs font-medium text-muted-foreground">
           {t('deliveryFlow.dispatchDateLabel')}
           <input
             type="date"
             class={fieldInputClass}
+            disabled={!canEditWorkspace()}
             required
             value={currentDate()}
             onChange={(e) => handleUpdateRunDate(e.currentTarget.value)}
@@ -2034,11 +2077,12 @@ export const DeliveryFlow: Component = () => {
           {t('deliveryFlow.runTitleLabel')}
           <input
             type="text"
+            disabled={!canEditWorkspace()}
             class={fieldInputClass}
             value={currentTitle()}
             placeholder={t('deliveryFlow.runTitlePlaceholder')}
             onInput={(e) => {
-              if (isDraft()) setRunTitle(e.currentTarget.value);
+              if (isDraft() && canEditWorkspace()) setRunTitle(e.currentTarget.value);
             }}
             onChange={(e) => {
               if (!isDraft()) handleUpdateRunTitle(e.currentTarget.value);
@@ -2054,9 +2098,10 @@ export const DeliveryFlow: Component = () => {
           <textarea
             class={cn(fieldInputClass, 'min-h-16 h-auto py-1.5')}
             rows={2}
+            disabled={!canEditWorkspace()}
             value={currentNotes()}
             onInput={(e) => {
-              if (isDraft()) setRunNotes(e.currentTarget.value);
+              if (isDraft() && canEditWorkspace()) setRunNotes(e.currentTarget.value);
             }}
             onChange={(e) => {
               if (!isDraft()) handleUpdateRunNotes(e.currentTarget.value);
@@ -2157,7 +2202,7 @@ export const DeliveryFlow: Component = () => {
         {(current) => {
           const expanded = () => runsEditAll() || editingItemKey() === props.itemKey;
           const maxAllowed = () => Math.max(1, current().belum_terkirim || current().jumlah || current().planned_qty);
-          const canTogglePick = () => !isDraft() && pickedRun()?.id && current().id !== undefined;
+          const canTogglePick = () => auth.can('delivery:pick') && !isDraft() && pickedRun()?.id && current().id !== undefined;
 
           const rowContents = () => (
             <>
@@ -2215,7 +2260,7 @@ export const DeliveryFlow: Component = () => {
                     {rowContents()}
                   </button>
                 </Show>
-                <Show when={!runsEditAll()}>
+                <Show when={canEditWorkspace() && !runsEditAll()}>
                   <Button
                     type="button"
                     variant={expanded() ? 'secondary' : 'ghost'}
@@ -2223,7 +2268,7 @@ export const DeliveryFlow: Component = () => {
                     class="mr-1.5 size-8 sm:size-9 shrink-0"
                     aria-expanded={expanded()}
                     aria-label={expanded() ? t('deliveryFlow.doneEditing') : t('deliveryFlow.editQty')}
-                    onClick={() => setEditingItemKey(expanded() ? undefined : props.itemKey)}
+                    onClick={() => { if (canEditWorkspace()) setEditingItemKey(expanded() ? undefined : props.itemKey); }}
                   >
                     <Show when={expanded()} fallback={<IconPencil class="size-4" aria-hidden="true" />}>
                       <IconCheck class="size-4" aria-hidden="true" />
@@ -2231,7 +2276,7 @@ export const DeliveryFlow: Component = () => {
                   </Button>
                 </Show>
               </div>
-              <Show when={expanded()}>
+              <Show when={canEditWorkspace() && expanded()}>
                 <div class="min-w-0 space-y-2 px-3 pb-3 animate-[card-enter_200ms_ease-out_both] motion-reduce:animate-none">
                   <p class="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
                     <span>
@@ -2373,6 +2418,12 @@ export const DeliveryFlow: Component = () => {
           </TabsTrigger>
         </TabsList>
       </Tabs>
+      <Show when={auth.can('driver:read') && (!canEditWorkspace() || (!isDraft() && !pickedRun()))}>
+        <Button type="button" variant="outline" size="sm" class="gap-1 no-print" onClick={() => { if (auth.can('driver:read')) setShowDriverModal(true); }}>
+          <IconUsers class="size-3.5" aria-hidden="true" />
+          {t('deliveryFlow.roster')}
+        </Button>
+      </Show>
         {/* TAB 1: PLAN DELIVERY (Orders Main Content + Floating Right Sidebar) */}
         <Show when={activeTab() === 'plan'}>
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -2479,7 +2530,7 @@ export const DeliveryFlow: Component = () => {
               </Show>
 
               {/* Desktop Bulk Selection Bar (hidden on mobile, replaced by floating dock) */}
-              <Show when={!isMobile()}>
+              <Show when={!isMobile() && auth.can('delivery:create')}>
                 <div class="df-bulk-segmented">
                   <div class="df-seg-metrics">
                     <span class="df-metric-chip">
@@ -2500,6 +2551,7 @@ export const DeliveryFlow: Component = () => {
                       type="button"
                       class="df-normal-btn df-normal-btn-select"
                       onClick={() => {
+                        if (!auth.can('delivery:create')) return;
                         const next = new Map(draftItems());
                         for (const ord of visibleOrders()) {
                           const readyItems = (ord.items || []).filter(
@@ -2542,7 +2594,7 @@ export const DeliveryFlow: Component = () => {
                       type="button"
                       class="df-normal-btn df-normal-btn-clear"
                       disabled={draftStats().totalItems === 0}
-                      onClick={() => setDraftItems(new Map())}
+                      onClick={() => { if (auth.can('delivery:create')) setDraftItems(new Map()); }}
                     >
                       <IconX class="size-3.5" />
                       <span>{t('deliveryFlow.clearSelection')}</span>
@@ -2594,6 +2646,7 @@ export const DeliveryFlow: Component = () => {
                               <div class="flex items-center gap-3">
                                 <input
                                   type="checkbox"
+                                  disabled={!auth.can('delivery:create')}
                                   checked={orderAllSelected()}
                                   onChange={() => toggleOrderSelection(order)}
                                   class="size-4 rounded text-primary focus:ring-ring cursor-pointer"
@@ -2624,6 +2677,7 @@ export const DeliveryFlow: Component = () => {
                               <Button
                                 variant="outline"
                                 size="sm"
+                                disabled={!auth.can('delivery:create')}
                                 onClick={() => selectReadyInOrder(order)}
                                 class="text-[11px] h-7 px-2.5 gap-1 self-end sm:self-auto"
                               >
@@ -2672,6 +2726,7 @@ export const DeliveryFlow: Component = () => {
                                           >
                                             <input
                                               type="checkbox"
+                                              disabled={!auth.can('delivery:create')}
                                               checked={isSelected()}
                                               onChange={() => toggleItemSelection(order, item)}
                                               class="size-4 rounded text-primary focus:ring-ring cursor-pointer align-middle"
@@ -2797,11 +2852,13 @@ export const DeliveryFlow: Component = () => {
                         </div>
 
                         <Show
-                          when={!isDraft()}
+                          when={!isDraft() && auth.can('delivery:update')}
                           fallback={
-                            <span class="text-xs font-medium text-muted-foreground px-1">
-                              {t('deliveryFlow.editingQty')}
-                            </span>
+                            <Show when={isDraft()}>
+                              <span class="text-xs font-medium text-muted-foreground px-1">
+                                {t('deliveryFlow.editingQty')}
+                              </span>
+                            </Show>
                           }
                         >
                           <Button
@@ -2811,7 +2868,7 @@ export const DeliveryFlow: Component = () => {
                             disabled={!pickedRun()}
                             class="h-7 px-2.5 text-xs gap-1 shrink-0"
                             aria-pressed={runsEditAll()}
-                            onClick={() => setRunsEditAll((editing) => !editing)}
+                            onClick={() => { if (canEditWorkspace()) setRunsEditAll((editing) => !editing); }}
                           >
                             <Show
                               when={runsEditAll()}
@@ -2889,14 +2946,14 @@ export const DeliveryFlow: Component = () => {
                         </button>
                       </Show>
                     </div>
-                    <Show when={!isDraft() && pickedRun()}>
+                    <Show when={!isDraft() && pickedRun() && auth.can('delivery:update')}>
                       <Button
                         type="button"
                         variant={runsEditAll() ? 'secondary' : 'outline'}
                         size="sm"
                         class="h-8 px-2.5 text-xs gap-1 shrink-0"
                         aria-pressed={runsEditAll()}
-                        onClick={() => setRunsEditAll((editing) => !editing)}
+                        onClick={() => { if (canEditWorkspace()) setRunsEditAll((editing) => !editing); }}
                       >
                         <Show
                           when={runsEditAll()}
@@ -3010,6 +3067,7 @@ export const DeliveryFlow: Component = () => {
                           <Show when={!isDraft() && pickedRun()}>
                             {(run) => (
                               <>
+                                <Show when={auth.can('delivery:update')} fallback={<span class="text-xs font-medium">{getRunStatusLabel(run().status || DELIVERY_RUN_STATUS.PLANNED)}</span>}>
                                 <select
                                   aria-label={t('deliveryFlow.runStatusLabel')}
                                   class={cn(fieldInputClass, 'h-9 lg:h-8 w-auto font-medium')}
@@ -3022,6 +3080,7 @@ export const DeliveryFlow: Component = () => {
                                     {(st) => <option value={st}>{getRunStatusLabel(st)}</option>}
                                   </For>
                                 </select>
+                                </Show>
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -3029,13 +3088,14 @@ export const DeliveryFlow: Component = () => {
                                   class="size-9 lg:size-8"
                                   aria-label={t('common.print')}
                                   title={t('common.print')}
-                                  onClick={() => window.print()}
+                                  onClick={() => { if (auth.can('delivery:read')) window.print(); }}
                                 >
                                   <IconPrinter class="size-4" aria-hidden="true" />
                                 </Button>
                               </>
                             )}
                           </Show>
+                          <Show when={auth.can(isDraft() ? 'delivery:create' : 'delivery:delete')}>
                           <Button
                             type="button"
                             variant="ghost"
@@ -3047,6 +3107,7 @@ export const DeliveryFlow: Component = () => {
                           >
                             <IconTrash class="size-4" aria-hidden="true" />
                           </Button>
+                          </Show>
                         </div>
                       </div>
 
@@ -3086,6 +3147,7 @@ export const DeliveryFlow: Component = () => {
                             </span>
                           </p>
                         </div>
+                        <Show when={canEditWorkspace()}>
                         <Button
                           type="button"
                           variant="outline"
@@ -3109,6 +3171,7 @@ export const DeliveryFlow: Component = () => {
                           <IconPencil aria-hidden="true" class="size-3.5" />
                           <span>{t('deliveryFlow.edit')}</span>
                         </Button>
+                        </Show>
                       </div>
                     </div>
 
@@ -3417,7 +3480,7 @@ export const DeliveryFlow: Component = () => {
                       <RunFeed />
                     </Show>
                     <Show when={panel === 'driver'}>
-                      <Show when={!isDraft() && pickedRun()}>
+                      <Show when={!isDraft() && auth.can('delivery:update') && pickedRun()}>
                         {(run) => (
                           <div class="flex items-center justify-between gap-2 border-b pb-3">
                             <span class="text-sm font-medium">{t('deliveryFlow.runStatusLabel')}</span>
@@ -3569,6 +3632,7 @@ export const DeliveryFlow: Component = () => {
               <DialogDescription>{t('deliveryFlow.manageDriversDesc')}</DialogDescription>
             </DialogHeader>
 
+            <Show when={auth.can(driverToEdit() ? 'driver:update' : 'driver:create')}>
             <form onSubmit={handleAddDriver} class="space-y-3 pt-2">
               <Show when={driverModalError()}>
                 <div class="p-2 rounded bg-destructive/15 text-xs text-destructive">{driverModalError()}</div>
@@ -3599,11 +3663,17 @@ export const DeliveryFlow: Component = () => {
               </div>
 
               <div class="flex justify-end gap-2">
+                <Show when={driverToEdit()}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => { setDriverToEdit(null); setNewDriverName(''); setNewDriverPhone(''); setNewDriverVehicle(''); }}>
+                    {t('common.cancel')}
+                  </Button>
+                </Show>
                 <Button type="submit" size="sm" disabled={isAddingDriver()} class="text-xs">
-                  <span>{t('deliveryFlow.addDriver')}</span>
+                  <span>{driverToEdit() ? t('common.save') : t('deliveryFlow.addDriver')}</span>
                 </Button>
               </div>
             </form>
+            </Show>
 
             <div class="border rounded mt-3 max-h-48 overflow-y-auto">
               <table class="w-full text-left text-xs">
@@ -3614,6 +3684,18 @@ export const DeliveryFlow: Component = () => {
                         <td class="p-2 font-medium">{d.name}</td>
                         <td class="p-2 text-muted-foreground">{d.vehicle || '-'}</td>
                         <td class="p-2 text-right">
+                          <Show when={auth.can('driver:update')}>
+                            <button type="button" class="p-1 hover:opacity-80" aria-label={t('common.edit')} onClick={() => {
+                              if (!auth.can('driver:update')) return;
+                              setDriverToEdit(d);
+                              setNewDriverName(d.name);
+                              setNewDriverPhone(d.phone || '');
+                              setNewDriverVehicle(d.vehicle || '');
+                            }}>
+                              <IconPencil class="size-3.5" />
+                            </button>
+                          </Show>
+                          <Show when={auth.can('driver:delete')}>
                           <button
                             type="button"
                             onClick={() => d.id && handleDeleteDriverClick(d.id)}
@@ -3621,6 +3703,7 @@ export const DeliveryFlow: Component = () => {
                           >
                             <IconTrash class="size-3.5" />
                           </button>
+                          </Show>
                         </td>
                       </tr>
                     )}

@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from 'solid-js';
+import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import {
   IconAlertCircle,
   IconCheck,
@@ -9,6 +9,7 @@ import {
   IconUpload,
 } from '@tabler/icons-solidjs';
 import { createDataloggerSession } from '~/api';
+import { useAuth } from '~/auth';
 import { DataTable } from '~/components/DataTable';
 import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert';
 import {
@@ -37,6 +38,9 @@ export interface ImportTabProps {
 
 export function ImportTab(props: ImportTabProps) {
   const { t } = useI18n();
+  const auth = useAuth();
+  let disposed = false;
+  onCleanup(() => { disposed = true; });
   // USB save form state
   const [deviceSessionName, setDeviceSessionName] = createSignal('');
   const [localSaveError, setLocalSaveError] = createSignal<string | null>(null);
@@ -65,6 +69,7 @@ export function ImportTab(props: ImportTabProps) {
   });
 
   const executeFetchRecords = async () => {
+    if (!auth.can('logger_device:read')) return;
     setLocalSaveError(null);
     setZeroRecordsNotice(false);
     const snap = await props.device.fetchRecords();
@@ -78,6 +83,7 @@ export function ImportTab(props: ImportTabProps) {
   };
 
   const handleRequestFetchRecords = () => {
+    if (!auth.can('logger_device:read')) return;
     if (props.device.snapshot()) {
       setConfirmReplaceOpen(true);
       return;
@@ -98,6 +104,7 @@ export function ImportTab(props: ImportTabProps) {
   };
 
   const handleSaveDeviceSession = async () => {
+    if (!auth.can('logger_session:create')) return;
     const snap = props.device.snapshot();
     const name = deviceSessionName().trim();
     if (!snap || snap.records.length === 0) {
@@ -117,6 +124,7 @@ export function ImportTab(props: ImportTabProps) {
         serial_number: snap.serialNumber,
         records: rawRecordsToApiPayload([...snap.records]),
       });
+      if (disposed || !auth.can('logger_session:create')) return;
       props.device.discardSnapshot();
       setDeviceSessionName('');
       props.onSessionSaved(res.session);
@@ -128,6 +136,7 @@ export function ImportTab(props: ImportTabProps) {
   };
 
   const loadCsvFile = async (file: File) => {
+    if (!auth.can('logger_session:create')) return;
     setCsvError(null);
     try {
       const text = await file.text();
@@ -149,6 +158,7 @@ export function ImportTab(props: ImportTabProps) {
   };
 
   const handleSaveCsvSession = async () => {
+    if (!auth.can('logger_session:create')) return;
     const name = csvSessionName().trim();
     const recs = parsedCsv().records;
     if (!name) {
@@ -168,6 +178,7 @@ export function ImportTab(props: ImportTabProps) {
         serial_number: csvSerial().trim(),
         records: rawRecordsToApiPayload(recs),
       });
+      if (disposed || !auth.can('logger_session:create')) return;
       setCsvText('');
       setCsvFileName('');
       setCsvPreview(null);
@@ -201,6 +212,7 @@ export function ImportTab(props: ImportTabProps) {
   return (
     <div class="space-y-6">
       {/* Card 1: WebHID Device Import (Extracted & Reusable) */}
+      <Show when={auth.can('logger_device:read')}>
       <DeviceConnectSection
         device={props.device}
         title={t('datalogger.import.usbCardTitle')}
@@ -305,7 +317,7 @@ export function ImportTab(props: ImportTabProps) {
                     <IconTrash class="size-4" />
                     {t('dataloggerConfig.discardSnapshotBtn')}
                   </Button>
-                  <Button onClick={handleSaveDeviceSession} disabled={deviceSaving()}>
+                  <Button onClick={handleSaveDeviceSession} disabled={deviceSaving() || !auth.can('logger_session:create')}>
                     <IconDeviceFloppy class="size-4" />
                     {deviceSaving()
                       ? t('datalogger.import.savingSessionBtn')
@@ -317,8 +329,10 @@ export function ImportTab(props: ImportTabProps) {
           )}
         </Show>
       </DeviceConnectSection>
+      </Show>
 
       {/* Card 2: CSV File Import */}
+      <Show when={auth.can('logger_session:create')}>
       <Card>
         <CardHeader>
           <CardTitle class="flex items-center gap-2">
@@ -578,6 +592,7 @@ export function ImportTab(props: ImportTabProps) {
           </Show>
         </CardContent>
       </Card>
+      </Show>
 
       {/* Confirmation: Replace unsaved pulled snapshot */}
       <AlertDialog open={confirmReplaceOpen()} onOpenChange={setConfirmReplaceOpen}>

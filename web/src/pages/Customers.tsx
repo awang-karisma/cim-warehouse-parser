@@ -1,4 +1,6 @@
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
+import { canAccessRoute, ROUTES } from '~/routes';
 import {
   type Component,
   createSignal,
@@ -48,6 +50,7 @@ import { createUrlFilter } from '../utils/tableFilters';
 
 export const Customers: Component = () => {
   const { t } = useI18n();
+  const auth = useAuth();
   const filters = createUrlFilter({
     search: {
       key: 'search',
@@ -249,8 +252,8 @@ export const Customers: Component = () => {
     }
   };
 
-  const [aliasesData, { refetch: refetchAliases }] = createResource(getCustomerAliases);
-  const [areasData] = createResource(getAreas);
+  const [aliasesData, { refetch: refetchAliases }] = createResource(() => auth.can('alias:read'), (allowed) => allowed ? getCustomerAliases() : undefined);
+  const [areasData] = createResource(() => auth.can('area:read'), (allowed) => allowed ? getAreas() : undefined);
 
   // Modal state
   const [modalOpen, setModalOpen] = createSignal(false);
@@ -262,12 +265,13 @@ export const Customers: Component = () => {
   const [errorMessage, setErrorMessage] = createSignal('');
 
   const openEditModal = (cust: CustomerSummary) => {
+    if (!auth.can('alias:write')) return;
     setAliasSpelling(cust.name);
     setAliasArea(cust.area || '');
     setErrorMessage('');
     setIsSubmitting(false);
 
-    const groups = aliasesData()?.groups || [];
+    const groups = auth.can('alias:read') ? aliasesData()?.groups || [] : [];
     const existingGroup = groups.find(
       (g) =>
         g.canonical.toLowerCase() === cust.name.toLowerCase() ||
@@ -293,6 +297,7 @@ export const Customers: Component = () => {
 
   const handleSaveAlias = async (e: Event) => {
     e.preventDefault();
+    if (!auth.can('alias:write')) return;
     setErrorMessage('');
 
     const alias = aliasSpelling().trim();
@@ -316,7 +321,7 @@ export const Customers: Component = () => {
     try {
       await setCustomerAlias(alias, canonical, area);
       setModalOpen(false);
-      await Promise.all([refetchCustomers(), refetchAliases()]);
+      await Promise.all([refetchCustomers(), ...(auth.can('alias:read') ? [refetchAliases()] : [])]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('customers.saveAliasError');
       setErrorMessage(msg);
@@ -326,7 +331,7 @@ export const Customers: Component = () => {
   };
 
   const canonicalOptions = createMemo(() => {
-    const list = (aliasesData()?.groups || []).map((g) => g.canonical);
+    const list = (auth.can('alias:read') ? aliasesData()?.groups || [] : []).map ( (g) => g.canonical);
     return [...list, t('customers.newCanonicalOption')];
   });
 
@@ -466,6 +471,7 @@ export const Customers: Component = () => {
                     <div>
                       <Separator class="my-2" />
                       <CardFooter class="pt-2 flex gap-2">
+                        <Show when={auth.can('alias:write')}>
                         <Button
                           variant="outline"
                           size="sm"
@@ -475,6 +481,8 @@ export const Customers: Component = () => {
                           <IconEdit class="size-3.5" />
                           <span>{t('customers.editAlias')}</span>
                         </Button>
+                        </Show>
+                        <Show when={canAccessRoute(auth, ROUTES.orders)}>
                         <Button
                           as={A}
                           href={`/orders?customer=${encodeURIComponent(cust.name)}`}
@@ -485,6 +493,7 @@ export const Customers: Component = () => {
                           <span>{t('common.orders')}</span>
                           <IconArrowRight class="size-3.5" />
                         </Button>
+                        </Show>
                       </CardFooter>
                     </div>
                   </Card>
@@ -599,7 +608,7 @@ export const Customers: Component = () => {
                 <AreaCombobox
                   value={aliasArea()}
                   onChange={setAliasArea}
-                  areas={() => areasData()?.areas}
+                  areas={() => auth.can('area:read') ? areasData()?.areas : undefined}
                   placeholder={t('customers.areaPlaceholder')}
                   class="w-full"
                 />
@@ -616,7 +625,7 @@ export const Customers: Component = () => {
               >
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" size="sm" disabled={isSubmitting()}>
+              <Button type="submit" size="sm" disabled={isSubmitting() || !auth.can('alias:write')}>
                 <Show when={isSubmitting()} fallback={t('customers.saveAlias')}>
                   <span class="flex items-center gap-1.5">
                     <IconLoader2 class="size-3.5 animate-spin" /> {t('common.saving')}

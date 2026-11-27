@@ -53,6 +53,15 @@ const (
 	SearchTypeCustomers SearchType = "customers"
 )
 
+type SearchCategories uint8
+
+const (
+	SearchOrdersCategory SearchCategories = 1 << iota
+	SearchItemsCategory
+	SearchCustomersCategory
+	SearchAllCategories = SearchOrdersCategory | SearchItemsCategory | SearchCustomersCategory
+)
+
 type SortDirection string
 
 const (
@@ -447,18 +456,6 @@ func (s *Storage) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_deliveries_item_id ON deliveries(item_id);
 	CREATE INDEX IF NOT EXISTS idx_deliveries_delivery_date ON deliveries(delivery_date);
 
-	CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-		name TEXT NOT NULL DEFAULT '',
-		picture TEXT NOT NULL DEFAULT '',
-		role TEXT NOT NULL DEFAULT 'guest',
-		locale TEXT NOT NULL DEFAULT 'id',
-		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
-	);
-	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
 	CREATE TABLE IF NOT EXISTS workday_policies (
 		effective_from TEXT PRIMARY KEY,
 		work_days TEXT NOT NULL,
@@ -654,7 +651,9 @@ func (s *Storage) migrate() error {
 			return fmt.Errorf("failed to add page design settings column: %w", err)
 		}
 	}
-	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'id';`)
+	if err := s.migrateUserRoles(); err != nil {
+		return fmt.Errorf("failed to migrate user roles: %w", err)
+	}
 	seedPolicyJSON, _ := json.Marshal(normalizer.BaselineWorkDays)
 	_, _ = s.db.Exec(`
 		INSERT OR IGNORE INTO workday_policies (effective_from, work_days, changed_at)
@@ -3195,13 +3194,10 @@ func (s *Storage) GetAreas(ctx context.Context) ([]AreaSummary, error) {
 	return areas, nil
 }
 
-// SearchAll searches across orders, items, and customers.
-func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit int) (*SearchResult, error) {
+// SearchAll searches only the selected categories while keeping all response keys.
+func (s *Storage) SearchAll(ctx context.Context, query string, categories SearchCategories, limit int) (*SearchResult, error) {
 	if limit <= 0 {
 		limit = 10
-	}
-	if SearchType(searchType) == "" {
-		searchType = string(SearchTypeAll)
 	}
 
 	result := &SearchResult{
@@ -3232,7 +3228,7 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	custClause := "(" + strings.Join(custConds, " OR ") + ")"
 
 	// 1. Orders
-	if SearchType(searchType) == SearchTypeAll || SearchType(searchType) == SearchTypeOrders {
+	if categories&SearchOrdersCategory != 0 {
 		countQuery := fmt.Sprintf(`
 			SELECT COUNT(*) FROM orders
 			WHERE %s OR id IN (SELECT DISTINCT order_id FROM items WHERE nama_barang LIKE ?)
@@ -3279,7 +3275,7 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	}
 
 	// 2. Items
-	if SearchType(searchType) == SearchTypeAll || SearchType(searchType) == SearchTypeItems {
+	if categories&SearchItemsCategory != 0 {
 		countQuery := fmt.Sprintf(`
 			SELECT COUNT(*) FROM items
 			WHERE nama_barang LIKE ? OR %s
@@ -3309,7 +3305,7 @@ func (s *Storage) SearchAll(ctx context.Context, query, searchType string, limit
 	}
 
 	// 3. Customers
-	if SearchType(searchType) == SearchTypeAll || SearchType(searchType) == SearchTypeCustomers {
+	if categories&SearchCustomersCategory != 0 {
 		countQuery := fmt.Sprintf(`
 			SELECT COUNT(DISTINCT customer) FROM orders
 			WHERE %s AND customer != ''
@@ -3377,8 +3373,8 @@ func (s *Storage) UpsertUser(ctx context.Context, email, name, picture string) (
 	now := time.Now().UTC()
 
 	query := `
-		INSERT INTO users (email, name, picture, role, created_at, updated_at)
-		VALUES (?, ?, ?, 'guest', ?, ?)
+		INSERT INTO users (email, name, picture, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(email) DO UPDATE SET
 			name = excluded.name,
 			picture = excluded.picture,
@@ -3397,9 +3393,9 @@ func (s *Storage) GetUserByEmail(ctx context.Context, email string) (*model.User
 		return nil, nil
 	}
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, email, name, picture, role, locale, created_at, updated_at
-		FROM users
-		WHERE email = ? COLLATE NOCASE
+		SELECT u.id, u.email, u.name, u.picture, r.name, u.locale, u.created_at, u.updated_at
+		FROM users u JOIN roles r ON r.id = u.role_id
+		WHERE u.email = ? COLLATE NOCASE
 	`, trimmedEmail)
 
 	var u model.User
@@ -3410,62 +3406,6 @@ func (s *Storage) GetUserByEmail(ctx context.Context, email string) (*model.User
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
 	return &u, nil
-}
-
-// GetUsers returns all users ordered by created_at DESC.
-func (s *Storage) GetUsers(ctx context.Context) ([]model.User, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, email, name, picture, role, locale, created_at, updated_at
-		FROM users
-		ORDER BY created_at DESC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get users: %w", err)
-	}
-	defer rows.Close()
-
-	var users []model.User
-	for rows.Next() {
-		var u model.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Role, &u.Locale, &u.CreatedAt, &u.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan user: %w", err)
-		}
-		users = append(users, u)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate users: %w", err)
-	}
-	if users == nil {
-		users = []model.User{}
-	}
-	return users, nil
-}
-
-// SetUserRole updates a user's role and updated_at.
-// Reject if role not in {"guest", "user", "admin"}.
-func (s *Storage) SetUserRole(ctx context.Context, email, role string) error {
-	trimmedEmail := strings.TrimSpace(email)
-	if trimmedEmail == "" {
-		return fmt.Errorf("email cannot be empty")
-	}
-	switch model.UserRole(role) {
-	case model.RoleGuest, model.RoleUser, model.RoleAdmin:
-	default:
-		return fmt.Errorf("invalid role %q: must be guest, user, or admin", role)
-	}
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `UPDATE users SET role = ?, updated_at = ? WHERE email = ? COLLATE NOCASE`, role, now, trimmedEmail)
-	if err != nil {
-		return fmt.Errorf("failed to update user role: %w", err)
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // UpdateUserLocale updates a user's preferred locale and updated_at.
@@ -3493,21 +3433,8 @@ func (s *Storage) UpdateUserLocale(ctx context.Context, email, locale string) er
 	return nil
 }
 
-// DeleteUser deletes a user by email case-insensitively.
-func (s *Storage) DeleteUser(ctx context.Context, email string) error {
-	trimmedEmail := strings.TrimSpace(email)
-	if trimmedEmail == "" {
-		return fmt.Errorf("email cannot be empty")
-	}
-	query := `DELETE FROM users WHERE email = ? COLLATE NOCASE`
-	if _, err := s.db.ExecContext(ctx, query, trimmedEmail); err != nil {
-		return fmt.Errorf("failed to delete user: %w", err)
-	}
-	return nil
-}
-
 // ClearData atomically clears items, orders, deliveries, and sync_history.
-// Customer aliases, users, and workday policies are preserved.
+// Customer aliases, users, roles, and workday policies are preserved.
 func (s *Storage) ClearData(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

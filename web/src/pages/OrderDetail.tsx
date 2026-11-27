@@ -2,6 +2,7 @@ import { ROUTES } from '~/routes';
 
 import { type Component, createResource, Show, For, createMemo, createSignal } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import { useParams, useNavigate, A } from '@solidjs/router';
 import {
   IconArrowLeft,
@@ -70,7 +71,8 @@ export const OrderDetail: Component = () => {
   };
 
   const [order] = createResource(() => params.id, (id) => getOrderById(id));
-  const [config] = createResource(getConfig);
+  const auth = useAuth();
+  const [config] = createResource(() => auth.can('system:read'), getConfig);
 
   const [sortState, setSortState] = createSignal<SortState>({ field: 'row_index', direction: 'asc' });
 
@@ -210,7 +212,7 @@ export const OrderDetail: Component = () => {
                 </CardTitle>
                 <CardDescription>{t('orderDetail.lineItemsDesc')}</CardDescription>
               </div>
-              <Show when={config()?.spreadsheet_id}>
+              <Show when={auth.can('system:read') && !config.error && config()?.spreadsheet_id}>
                 <Button
                   as="a"
                   href={`https://docs.google.com/spreadsheets/d/${config()?.spreadsheet_id}/edit#gid=0&range=A${order()!.items?.[0]?.row_index || 2}`}

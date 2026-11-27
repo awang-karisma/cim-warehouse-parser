@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from 'solid-js';
 import {
   IconAlertCircle,
   IconCheck,
@@ -27,7 +27,7 @@ import {
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
-import { DATALOGGER_START_MODE, type DataloggerStartMode, USER_ROLE } from '~/domain';
+import { DATALOGGER_START_MODE, type DataloggerStartMode } from '~/domain';
 import { useI18n } from '~/i18n';
 import type { DataloggerConfiguration, DataloggerProfile } from '~/types';
 import type { DataloggerDeviceSession } from '~/components/datalogger/device-session';
@@ -134,13 +134,12 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   const { t } = useI18n();
   const auth = useAuth();
 
-  const isAdmin = () => {
-    const role = auth.user()?.role;
-    return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
-  };
+  const canWriteDevice = () => auth.can('logger_device:read') && auth.can('logger_device:write') && props.device.connected();
+  let disposed = false;
+  onCleanup(() => { disposed = true; });
 
   // Profiles resource & state
-  const [profilesData, { refetch: refetchProfiles }] = createResource(getDataloggerProfiles);
+  const [profilesData, { refetch: refetchProfiles }] = createResource(() => auth.can('logger_profile:read'), getDataloggerProfiles);
   const [selectedProfileId, setSelectedProfileId] = createSignal<number | null>(null);
   const [profileNameInput, setProfileNameInput] = createSignal('');
   const [profileSaving, setProfileSaving] = createSignal(false);
@@ -196,7 +195,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
 
   let lastAutoReadKey: string | null = null;
 
-  const profiles = () => profilesData()?.profiles ?? [];
+  const profiles = () => auth.can('logger_profile:read') ? profilesData()?.profiles ?? [] : [];
   const selectedProfile = createMemo(
     () => profiles().find((p) => p.id === selectedProfileId()) ?? null,
   );
@@ -331,6 +330,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const executeReadFromDevice = async () => {
+    if (!auth.can('logger_device:read') || !props.device.connected()) return;
     setReadingConfig(true);
     setConfigError(null);
     try {
@@ -386,6 +386,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const handleRequestLoadProfile = (profile: DataloggerProfile) => {
+    if (!auth.can('logger_profile:read')) return;
     if (isDirty()) {
       setPendingDraftAction({ type: 'load-profile', profile });
       return;
@@ -402,6 +403,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     if (action.type === 'read-device') {
       void executeReadFromDevice();
     } else {
+      if (!auth.can('logger_profile:read')) return;
       setSelectedProfileId(action.profile.id);
       setProfileNameInput(action.profile.name);
       applyDraftFromConfig(action.profile.config, false);
@@ -552,6 +554,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const handleSaveNewProfile = async () => {
+    if (!auth.can('logger_profile:create')) return;
     setProfileError(null);
     setProfileSuccess(null);
     const name = profileNameInput().trim();
@@ -567,7 +570,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     setProfileSaving(true);
     try {
       const res = await createDataloggerProfile({ name, config });
-      await refetchProfiles();
+      if (!disposed && auth.can('logger_profile:read')) await refetchProfiles();
       setSelectedProfileId(res.id);
       setProfileNameInput(name);
       setProfileSuccess(t('dataloggerConfig.profileSavedSuccess', { name }));
@@ -579,6 +582,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const handleUpdateSelectedProfile = async () => {
+    if (!auth.can('logger_profile:update')) return;
     const id = selectedProfileId();
     if (id === null) return;
     setProfileError(null);
@@ -596,7 +600,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     setProfileSaving(true);
     try {
       await updateDataloggerProfile(id, { name, config });
-      await refetchProfiles();
+      if (!disposed && auth.can('logger_profile:read')) await refetchProfiles();
       setSelectedProfileId(id);
       setProfileNameInput(name);
       setProfileSuccess(t('dataloggerConfig.profileUpdatedSuccess', { name }));
@@ -608,6 +612,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const handleConfirmDeleteProfile = async () => {
+    if (!auth.can('logger_profile:delete')) return;
     const id = selectedProfileId();
     setConfirmDeleteProfileOpen(false);
     if (id === null) return;
@@ -617,7 +622,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
     try {
       await deleteDataloggerProfile(id);
       setSelectedProfileId(null);
-      await refetchProfiles();
+      if (!disposed && auth.can('logger_profile:read')) await refetchProfiles();
       setProfileSuccess(t('dataloggerConfig.profileDeletedSuccess'));
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : String(err));
@@ -627,6 +632,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const openHardwareConfirmation = (op: 'apply' | 'quick-reset') => {
+    if (!canWriteDevice()) return;
     setConfigError(null);
     if (props.device.pendingVerification()) {
       setConfigError(
@@ -683,7 +689,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   });
 
   const handleSetDisplayTimeoutImmediate = async () => {
-    if (!props.device.connected()) return;
+    if (!canWriteDevice()) return;
     setSettingTimeout(true);
     setTimeoutSuccessMsg(null);
     setConfigError(null);
@@ -701,6 +707,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const handleConfirmExecuteHardwareWrite = async () => {
+    if (!canWriteDevice()) return;
     const op = confirmOperation();
     const meta = confirmSnapshotMeta();
     if (!op || !meta) return;
@@ -740,6 +747,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
   };
 
   const hardwareWritesDisabled = () =>
+    !canWriteDevice() ||
     !props.device.connected() ||
     props.device.deviceBusy() ||
     readingConfig() ||
@@ -799,6 +807,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
           </Show>
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Show when={auth.can('logger_profile:read')}>
             <div class="space-y-1.5">
               <label class="text-xs font-medium text-muted-foreground" for="dl-profile-select">
                 {t('dataloggerConfig.profilesTitle')}
@@ -849,15 +858,9 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
                 </div>
               </Show>
             </div>
+            </Show>
 
-            <Show
-              when={isAdmin()}
-              fallback={
-                <div class="flex items-end pb-2 text-xs text-muted-foreground">
-                  {t('dataloggerConfig.adminOnlyProfilesHint')}
-                </div>
-              }
-            >
+            <Show when={auth.canAny('logger_profile:create', 'logger_profile:update')}>
               <div class="space-y-1.5">
                 <label class="text-xs font-medium text-muted-foreground" for="dl-profile-name">
                   {t('dataloggerConfig.profileNameLabel')}
@@ -874,8 +877,9 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
             </Show>
           </div>
 
-          <Show when={isAdmin()}>
+          <Show when={auth.canAny('logger_profile:create', 'logger_profile:update', 'logger_profile:delete')}>
             <div class="flex flex-wrap items-center gap-2">
+              <Show when={auth.can('logger_profile:create')}>
               <Button
                 variant="secondary"
                 onClick={() => void handleSaveNewProfile()}
@@ -886,6 +890,8 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
                   ? t('dataloggerConfig.savingProfileBtn')
                   : t('dataloggerConfig.saveNewProfileBtn')}
               </Button>
+              </Show>
+              <Show when={auth.can('logger_profile:update')}>
               <Button
                 variant="outline"
                 onClick={() => void handleUpdateSelectedProfile()}
@@ -893,14 +899,17 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
               >
                 {t('dataloggerConfig.updateProfileBtn')}
               </Button>
+              </Show>
+              <Show when={auth.can('logger_profile:delete')}>
               <Button
                 variant="outline"
-                onClick={() => setConfirmDeleteProfileOpen(true)}
+                onClick={() => { if (auth.can('logger_profile:delete')) setConfirmDeleteProfileOpen(true); }}
                 disabled={profileSaving() || selectedProfileId() === null}
               >
                 <IconTrash class="size-4" />
                 {t('dataloggerConfig.deleteProfileBtn')}
               </Button>
+              </Show>
             </div>
           </Show>
         </CardContent>
@@ -1336,14 +1345,14 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
                   <option value={4}>{t('dataloggerConfig.displayTimeout60s')}</option>
                   <option value={15}>{t('dataloggerConfig.displayTimeoutAlwaysOn')}</option>
                 </select>
-                <Show when={props.device.connected()}>
+                <Show when={canWriteDevice()}>
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     class="h-10 text-xs shrink-0 gap-1.5"
                     onClick={handleSetDisplayTimeoutImmediate}
-                    disabled={props.device.deviceBusy() || settingTimeout()}
+                    disabled={!canWriteDevice() || props.device.deviceBusy() || settingTimeout()}
                   >
                     <IconSettings class="size-3.5" />
                     {settingTimeout()

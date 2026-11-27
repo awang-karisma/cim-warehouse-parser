@@ -777,7 +777,7 @@ func TestSearchAll(t *testing.T) {
 	}
 
 	// Search by item name
-	res, err := store.SearchAll(ctx, "Yellowtip", "all", 10)
+	res, err := store.SearchAll(ctx, "Yellowtip", storage.SearchAllCategories, 10)
 	if err != nil {
 		t.Fatalf("SearchAll failed: %v", err)
 	}
@@ -789,12 +789,16 @@ func TestSearchAll(t *testing.T) {
 	}
 
 	// Search by customer name
-	resCust, err := store.SearchAll(ctx, "Narmada", "customers", 10)
+	resCust, err := store.SearchAll(ctx, "Narmada", storage.SearchCustomersCategory, 10)
 	if err != nil {
 		t.Fatalf("SearchAll customers failed: %v", err)
 	}
 	if resCust.Customers.Total != 1 {
 		t.Errorf("expected 1 customer matching Narmada, got %d", resCust.Customers.Total)
+	}
+	if resCust.Orders.Total != 0 || resCust.Items.Total != 0 || resCust.Orders.Results == nil || resCust.Items.Results == nil ||
+		len(resCust.Orders.Results) != 0 || len(resCust.Items.Results) != 0 {
+		t.Fatalf("excluded categories must retain empty arrays and zero totals: %+v", resCust)
 	}
 }
 
@@ -1266,7 +1270,7 @@ func TestStorage_CustomerAliases(t *testing.T) {
 		t.Errorf("expected 1 customer RS PKU Muhammadiyah, got total=%d custs=%+v", totalCusts, custs)
 	}
 
-	searchRes, err := store.SearchAll(ctx, "PKU Muhammadiyah", "all", 10)
+	searchRes, err := store.SearchAll(ctx, "PKU Muhammadiyah", storage.SearchAllCategories, 10)
 	if err != nil {
 		t.Fatalf("SearchAll failed: %v", err)
 	}
@@ -2551,13 +2555,14 @@ func TestUserCRUD(t *testing.T) {
 		t.Errorf("missing locale update should return ErrNotFound, got: %v", err)
 	}
 
-	if err := store.SetUserRole(ctx, "missing@example.com", "user"); !errors.Is(err, storage.ErrNotFound) {
+	local := storage.AccessContext{AuthDisabled: true}
+	if err := store.AssignUserRole(ctx, local, "missing@example.com", "user"); !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("missing role update should return ErrNotFound, got: %v", err)
 	}
 
 	// 3. Set role to 'user'
-	if err := store.SetUserRole(ctx, "test@example.com", "user"); err != nil {
-		t.Fatalf("SetUserRole failed: %v", err)
+	if err := store.AssignUserRole(ctx, local, "test@example.com", "user"); err != nil {
+		t.Fatalf("AssignUserRole failed: %v", err)
 	}
 	uCheck, err := store.GetUserByEmail(ctx, "TEST@example.com")
 	if err != nil {
@@ -2583,32 +2588,32 @@ func TestUserCRUD(t *testing.T) {
 	}
 
 	// 5. Invalid roles
-	if err := store.SetUserRole(ctx, "test@example.com", "superadmin"); err == nil {
+	if err := store.AssignUserRole(ctx, local, "test@example.com", "superadmin"); !errors.Is(err, storage.ErrValidation) {
 		t.Error("expected error setting role to 'superadmin', got nil")
 	}
-	if err := store.SetUserRole(ctx, "test@example.com", "unknown"); err == nil {
+	if err := store.AssignUserRole(ctx, local, "test@example.com", "unknown"); !errors.Is(err, storage.ErrValidation) {
 		t.Error("expected error setting role to 'unknown', got nil")
 	}
-	if err := store.SetUserRole(ctx, "nonexistent@example.com", "admin"); err == nil {
+	if err := store.AssignUserRole(ctx, local, "nonexistent@example.com", "admin"); !errors.Is(err, storage.ErrNotFound) {
 		t.Error("expected error setting role for non-existent user, got nil")
 	}
 
-	// 6. Add second user and GetUsers
+	// 6. Add second user and load the directory.
 	_, err = store.UpsertUser(ctx, "admin@example.com", "Admin User", "")
 	if err != nil {
 		t.Fatalf("UpsertUser admin failed: %v", err)
 	}
-	users, err := store.GetUsers(ctx)
+	directory, err := store.GetUserDirectory(ctx, local)
 	if err != nil {
-		t.Fatalf("GetUsers failed: %v", err)
+		t.Fatalf("GetUserDirectory failed: %v", err)
 	}
-	if len(users) != 2 {
-		t.Fatalf("expected 2 users, got %d", len(users))
+	if len(directory.Users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(directory.Users))
 	}
 
 	// 7. Delete user
-	if err := store.DeleteUser(ctx, "test@example.com"); err != nil {
-		t.Fatalf("DeleteUser failed: %v", err)
+	if err := store.RemoveUser(ctx, local, "test@example.com"); err != nil {
+		t.Fatalf("RemoveUser failed: %v", err)
 	}
 	uDeleted, err := store.GetUserByEmail(ctx, "test@example.com")
 	if err != nil {
@@ -2617,12 +2622,12 @@ func TestUserCRUD(t *testing.T) {
 	if uDeleted != nil {
 		t.Errorf("expected nil after delete, got %+v", uDeleted)
 	}
-	remaining, err := store.GetUsers(ctx)
+	remaining, err := store.GetUserDirectory(ctx, local)
 	if err != nil {
-		t.Fatalf("GetUsers after delete failed: %v", err)
+		t.Fatalf("GetUserDirectory after delete failed: %v", err)
 	}
-	if len(remaining) != 1 {
-		t.Fatalf("expected 1 remaining user, got %d", len(remaining))
+	if len(remaining.Users) != 1 {
+		t.Fatalf("expected 1 remaining user, got %d", len(remaining.Users))
 	}
 }
 

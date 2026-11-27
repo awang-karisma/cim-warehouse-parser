@@ -32,6 +32,8 @@ export interface DataloggerDeviceSessionOptions {
   postFormatDelayMs?: number;
   verificationTimeoutMs?: number;
   verificationPollIntervalMs?: number;
+  canRead?: () => boolean;
+  canWrite?: () => boolean;
 }
 
 export interface DataloggerDeviceSession {
@@ -151,7 +153,7 @@ export function createDataloggerDeviceSession(
   };
 
   const connect = async (): Promise<DeviceInfo | null> => {
-    if (disposed || deviceBusy()) {
+    if (disposed || deviceBusy() || options.canRead?.() === false) {
       return null;
     }
     generation += 1;
@@ -246,7 +248,7 @@ export function createDataloggerDeviceSession(
   };
 
   const fetchRecords = async (): Promise<FetchedDatasetSnapshot | null> => {
-    if (disposed) return null;
+    if (disposed || options.canRead?.() === false) return null;
     if (deviceBusy()) {
       throw new Error('Device is busy with another operation.');
     }
@@ -320,6 +322,7 @@ export function createDataloggerDeviceSession(
   };
 
   const readConfiguration = async (): Promise<DeviceConfigurationReadResult> => {
+    if (options.canRead?.() === false) throw new Error('Device read access denied.');
     if (disposed) {
       throw new Error('Device session is disposed.');
     }
@@ -362,8 +365,9 @@ export function createDataloggerDeviceSession(
   const executeWriteOrReset = async (
     operation: 'apply' | 'quick-reset',
     config?: DataloggerConfiguration,
-    options?: { displayTimeoutCode?: number | null },
+    writeOptions?: { displayTimeoutCode?: number | null },
   ): Promise<boolean> => {
+    if (options.canRead?.() === false || options.canWrite?.() === false) throw new Error('Device write access denied.');
     if (disposed) {
       throw new Error('Device session is disposed.');
     }
@@ -394,6 +398,8 @@ export function createDataloggerDeviceSession(
 
     const onFormatAttempt = (receipt: ConfigurationWriteReceipt) => {
       if (
+        options.canRead?.() === false ||
+        options.canWrite?.() === false ||
         disposed ||
         generation !== opGen ||
         hid.device !== opDevice ||
@@ -414,7 +420,7 @@ export function createDataloggerDeviceSession(
 
     try {
       if (operation === 'apply') {
-        await writeDeviceConfiguration(hid, config!, onFormatAttempt, clock, options);
+        await writeDeviceConfiguration(hid, config!, onFormatAttempt, clock, writeOptions);
       } else {
         await quickResetDevice(hid, onFormatAttempt, clock);
       }
@@ -519,6 +525,7 @@ export function createDataloggerDeviceSession(
   ): Promise<boolean> => executeWriteOrReset('apply', config, options);
   const quickReset = (): Promise<boolean> => executeWriteOrReset('quick-reset');
   const setDisplayTimeout = async (code: number): Promise<void> => {
+    if (options.canRead?.() === false || options.canWrite?.() === false) throw new Error('Device write access denied.');
     if (disposed) {
       throw new Error('Device session is disposed.');
     }

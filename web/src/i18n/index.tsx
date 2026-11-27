@@ -12,6 +12,7 @@ import {
 	import { dict as en_dict, type RawDictionary, type Dictionary } from "./en";
 	import { dict as id_dict } from "./id";
 	import { useAuth, type AuthContextValue } from "~/auth";
+  import { updateUserLocale } from '~/api';
 
 	const dicts: Record<Locale, Dictionary> = {
 	[LOCALE.ENGLISH]: i18n.flatten(en_dict),
@@ -89,11 +90,7 @@ export const I18nProvider: ParentComponent = (props) => {
 
     // Persist to backend if authenticated
     if (userEmail) {
-      fetch("/api/v1/user/locale", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale: l }),
-      }).catch(() => {});
+      void updateUserLocale(l).catch(() => {});
     }
   };
 

@@ -33,31 +33,27 @@ Automated order ingestion, normalization, and visualization system.
 - **Operational Dashboard & Date-Ranged History**:
   - Opens on the current WITA calendar day. The date toolbar supports manual From/To dates plus Today, 7-day, 30-day, 3-month, 6-month, and 1-year presets; invalid ranges suspend historical requests.
   - `GET /api/v1/dashboard/operations` supplies three all-date operational counts: orders with a `BELUM SELESAI` item, shelf-ready unfinished line items with positive remaining quantity **excluding customer-held `PENDING` items**, and delivery runs in `PLANNED`, `PICKING`, `READY`, or `DISPATCHED`. These are independent of the historical date picker; the backlog and shelf-ready links preserve their matching filters (`/orders?status=...`, `/items?ready_to_dispatch=true`), while active runs open Delivery Flow. Items CSV export supports `ready_to_dispatch=true` as well.
-  - `GET /api/v1/status` supplies mirror freshness: the dashboard displays a WITA timestamp only when the latest sync record succeeded, polls status every 30 seconds, warns when the last attempt fails or that successful record is over 30 minutes old during work hours, and offers admins an inline manual sync. SSE completion refreshes dashboard figures; users without sync permission get a link to Sync Manager.
+  - With `sync:read`, the dashboard polls `/api/v1/status` every 30 seconds and subscribes to sync events. It shows a WITA timestamp only when the latest attempt succeeded, warns when the mirror fails or becomes stale during work hours, and offers manual sync with `sync:trigger`. Dashboard data is still visible without sync telemetry; recent orders and drilldowns require their destination grant.
   - `GET /api/v1/dashboard/summary?from&to` returns order/item/customer/area totals, line-item status counts, and daily order volume over inclusive WITA order-placement dates. The Orders KPI links to `/orders?from&to` with those bounds; other KPI cards link to full lists (all dates), with that scope stated on the dashboard. Recent orders share the selected range.
   - `GET /api/v1/dashboard/pressure?from&to` ranks destinations and the top five customers by `BELUM SELESAI` + `PROSES` **line items** for orders placed in the selected inclusive date range. `PENDING` is shown separately as a customer hold, not counted as actionable unfinished work; cancellations are excluded. Area/customer links retain the date range in Orders. The section displays the average stored, policy-calculated lead time once per eligible completed item (not once per shipment row), with a completed-item count and an empty state when none qualify. An empty workload offers a 30-day range shortcut.
   - `GET /api/v1/dashboard/status-trend?from&to` selects the latest successful aggregate mirror snapshot per observed WITA date; empty successful mirrors are observations, unsynced days are gaps, and the status-population graph remains unchanged. `/api/v1/stats` remains global.
   - `GET /api/v1/dashboard/status-changes?from&to` counts each order once in the final status it newly reaches per successful WITA day. First appearances count; same-day intermediate states and reversals to the day's baseline do not. Disappearances do not count; reappearances keep their baseline. Empty successful days return `{}`, while unsynced and pre-tracking days have no point. Today's count is provisional until the day's last successful sync. Historical aggregate snapshots are not backfilled into per-order change history.
   - Dashboard time-series charts use Chart.js through `solid-chartjs` with independent, keyboard-accessible chart-type switches: order volume shows Bars or Line (weekly buckets beyond 14 days), status totals show Line or Stacked Bars, and per-order daily status changes show nonnegative Stacked Bars or an unsmoothed Line. Each chart has independent loading, error/retry, and no-history states; status changes share status normalization, gaps, selected dates, tooltips, and screen-reader summaries.
-  - Categorized collapsible sidebar keeps the active section open and exposes all destination icons in collapsed rail mode.
-- **Google OAuth 2.0 & Role-Based Access Control (RBAC)**:
-  - Google Identity Services (GIS) login with ID token server verification.
-  - HS256 JWT session tokens with HttpOnly `warehouse_session` cookies.
-  - Four privilege tiers:
-    - `guest`: Newly signed-in accounts; restricted to approval pending view.
-    - `user`: Read-only data access (orders, items, deliveries, stats, search).
-    - `admin`: Operational control (manual sync trigger, alias management, database reset, user management: approve guest accounts to `user`, delete guest/user accounts).
-    - `superadmin`: Full administration (role assignments across all roles, deletion of admin accounts; configured via `SUPERADMIN_EMAILS`).
-  - Fully backward-compatible: leaving `GOOGLE_CLIENT_ID` empty disables authentication.
-  - Public Privacy Policy (`/privacy`) and Terms of Service (`/terms`) pages linked from the sign-in screen to meet Google OAuth verification requirements.
+- **Google OAuth and Role-Based Access Control (RBAC)**:
+  - Google login still establishes an HttpOnly `warehouse_session` cookie. The server re-reads the user, role, and grants on every protected request; existing sessions immediately reflect changes.
+  - `guest` waits for approval with no grants. Approved `user` starts with no grants; its shared grants are editable. Custom roles carry explicit `resource:action` grants. Each user has one assignment.
+  - `admin` and configured `superadmin` have every registered permission, including future permissions, without grant rows. Admins can appoint other admins but cannot change or delete themselves or configured superadmins. Delegates cannot manage stronger roles or accounts, assign admin, or edit their own role.
+  - `/admin/roles` shows the capability catalog and role editor; `/admin/users` displays assignments and only the actions and role choices the server allows for each target.
+  - Navigation, direct routes, secondary requests, and actions use the same capability contract. Approved users without workspace access can still refresh access, open preferences, or sign out. `/privacy` and `/terms` remain public.
+  - Intentionally leaving `GOOGLE_CLIENT_ID` empty enables full local development access, including user and role administration. An auth error never enables that mode.
 
 - **Accurate Online Integration & Barcode Printing (`/barcode`)**:
   - Reusable Accurate API layer supporting both official Bearer-token API (with request signing and host redirect handling) and web automation login (with MFA/TOTP challenge support). The web login flow follows redirects only on the configured IdP host and scheme; redirects to other hosts or schemes are rejected to avoid forwarding authentication data.
   - Persistent SQLite session management (`accurate_session`) preserved across spreadsheet sync and database reset; Accurate logout clears persisted session data and replaces the active web-provider client and cookie jar.
   - Six transaction source adapters: Receive Item (`receive-item`), Purchase Order (`purchase-order`), Sales Order (`sales-order`), Delivery Order (`delivery-order`), Stock Opname Order (`stock-opname-order`), and Stock Opname Result (`stock-opname-result`).
   - Interactive barcode printing workspace with live vector barcode rendering (`CODE128`, `CODE39`, `EAN13`, `QRCODE`, `DATAMATRIX`) via `jsbarcode`, `qrcode-generator`, and `datamatrix-svg-ts`.
-  - Preset templates & reusable custom designs: Tom & Jerry No. 108 (5×14) & No. 121 (2×5), Continuous Thermal Rolls (50×30mm, 40×20mm), A4 Stock Opname Audit Sheet, and admin-managed page designs in SQLite (`page_designs`) with full CRUD API. Designs persist geometry, optional element-coordinate `label_layout`, and all selected barcode/print/preview settings in `settings_json`; legacy rows/requests receive explicit defaults. Settings include symbology, barcode height, font size, quantity mode, leading skip count, preview guides, and preview zoom. Layout-only arrangements remain independent in `label_layout_presets`; product queue contents remain transient.
-  - Independent label layout presets are persisted in `label_layout_presets`, separate from paper/page designs. Users can select saved layouts; admins can create, update, and delete them through the designer modal (`GET /api/v1/label-layout-presets`, `POST`, `PUT /:id`, `DELETE /:id`). Editor inputs retain focus while typing.
+  - Preset templates & reusable custom designs: Tom & Jerry No. 108 (5×14) & No. 121 (2×5), Continuous Thermal Rolls (50×30mm, 40×20mm), A4 Stock Opname Audit Sheet, and reusable page designs in SQLite (`page_designs`) with full CRUD API. Designs persist geometry, optional element-coordinate `label_layout`, and all selected barcode/print/preview settings in `settings_json`; legacy rows/requests receive explicit defaults. Settings include symbology, barcode height, font size, quantity mode, leading skip count, preview guides, and preview zoom. Layout-only arrangements remain independent in `label_layout_presets`; product queue contents remain transient.
+  - Independent label layout presets are persisted in `label_layout_presets`, separate from paper/page designs. Selecting or managing saved layouts requires the corresponding `preset` grants. Local design and printing with `barcode:print` do not require saved presets, saved designs, or Accurate Online access.
   - Single and Multiply quantity printing modes, instant barcode scanner input with Accurate Online live item autocomplete lookup, and transaction document importer (PO, SO, DO, Receive Item, Opname).
   - Print-isolated CSS: exact configured paper sizing, zero margins, application chrome completely hidden during printing.
 
@@ -105,16 +101,16 @@ Automated order ingestion, normalization, and visualization system.
     - Instant language switching via the header dropdown toggle (`LanguageToggle`) and dedicated Settings card.
     - Per-user locale preference persistence in `localStorage` (`warehouse-ui-locale:<email>`) and embedded SQLite database (`users.locale` via `PUT /api/v1/user/locale`).
     - Status badge text localizes dynamically while preserving exact status color mapping.
-  - Dedicated route views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Flow, Delivery Timeline, Barcode Printer, Data Logger, Sync Manager, Search, and Settings.
+  - Dedicated views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Flow, Barcode Printer, Data Logger, Sync Manager, Search, Settings, User Management, and Role Management.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, interactive hover/focus tooltips for item notes, and multi-column client-side sorting.
   - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.
   - Streamlined expandable order rows on the Orders page with an embedded 5-column line items tray (`#`, `Item Name`, `Progress`, `Status Order`, `Status Barang`), progress bar with `sent / ordered` count, and row-level navigation to order details.
   - Cohesive order-level cancellation status dominance (orders are marked `BATAL` only when every line item is cancelled; mixed orders preserve active priority) synchronized across Orders list, Dashboard, Order Detail, and order status filter.
-  - Calculated workday lead time engine with admin-managed date-effective schedule history (`workday_policies`), immediate stored record recalculation, and chronological audit trail.
+  - Calculated workday lead time engine with date-effective schedule history managed with workday grants (`workday_policies`), immediate stored record recalculation, and chronological audit trail.
   - Compact delivery date presentation across Items and Order Detail using per-shipment secondary badges with unit-free quantities (`DD/MM/YYYY (qty)`). Delivery Timeline features a normalized date column (`YYYY-MM-DD`) with strict calendar validation, chronologically sorted with invalid entries last, and a dedicated Delivered Qty column before Delivery Progress. Order Detail and Delivery Timeline display sent/ordered counts with item units beneath progress bars.
   - Mobile-responsive layout: viewport-constrained flex shell, auto-dismissing mobile navigation drawer, reflowing search and filter toolbars, and phone-fitted modals and dialogs.
-  - The expanded sidebar always shows links in five static groups—Overview, Operations, Customers & Areas, Tools, and Administration; category headings do not collapse or hide their links. Icon-rail mode provides a destination icon and tooltip for every route, and the mobile navigation drawer closes after a link is activated. The sidebar footer places a compact, visibly outlined icon-only manual sync button immediately to the right of the last-sync status indicator; it invokes the existing manual sync action and refreshes sync status after completion. Access follows existing manual-sync permissions: enabled when authentication is disabled, otherwise limited to `admin` and `superadmin` roles.
+  - The sidebar shows permitted destinations under Overview, Operations, Customers & Areas, Tools, and Administration. The same access rules apply to desktop, icon rail, mobile drawer, and deep links. The footer shows status for `sync:read`, a manual sync button for `sync:trigger`, and configuration-dependent freshness color only with `system:read`.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.
 ---
 
@@ -220,7 +216,7 @@ sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
 | `CSV_FALLBACK_PATH` | `testdata/orders_sample.csv` | Local fallback file when remote source is unavailable. |
 | `GOOGLE_CLIENT_ID` | `""` | Google OAuth 2.0 Web Client ID. Leave blank to disable auth. |
 | `JWT_SECRET` | `""` | HMAC-SHA256 signing key (auto-generates random 32-byte key if unset). |
-| `SUPERADMIN_EMAILS` | `""` | Comma-separated emails granted superadmin privileges. |
+| `SUPERADMIN_EMAILS` | `""` | Comma-separated recovery accounts with implicit superadmin access. At least one nonblank entry is required when `GOOGLE_CLIENT_ID` is set. |
 | `ACCURATE_PROVIDER` | `""` | Accurate Online provider (`"official"`, `"web"`, or empty/disabled). |
 | `ACCURATE_EMAIL` | `""` | User email for Accurate web automation provider. |
 | `ACCURATE_PASSWORD` | `""` | User password for Accurate web automation provider (never logged or persisted). |
@@ -230,6 +226,15 @@ sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
 ---
 
 ## Deployment & Setup
+
+### Upgrading an Existing Authenticated Installation
+
+1. Stop the old service and any other process writing to its SQLite database. Back up with the SQLite backup mechanism, or copy the stopped database together with its WAL if present. Keep the corresponding pre-upgrade binary.
+2. Verify that `SUPERADMIN_EMAILS` contains at least one recoverable Google account. Without a nonblank entry the new daemon refuses to start before opening SQLite.
+3. Start the new daemon. The one-time migration preserves profiles and locales, keeps guests pending, and assigns all previously approved accounts (including old admins) to `user` with no grants. Only configured superadmin identities retain implicit access. On later restarts, assignments and grants are preserved.
+4. Sign in as a configured superadmin, open **User Management**, and assign your first `admin`. Then provision `user` or create custom roles in **Role Management**. To roll back, restore the pre-upgrade database and binary together; do not run the old binary against the migrated database.
+
+For local development with authentication explicitly disabled, no recovery account is required. Keep that mode off on deployments serving untrusted clients.
 
 ### 1. Using Docker Compose (Recommended)
 
@@ -331,49 +336,48 @@ go run ./cmd/warehouse-parser \
 
 ---
 
-## API & Roles Reference
+## API & Permission Reference
 
-| Endpoint | Method | Minimum Role | Description |
-| :--- | :---: | :---: | :--- |
-| `/health` | `GET` | Public | Service health probe. |
-| `/docs` | `GET` | Public | Interactive Scalar API documentation. |
-| `/openapi.json` | `GET` | Public | OpenAPI 3.1 specification. |
-| `/auth/config` | `GET` | Public | Public authentication status and client ID. |
-| `/auth/google/callback` | `POST` | Public | Exchange Google ID token for session cookie. |
-| `/auth/me` | `GET` | Authenticated | Retrieve current user profile and role. |
-| `/auth/logout` | `POST` | Authenticated | Invalidate session cookie. |
-| `/api/v1/orders` | `GET` | `user` | List paginated orders with filters. |
-| `/api/v1/orders/{id}` | `GET` | `user` | Retrieve order details and items. |
-| `/api/v1/items` | `GET` | `user` | List normalized items with filters. |
-| `/api/v1/items/export` | `GET` | `user` | Export filtered items to CSV. |
-| `/api/v1/deliveries` | `GET` | `user` | List parsed delivery shipments (supports sort, order, pagination; default date DESC). |
-| `/api/v1/deliveries/stats` | `GET` | `user` | Aggregated delivery KPI metrics (total, completed, pending, avg lead time). |
-| `/api/v1/customers` | `GET` | `user` | List customer summaries. |
-| `/api/v1/areas` | `GET` | `user` | Area order aggregations. |
-| `/api/v1/dashboard/pressure` | `GET` | `user` | Date-filtered area/customer unfinished-item rankings, customer holds, and item-weighted completed lead time (`from`, `to` required; inclusive order dates). |
-| `/api/v1/search` | `GET` | `user` | Global search across orders, items, and customers. |
-| `/api/v1/sync/events` | `GET` | `user` | Real-time SSE worker events stream. |
-| `/api/v1/customer-aliases` | `GET` | `user` | List grouped customer name aliases. |
-| `/api/v1/customer-aliases/export` | `GET` | `user` | Export customer aliases as JSON document (`customer-aliases.json`). |
-| `/api/v1/sync` | `POST` | `admin` | Trigger immediate manual synchronization. |
-| `/api/v1/customer-aliases` | `PUT` | `admin` | Create or update customer alias. |
-| `/api/v1/customer-aliases/{alias}`| `DELETE` | `admin` | Remove customer alias mapping. |
-| `/api/v1/customer-aliases/import` | `POST` | `admin` | Import customer aliases JSON (supports `mode=merge` or `mode=replace`). |
-| `/api/v1/workday-policies` | `GET` | `user` | List chronological history of effective workday schedules for lead-time calculation. |
-| `/api/v1/workday-policies` | `PUT` | `admin` | Set active workdays effective from current local date and recalculate stored lead times. |
-| `/api/v1/admin/clear-database` | `POST` | `admin` | Reset order, item, and sync tables. |
-| `/api/v1/admin/users` | `GET` | `admin` | List registered users and roles. |
-| `/api/v1/admin/users/{email}/role` | `PUT` | `admin` / `superadmin` | Approve `guest`→`user` (admin); assign `user` or `admin` (superadmin). |
-| `/api/v1/admin/users/{email}` | `DELETE` | `admin` / `superadmin` | Delete `guest` or `user` accounts (admin); delete any non-superadmin (superadmin). |
-| `/api/v1/accurate/status` | `GET` | `user` | Accurate Online integration status and connected database info. |
-| `/api/v1/accurate/login` | `POST` | `user` | Connect or submit MFA challenge to Accurate Online. |
-| `/api/v1/accurate/logout` | `POST` | `user` | Invalidate active Accurate Online session. |
-| `/api/v1/accurate/databases` | `GET` | `user` | List accessible tenant databases. |
-| `/api/v1/accurate/database` | `POST` | `user` | Open tenant database and acquire session token. |
-| `/api/v1/accurate/items` | `GET` | `user` | Search master inventory items with pagination. |
-| `/api/v1/accurate/sources` | `GET` | `user` | List registered transaction source adapters. |
-| `/api/v1/accurate/sources/{source}/documents` | `GET` | `user` | List documents for a transaction source with date/keyword filters. |
-| `/api/v1/accurate/sources/{source}/documents/{id}/items` | `GET` | `user` | Retrieve normalized line items from a transaction document. |
+`/auth/me` and the Google callback return the current `user` with an effective role and sorted `permissions` (`[]` for no grants, `["*"]` for implicit administrators). Both responses are non-cacheable. `/auth/me` is available to pending guests. Health, API docs, legal pages, and static assets are public. Signed-in self-service `PUT /api/v1/user/locale` does not need a business grant.
+
+Business endpoints are under `/api/v1`. A slash-separated pair of methods and capabilities below maps in order; `+` requires both capabilities.
+
+| Endpoint | Method | Permission |
+| :--- | :--- | :--- |
+| `/stats`, `/dashboard/*` | GET | `dashboard:read` |
+| `/orders`, `/orders/{id}` | GET | `order:read` (includes line items) |
+| `/items`; `/items/export` | GET | `item:read`; export also requires `item:export` |
+| `/purchase-orders` | GET | `purchase_order:read` |
+| `/customers`; `/areas` | GET | `customer:read`; `area:read` |
+| `/customer-aliases`; `/customer-aliases/{alias}` | GET / PUT / DELETE | `alias:read` / `alias:write` / `alias:delete` |
+| `/customer-aliases/import`; `/customer-aliases/export` | POST / GET | `alias:import` (includes bulk replacement) / `alias:read` + `alias:export` |
+| `/deliveries`, `/deliveries/stats` | GET | `timeline:read` |
+| `/status`, `/sync/history`, `/sync/events` | GET | `sync:read` (the stream rechecks before sending events) |
+| `/sync`; `/admin/clear-database` | POST | `sync:trigger`; `database:clear` |
+| `/system`, `/config` | GET | `system:read` |
+| `/workday-policies` | GET / PUT | `workday:read` / `workday:update` |
+| `/delivery-flow/candidates`, `/delivery-runs`, `/delivery-runs/{id}` | GET | `delivery:read` |
+| `/delivery-runs`; `/delivery-runs/{id}` | POST / PUT / DELETE | `delivery:create` / `delivery:update` / `delivery:delete` |
+| `/delivery-runs/{id}/status`, `/delivery-runs/{id}/driver` | PATCH | `delivery:update` |
+| `/delivery-runs/{id}/items/{item_id}/pick` | PATCH | `delivery:pick` |
+| `/delivery-drivers`, `/delivery-drivers/{id}` | GET / POST / PUT / DELETE | `driver:read` / `driver:create` / `driver:update` / `driver:delete` |
+| `/page-designs`, `/page-designs/{id}` | GET / POST / PUT / DELETE | `design:read` / `design:create` / `design:update` / `design:delete` |
+| `/label-layout-presets`, `/label-layout-presets/{id}` | GET / POST / PUT / DELETE | `preset:read` / `preset:create` / `preset:update` / `preset:delete` |
+| `/accurate/*` | GET | `accurate:read` |
+| `/accurate/login`, `/accurate/database`, `/accurate/logout` | POST | `accurate:create`, `accurate:update`, `accurate:delete` respectively; all affect the shared connection |
+| `/datalogger/sessions`, `/datalogger/sessions/{id}`, `/datalogger/sessions/{id}/records`; `/datalogger/records/batch` | GET; POST | `logger_session:read` |
+| `/datalogger/sessions`; `/datalogger/sessions/{id}/name`; `/datalogger/sessions/{id}` | POST / PUT / DELETE | `logger_session:create` / `logger_session:update` / `logger_session:delete` |
+| `/datalogger/profiles`, `/datalogger/profiles/{id}` | GET / POST / PUT / DELETE | `logger_profile:read` / `logger_profile:create` / `logger_profile:update` / `logger_profile:delete` |
+| `/admin/users`; `/admin/users/{email}/role`; `/admin/users/{email}` | GET / PUT / DELETE | `user:read` / `user:create` (approval only) or `user:update` (assignment) / `user:delete` |
+| `/admin/permissions`; `/admin/roles`, `/admin/roles/{id}` | GET; GET / POST / PUT / DELETE | `role:read`; `role:read` / `role:create` / `role:update` / `role:delete` |
+
+`GET /api/v1/search` searches only categories covered by `order:read`, `item:read`, or `customer:read`. Explicit forbidden categories return 403; an all-category request still returns empty arrays and zero counts for excluded categories.
+
+`POST /api/v1/admin/roles` and `PUT /api/v1/admin/roles/{id}` accept `{name, description, permissions}`. Supply `[]` to clear grants; `*` and unknown grants are not assignable. Role metadata and grants save atomically; roles with assignees cannot be deleted. User assignments keep the existing `{role: string}` body. The list returns allowed target actions and assignable role IDs/names without requiring `role:read`.
+
+Browser-local capabilities: `barcode:print` allows local label work; `logger_device:read` allows connecting and pulling readings; `logger_device:write` additionally allows hardware configuration/reset/format/display writes only with read access and an active connection. These control actions in this app, not use of hardware by other software.
+
+The Go registry in `pkg/model/permission.go` owns the capability keys. After adding one, run `go generate ./pkg/model` to regenerate the TypeScript union and update the operation policy and role-editor locale copy.
 
 ---
 

@@ -1,6 +1,6 @@
-import { SYNC_STATUS, USER_ROLE, WORKER_STATE } from '~/domain';
+import { SYNC_STATUS, WORKER_STATE } from '~/domain';
 
-import { type Component, createSignal, createResource, Show, For } from 'solid-js';
+import { type Component, createSignal, createResource, onCleanup, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
 import {
@@ -15,7 +15,6 @@ import {
   IconRefresh,
 } from '@tabler/icons-solidjs';
 import { getStatus, getSyncHistory, getConfig, triggerSync, subscribeSyncEvents } from '../api';
-import type { SyncEvent } from '../types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
   TableHeader,
@@ -33,59 +32,49 @@ import { Badge } from '../components/Badge';
 
 export const SyncManager: Component = () => {
   const { t } = useI18n();
-  const [status, { refetch: refetchStatus }] = createResource(getStatus);
-  const [history, { refetch: refetchHistory }] = createResource(() => getSyncHistory({ limit: 10 }));
-  const [config] = createResource(getConfig);
+  const auth = useAuth();
+  const [status, { refetch: refetchStatus }] = createResource(() => auth.can('sync:read'), getStatus);
+  const [history, { refetch: refetchHistory }] = createResource(() => auth.can('sync:read'), () => getSyncHistory({ limit: 10 }));
+  const [config] = createResource(() => auth.can('system:read'), getConfig);
 
   // Live SSE sync state
   const [isSyncing, setIsSyncing] = createSignal(false);
   const [syncProgressMsg, setSyncProgressMsg] = createSignal<string>('');
   const [syncError, setSyncError] = createSignal<string>('');
-  const auth = useAuth();
-  const canSync = () => {
-    const role = auth.user()?.role;
-	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
-  };
+  const canSync = () => auth.can('sync:trigger');
+  let stream: EventSource | undefined;
+  let mounted = true;
+  onCleanup(() => { mounted = false; stream?.close(); });
 
   const handleManualSync = async () => {
-    if (isSyncing()) return;
+    if (!canSync() || isSyncing()) return;
 
     setIsSyncing(true);
     setSyncProgressMsg(t('sync.connecting'));
     setSyncError('');
 
-    let es: EventSource | null = null;
-
     try {
-      es = subscribeSyncEvents((evt: SyncEvent) => {
-		if (evt.status === SYNC_STATUS.SYNCING) {
-			setSyncProgressMsg(evt.message || t('sync.synchronizingRemote'));
-		} else if (evt.status === SYNC_STATUS.SUCCESS) {
-			setSyncProgressMsg(
-				t('sync.syncSuccessDetail', { count: evt.record?.items_count ?? 0, duration: evt.duration_ms ?? 0 })
-			);
-			setIsSyncing(false);
-			if (es) es.close();
-			refetchStatus();
-			refetchHistory();
-		} else if (evt.status === SYNC_STATUS.ERROR) {
-          setSyncError(evt.error || t('sync.syncFailed'));
-          setIsSyncing(false);
-          if (es) es.close();
-          refetchStatus();
-          refetchHistory();
-        }
-      });
-
-      // Trigger the POST sync endpoint
-      await triggerSync();
+      if (auth.can('sync:read')) {
+        stream = subscribeSyncEvents((event) => {
+          if (mounted && auth.can('sync:read') && event.status === SYNC_STATUS.SYNCING) {
+            setSyncProgressMsg(event.message || t('sync.synchronizingRemote'));
+          }
+        });
+      }
+      const result = await triggerSync();
+      if (mounted) setSyncProgressMsg(t('sync.syncSuccessDetail', { count: result.record?.items_count ?? 0, duration: result.record?.duration_ms ?? 0 }));
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('sync.triggerSyncFailed');
-      setSyncError(message);
-      setIsSyncing(false);
-      if (es) es.close();
-      refetchStatus();
-      refetchHistory();
+      if (mounted) setSyncError(err instanceof Error ? err.message : t('sync.triggerSyncFailed'));
+    } finally {
+      stream?.close();
+      stream = undefined;
+      if (mounted) {
+        setIsSyncing(false);
+        if (auth.can('sync:read')) {
+          void refetchStatus();
+          void refetchHistory();
+        }
+      }
     }
   };
 
@@ -200,6 +189,7 @@ export const SyncManager: Component = () => {
       </Card>
 
       {/* Worker Configuration Card */}
+      <Show when={auth.can('system:read')}>
       <Card>
         <CardHeader>
           <CardTitle class="text-base font-semibold">{t('syncManager.workerConfig')}</CardTitle>
@@ -252,6 +242,7 @@ export const SyncManager: Component = () => {
           </div>
         </CardContent>
       </Card>
+      </Show>
 
       {/* Sync History Table Card */}
       <Card>
@@ -263,7 +254,7 @@ export const SyncManager: Component = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetchHistory()}
+            onClick={() => auth.can('sync:read') && void refetchHistory()}
             class="gap-1.5 text-xs h-8 self-start sm:self-auto"
           >
             <IconRefresh class="size-3.5" />

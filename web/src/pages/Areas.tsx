@@ -1,9 +1,10 @@
-import { ROUTES } from '~/routes';
+import { ROUTES, canAccessRoute } from '~/routes';
 
 import { ORDER_STATUS } from '~/domain';
 
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
+import { useAuth } from '~/auth';
 import { A } from '@solidjs/router';
 import { IconMapPin, IconArrowRight } from '@tabler/icons-solidjs';
 import { getAreas, getCustomers } from '../api';
@@ -75,6 +76,7 @@ const MiniStatusBreakdown: Component<{ counts?: Record<string, number> }> = (pro
 
 export const Areas: Component = () => {
   const { t } = useI18n();
+  const auth = useAuth();
   const [areasData] = createResource(getAreas);
   const [selectedArea, setSelectedArea] = createSignal<string>('');
 
@@ -87,11 +89,8 @@ export const Areas: Component = () => {
   });
 
   const [areaCustomers] = createResource(
-    currentArea,
-    (area) =>
-      area
-        ? getCustomers({ area, limit: 5 })
-        : Promise.resolve({ total: 0, limit: 5, offset: 0, customers: [] })
+    () => auth.can('customer:read') && currentArea(),
+    (area) => getCustomers({ area, limit: 5 })
   );
 
   const topAreas = createMemo(() => (areasData()?.areas || []).slice(0, 4));
@@ -173,6 +172,7 @@ export const Areas: Component = () => {
                           class={isSelected() ? 'bg-muted/50 font-medium' : 'hover:bg-muted/20'}
                         >
                           <TableCell>
+                            <Show when={auth.can('customer:read')} fallback={<span class="font-semibold">{area.name}</span>}>
                             <button
                               type="button"
                               class="text-left font-semibold text-primary hover:underline cursor-pointer"
@@ -180,6 +180,7 @@ export const Areas: Component = () => {
                             >
                               {area.name}
                             </button>
+                            </Show>
                           </TableCell>
                           <TableCell class="text-right">{area.unique_customers}</TableCell>
                           <TableCell class="text-right">{area.total_orders}</TableCell>
@@ -188,6 +189,7 @@ export const Areas: Component = () => {
                             <MiniStatusBreakdown counts={area.status_counts} />
                           </TableCell>
                           <TableCell class="text-right">
+                            <Show when={canAccessRoute(auth, ROUTES.orders)}>
                             <Button
                               as={A}
                               href={`${ROUTES.orders}?area=${encodeURIComponent(area.name)}`}
@@ -197,6 +199,7 @@ export const Areas: Component = () => {
                             >
                               {t('nav.orders')}
                             </Button>
+                            </Show>
                           </TableCell>
                         </TableRow>
                       );
@@ -209,7 +212,7 @@ export const Areas: Component = () => {
       </Card>
 
       {/* Selected Area Customers Sub-table */}
-      <Show when={currentArea()}>
+      <Show when={auth.can('customer:read') && currentArea()}>
         <Card>
           <CardHeader class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 space-y-0">
             <div>
@@ -218,6 +221,7 @@ export const Areas: Component = () => {
               </CardTitle>
               <CardDescription>{t('areas.topCustomersDesc')}</CardDescription>
             </div>
+            <Show when={canAccessRoute(auth, ROUTES.orders)}>
             <Button
               as={A}
               href={`${ROUTES.orders}?area=${encodeURIComponent(currentArea())}`}
@@ -228,6 +232,7 @@ export const Areas: Component = () => {
               <span>{t('areas.viewAllAreaOrders')}</span>
               <IconArrowRight class="size-3.5" />
             </Button>
+            </Show>
           </CardHeader>
           <CardContent>
             <DataTable>
@@ -265,6 +270,7 @@ export const Areas: Component = () => {
                             <MiniStatusBreakdown counts={cust.status_counts} />
                           </TableCell>
                           <TableCell class="text-right">
+                            <Show when={canAccessRoute(auth, ROUTES.orders)}>
                             <Button
                               as={A}
                               href={`${ROUTES.orders}?customer=${encodeURIComponent(cust.name)}`}
@@ -274,6 +280,7 @@ export const Areas: Component = () => {
                             >
                               {t('nav.orders')}
                             </Button>
+                            </Show>
                           </TableCell>
                         </TableRow>
                       )}

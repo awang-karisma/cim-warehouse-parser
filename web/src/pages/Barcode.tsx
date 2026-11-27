@@ -1,4 +1,4 @@
-import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE, USER_ROLE } from '~/domain';
+import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE } from '~/domain';
 
 import { useI18n } from '~/i18n';
 import {
@@ -110,9 +110,19 @@ export const Barcode: Component = () => {
 
   let searchInputRef: HTMLInputElement | undefined;
   const auth = useAuth();
-  const isAdmin = () => {
-    const role = auth.user()?.role;
-	return role === USER_ROLE.ADMIN || role === USER_ROLE.SUPERADMIN;
+  const canLookup = () => auth.can('accurate:read') && status().connected;
+  const canManageAccurate = () => auth.can('accurate:create') || (auth.can('accurate:read') && auth.can('accurate:update'));
+  const [designLoadFailed, setDesignLoadFailed] = createSignal(false);
+  let mounted = true;
+
+  const loadDesigns = async () => {
+    if (!auth.can('design:read')) return;
+    setDesignLoadFailed(false);
+    try {
+      return await refetchDesigns();
+    } catch {
+      if (mounted) setDesignLoadFailed(true);
+    }
   };
 
   const [isEditing, setIsEditing] = createSignal(false);
@@ -121,11 +131,12 @@ export const Barcode: Component = () => {
 
   const startCreating = () => {
     previousPresetKey = presetKey();
+    const base = getEffectiveConfig();
     setPresetDraftActive(true);
     setIsEditing(false);
     setIsCreating(true);
     setPresetKey('custom');
-    setCustomConfig({ ...getEffectiveConfig(), name: '' });
+    setCustomConfig({ ...base, name: '' });
     setStatusMessage(null);
   };
 
@@ -138,6 +149,7 @@ export const Barcode: Component = () => {
   };
 
   const startEditing = () => {
+    if (!auth.can('design:update') || !auth.can('design:read')) return;
     setIsCreating(false);
     setIsEditing(true);
     setPresetDraftActive(true);
@@ -163,9 +175,11 @@ export const Barcode: Component = () => {
   const [isDeletingDesign, setIsDeletingDesign] = createSignal(false);
 
   const retrySavedPresetRefresh = async () => {
+    if (!auth.can('design:read') || !mounted) return;
 	const id = Number.parseInt(presetKey().slice(SERVER_PRESET_PREFIX.length), 10);
     try {
       const designs = await refetchDesigns();
+      if (!mounted) return;
       const design = (designs ?? []).find((entry) => entry.id === id);
       if (!design) throw new Error('Saved preset was not returned by the refreshed list');
       applyPageDesign(design);
@@ -181,10 +195,16 @@ export const Barcode: Component = () => {
   };
 
   const refreshAfterPresetSave = async (id: number, successText: string) => {
+    if (!mounted) return;
+    if (!auth.can('design:read')) {
+      setStatusMessage({ type: 'success', text: successText });
+      return;
+    }
 	setPresetKey(`${SERVER_PRESET_PREFIX}${id}`);
     setPresetDraftActive(true);
     try {
       const designs = await refetchDesigns();
+      if (!mounted) return;
       const design = (designs ?? []).find((entry) => entry.id === id);
       if (!design) throw new Error('Saved preset was not returned by the refreshed list');
       applyPageDesign(design);
@@ -200,6 +220,7 @@ export const Barcode: Component = () => {
   };
 
   const handleSaveNewDesign = async () => {
+    if (!auth.can('design:create') || isSaving()) return;
     const cfg = customConfig();
     const name = cfg.name.trim();
     if (!name || name === PRESETS.custom.name) {
@@ -219,6 +240,7 @@ export const Barcode: Component = () => {
   };
 
   const handleUpdateDesign = async () => {
+    if (!auth.can('design:update') || !auth.can('design:read') || isSaving()) return;
     const pk = presetKey();
 	if (!pk.startsWith(SERVER_PRESET_PREFIX)) return;
 	const id = Number.parseInt(pk.slice(SERVER_PRESET_PREFIX.length), 10);
@@ -241,6 +263,7 @@ export const Barcode: Component = () => {
   };
 
   const handleSaveAsCopy = async () => {
+    if (!auth.can('design:create') || isSaving()) return;
     const cfg = customConfig();
     const baseName = cfg.name.trim() || t('barcode.customLabel');
     const name = baseName.includes('Copy') || baseName.includes('Salinan') ? `${baseName} 2` : `${baseName}${t('barcode.copySuffix')}`;
@@ -258,6 +281,7 @@ export const Barcode: Component = () => {
   };
 
   const handleDeleteCurrentDesign = () => {
+    if (!auth.can('design:delete') || !auth.can('design:read')) return;
     const pk = presetKey();
 	if (!pk.startsWith(SERVER_PRESET_PREFIX)) return;
 	const id = parseInt(pk.slice(SERVER_PRESET_PREFIX.length), 10);
@@ -269,11 +293,13 @@ export const Barcode: Component = () => {
 
   const handleConfirmDelete = async () => {
     const target = designToDelete();
-    if (!target) return;
+    if (!target || !auth.can('design:delete') || isDeletingDesign()) return;
     setIsDeletingDesign(true);
     try {
       await deletePageDesign(target.id);
-      await refetchDesigns();
+      if (!mounted) return;
+      await loadDesigns();
+      if (!mounted) return;
       setIsEditing(false);
       setIsCreating(false);
 		if (presetKey() === `${SERVER_PRESET_PREFIX}${target.id}`) {
@@ -349,10 +375,13 @@ export const Barcode: Component = () => {
   const [highlightedIndex, setHighlightedIndex] = createSignal(-1);
 
   onMount(() => {
-    void refreshStatus();
+    void refreshStatus(auth.can);
+    void loadDesigns();
   });
 
   onCleanup(() => {
+    mounted = false;
+    searchRequestId++;
     clearTimeout(debounceTimer);
   });
 
@@ -385,6 +414,7 @@ export const Barcode: Component = () => {
   );
 
   const addInventoryItemToList = (it: AccurateInventoryItem) => {
+    if (!canLookup()) return;
     addItem({
       itemNo: it.no,
       itemName: it.name,
@@ -404,6 +434,7 @@ export const Barcode: Component = () => {
   };
 
   const executeSearch = async (q: string, fromEnter: boolean) => {
+    if (!mounted || !canLookup()) return;
     const reqId = ++searchRequestId;
     setIsSearching(true);
     setSearchMessage(null);
@@ -456,7 +487,7 @@ export const Barcode: Component = () => {
     setSearchQuery(val);
     clearTimeout(debounceTimer);
 
-    if (val.trim().length >= 2 && status().connected) {
+    if (val.trim().length >= 2 && canLookup()) {
       debounceTimer = window.setTimeout(() => {
         void executeSearch(val.trim(), false);
       }, 250);
@@ -500,7 +531,7 @@ export const Barcode: Component = () => {
       const idx = highlightedIndex();
       if (isPopupOpen() && idx >= 0 && idx < searchResults().length) {
         addInventoryItemToList(searchResults()[idx]);
-      } else if (status().connected) {
+      } else if (canLookup()) {
         void executeSearch(val, true);
       } else {
         addItem({
@@ -535,7 +566,7 @@ export const Barcode: Component = () => {
                   onInput={handleSearchInput}
                   onKeyDown={handleSearchKeyDown}
                   placeholder={
-                    status().connected
+                    canLookup()
                       ? t('barcode.scanPlaceholder')
                       : t('barcode.scanPlaceholderOffline')
                   }
@@ -553,7 +584,7 @@ export const Barcode: Component = () => {
               </Show>
 
               {/* Autocomplete Popup */}
-              <Show when={isPopupOpen() && searchResults().length > 0}>
+              <Show when={canLookup() && isPopupOpen() && searchResults().length > 0}>
                 <div class="absolute left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto bg-popover border border-border rounded-lg shadow-xl z-50 divide-y divide-border text-xs">
                   <For each={searchResults()}>
                     {(it, idx) => (
@@ -582,11 +613,11 @@ export const Barcode: Component = () => {
 
             {/* Import Buttons Group + Accurate status badge */}
             <div class="flex items-center gap-2 flex-wrap">
-              <Show when={status().connected}>
+              <Show when={canLookup()}>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsSearchOpen(true)}
+                  onClick={() => canLookup() && setIsSearchOpen(true)}
                   class="h-9 gap-1 text-xs"
                 >
                   <IconPackage class="size-3.5" />
@@ -596,7 +627,7 @@ export const Barcode: Component = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsTransactionOpen(true)}
+                  onClick={() => canLookup() && setIsTransactionOpen(true)}
                   class="h-9 gap-1 text-xs"
                 >
                   <IconFileInvoice class="size-3.5" />
@@ -606,7 +637,7 @@ export const Barcode: Component = () => {
 
               {/* Accurate Connection Status */}
               <Show
-                when={status().enabled}
+                when={auth.can('accurate:read') && status().enabled}
                 fallback={
                   <Badge variant="outline" class="text-xs text-muted-foreground border-dashed h-9 px-3">
                     {t('barcode.offlineMode')}
@@ -618,7 +649,8 @@ export const Barcode: Component = () => {
                   fallback={
                     <button
                       type="button"
-                      onClick={() => setIsLoginModalOpen(true)}
+                      disabled={!canManageAccurate()}
+                      onClick={() => canManageAccurate() && setIsLoginModalOpen(true)}
                       class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
                     >
                       <IconPlugConnectedX class="size-3.5" />
@@ -628,7 +660,8 @@ export const Barcode: Component = () => {
                 >
                   <button
                     type="button"
-                    onClick={() => setIsLoginModalOpen(true)}
+                    disabled={!canManageAccurate()}
+                    onClick={() => canManageAccurate() && setIsLoginModalOpen(true)}
                     class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
                   >
                     <IconPlugConnected class="size-3.5" />
@@ -637,6 +670,9 @@ export const Barcode: Component = () => {
                     </span>
                   </button>
                 </Show>
+              </Show>
+              <Show when={!auth.can('accurate:read') && auth.can('accurate:create')}>
+                <Button type="button" variant="outline" size="sm" onClick={() => auth.can('accurate:create') && setIsLoginModalOpen(true)}>{t('barcode.accurateDisconnected')}</Button>
               </Show>
             </div>
           </div>
@@ -876,6 +912,7 @@ export const Barcode: Component = () => {
                   onChange={(e) => {
                     const nextVal = e.currentTarget.value;
                     if (!nextVal || nextVal === 'custom') return;
+                    if (nextVal.startsWith(SERVER_PRESET_PREFIX) && !auth.can('design:read')) return;
                     setIsEditing(false);
                     setIsCreating(false);
                     setPresetDraftActive(false);
@@ -892,7 +929,7 @@ export const Barcode: Component = () => {
                       {([k, p]) => <option value={k}>{p.name}</option>}
                     </For>
                   </optgroup>
-                  <Show when={(serverDesigns() ?? []).length > 0}>
+                  <Show when={auth.can('design:read') && serverDesigns().length > 0}>
                     <optgroup label={t('barcode.customPresets')}>
                       <For each={serverDesigns() ?? []}>
 						{(d) => <option value={`${SERVER_PRESET_PREFIX}${d.id}`}>{d.name}</option>}
@@ -900,20 +937,20 @@ export const Barcode: Component = () => {
                     </optgroup>
                   </Show>
                 </select>
-                <Show when={serverDesigns.error}>
+                <Show when={auth.can('design:read') && designLoadFailed()}>
                   <div class="flex items-center justify-between gap-2 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
                     <span>{t('barcode.presetRefreshFailed')}</span>
-                    <Button type="button" variant="outline" size="sm" class="h-6 px-2 text-[10px]" onClick={() => refetchDesigns()}>{t('common.retry')}</Button>
+                    <Button type="button" variant="outline" size="sm" class="h-6 px-2 text-[10px]" onClick={() => void loadDesigns()}>{t('common.retry')}</Button>
                   </div>
                 </Show>
 
                 {/* Action buttons under dropdown */}
-                <Show when={isAdmin()}>
                   <div class="pt-0.5">
                     <label class="block text-[10px] text-muted-foreground select-none" aria-hidden="true">
                       &nbsp;
                     </label>
                     <div class="grid grid-cols-3 gap-1.5">
+                      <Show when={auth.can('design:read') && auth.can('design:update')}>
                       <Button
                         type="button"
                         variant={isEditing() ? 'secondary' : 'outline'}
@@ -937,6 +974,8 @@ export const Barcode: Component = () => {
                         </Show>
                         <span>{isEditing() ? t('common.cancel') : t('barcode.editPreset')}</span>
                       </Button>
+                      </Show>
+                      <Show when={auth.can('design:read') && auth.can('design:delete')}>
                       <Button
                         type="button"
                         variant="outline"
@@ -953,6 +992,7 @@ export const Barcode: Component = () => {
                         <IconTrash class="size-3.5" />
                         <span>{t('common.delete')}</span>
                       </Button>
+                      </Show>
                       <Button
                         type="button"
                         variant={isCreating() ? 'secondary' : 'outline'}
@@ -962,16 +1002,15 @@ export const Barcode: Component = () => {
                           if (isCreating()) cancelCreating();
                           else startCreating();
                         }}
-                        title={isCreating() ? t('barcode.cancelNewPreset') : t('barcode.createNewPreset')}
+                        title={isCreating() ? t('common.cancel') : t('barcode.customDimensions')}
                       >
                         <Show when={isCreating()} fallback={<IconPlus class="size-3.5" />}>
                           <IconX class="size-3.5" />
                         </Show>
-                        <span>{isCreating() ? t('common.cancel') : t('barcode.newPreset')}</span>
+                        <span>{isCreating() ? t('common.cancel') : auth.can('design:create') ? t('barcode.newPreset') : t('barcode.customLabel')}</span>
                       </Button>
                     </div>
                   </div>
-                </Show>
                 <Show when={isCreating() || isEditing()}>
                   <div class="space-y-2 pt-2 border-t border-border/50">
                     {/* Header with Title */}
@@ -983,7 +1022,7 @@ export const Barcode: Component = () => {
 
 
                     {/* Design Name */}
-                    <Show when={isAdmin() || presetKey() === 'custom'}>
+                    <Show when={auth.canAny('design:create', 'design:update')}>
                       <div>
                         <label class="block text-muted-foreground text-[10px]">{t('barcode.designName')}</label>
                         <input
@@ -1224,12 +1263,13 @@ export const Barcode: Component = () => {
                     </label>
 
                     {/* Bottom Action Buttons */}
-                    <Show when={isAdmin()}>
+                    <Show when={isCreating() ? auth.can('design:create') : auth.canAny('design:create', 'design:update')}>
                       <div class="pt-2 border-t border-border/50 flex items-center justify-end gap-1.5">
                         <Show
                           when={isCreating()}
                           fallback={
                             <>
+                              <Show when={auth.can('design:create')}>
                               <Button
                                 type="button"
                                 variant="outline"
@@ -1242,6 +1282,8 @@ export const Barcode: Component = () => {
                                 <IconCopy class="size-3.5" />
                                 <span>{t('barcode.createCopy')}</span>
                               </Button>
+                              </Show>
+                              <Show when={auth.can('design:update')}>
                               <Button
                                 type="button"
                                 size="sm"
@@ -1253,6 +1295,7 @@ export const Barcode: Component = () => {
                                 <IconDeviceFloppy class="size-3.5" />
                                 <span>{isSaving() ? t('common.saving') : t('common.save')}</span>
                               </Button>
+                              </Show>
                             </>
                           }
                         >
@@ -1406,7 +1449,7 @@ export const Barcode: Component = () => {
           <div class={`no-print mx-4 my-3 flex flex-wrap items-center justify-between gap-2 rounded px-3 py-2 text-xs md:mx-6 ${statusMessage()!.type === 'error' ? 'border border-destructive/20 bg-destructive/10 text-destructive' : 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`} role={statusMessage()!.type === 'error' ? 'alert' : 'status'}>
             <span>{statusMessage()!.text}</span>
             <div class="flex items-center gap-2">
-              <Show when={statusMessage()!.retry}>
+              <Show when={auth.can('design:read') && statusMessage()!.retry}>
                 <Button type="button" variant="outline" size="sm" class="h-7 text-xs" onClick={retrySavedPresetRefresh}>{t('common.retry')}</Button>
               </Show>
               <button type="button" aria-label={t('common.close')} onClick={() => setStatusMessage(null)} class="font-bold opacity-70 hover:opacity-100">×</button>
@@ -1419,13 +1462,15 @@ export const Barcode: Component = () => {
         </CardContent>
       </Card>
 
-      <AccurateLoginModal />
-      <ItemSearchDrawer isOpen={isSearchOpen()} onClose={() => setIsSearchOpen(false)} />
-      <TransactionDrawer isOpen={isTransactionOpen()} onClose={() => setIsTransactionOpen(false)} />
+      <Show when={canManageAccurate()}><AccurateLoginModal /></Show>
+      <Show when={auth.can('accurate:read')}>
+        <ItemSearchDrawer isOpen={isSearchOpen()} onClose={() => setIsSearchOpen(false)} />
+        <TransactionDrawer isOpen={isTransactionOpen()} onClose={() => setIsTransactionOpen(false)} />
+      </Show>
 
       {/* Delete Confirmation Alert Dialog */}
       <AlertDialog
-        open={!!designToDelete()}
+        open={auth.can('design:delete') && !!designToDelete()}
         onOpenChange={(open) => {
           if (!open) setDesignToDelete(null);
         }}

@@ -71,14 +71,14 @@ export function GraphTab(props: GraphTabProps) {
                 <IconChartLine class="size-6 text-muted-foreground" />
               </div>
               <div class="space-y-1">
-                <h3 class="text-base font-semibold">{t('datalogger.graph.noSessionsLoadedTitle')}</h3>
+                <h3 class="text-base font-semibold">{t('datalogger.noSessionsLoaded.title')}</h3>
                 <p class="max-w-md text-xs text-muted-foreground">
-                  {t('datalogger.graph.noSessionsLoadedDesc')}
+                  {t('datalogger.noSessionsLoaded.description')}
                 </p>
               </div>
               <Button size="sm" onClick={props.onGoToSessions} class="mt-2">
                 <IconArrowLeft class="size-4" />
-                {t('datalogger.graph.goToSessionsBtn')}
+                {t('datalogger.noSessionsLoaded.goToSessionsBtn')}
               </Button>
             </CardContent>
           </Card>

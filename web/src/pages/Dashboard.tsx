@@ -1,6 +1,6 @@
-import { ROUTES, orderDetailPath } from '~/routes';
+import { ROUTES, canAccessRoute, orderDetailPath } from '~/routes';
 
-import { ORDER_STATUS, USER_ROLE, SYNC_STATUS } from '~/domain';
+import { ORDER_STATUS, SYNC_STATUS } from '~/domain';
 
 import { type Component, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { A } from '@solidjs/router';
@@ -18,6 +18,7 @@ import {
 	import { getDailyOrderStatusChanges, getDashboardSummary, getDashboardOperations, getDashboardPressure, getOrderStatusTrend, getOrders, getStatus, subscribeSyncEvents, triggerSync } from '~/api';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
+import { WorkspaceLink } from '~/components/WorkspaceLink';
 import { Badge } from '~/components/Badge';
 import { DataTable } from '~/components/DataTable';
 import { Button } from '~/components/ui/button';
@@ -77,6 +78,8 @@ const ChartTypeSwitch: Component<{
 export const Dashboard: Component = () => {
   const { t, intlLocale, formatRelativeTime } = useI18n();
   const auth = useAuth();
+  const canViewOrders = () => canAccessRoute(auth, ROUTES.orders);
+  const canViewSync = () => canAccessRoute(auth, ROUTES.sync);
   const today = isoDay(new Date());
   const [fromDate, setFromDate] = createSignal(today);
   const [toDate, setToDate] = createSignal(today);
@@ -102,12 +105,12 @@ export const Dashboard: Component = () => {
   ]);
   const applyPreset = (from: string) => { setFromDate(from); setToDate(today); };
   const [summary, { refetch: refetchSummary }] = createResource(range, ({ from, to }) => getDashboardSummary({ from, to }));
-  const [recentOrders, { refetch: refetchRecentOrders }] = createResource(range, ({ from, to }) => getOrders({ from, to, limit: 5 }));
+  const [recentOrders, { refetch: refetchRecentOrders }] = createResource(() => canViewOrders() && range(), ({ from, to }) => getOrders({ from, to, limit: 5 }));
 	const [statusTrend, { refetch: refetchStatusTrend }] = createResource(range, ({ from, to }) => getOrderStatusTrend({ from, to }));
 	const [statusChanges, { refetch: refetchStatusChanges }] = createResource(range, ({ from, to }) => getDailyOrderStatusChanges({ from, to }));
   const [pressure, { refetch: refetchPressure }] = createResource(range, ({ from, to }) => getDashboardPressure({ from, to }));
   const [operations, { refetch: refetchOperations }] = createResource(getDashboardOperations);
-  const [syncStatus, { refetch: refetchSyncStatus }] = createResource(getStatus);
+  const [syncStatus, { refetch: refetchSyncStatus }] = createResource(canViewSync, getStatus);
   const [dailyChartType, setDailyChartType] = createSignal<ChartStyle>('bar');
   const [trendChartType, setTrendChartType] = createSignal<ChartStyle>('line');
   const [deltaChartType, setDeltaChartType] = createSignal<ChartStyle>('bar');
@@ -116,34 +119,33 @@ export const Dashboard: Component = () => {
   const [syncActionError, setSyncActionError] = createSignal('');
   const [syncActionSuccess, setSyncActionSuccess] = createSignal(false);
   let successTimer: number | undefined;
-  onCleanup(() => window.clearTimeout(successTimer));
+  let mounted = true;
+  onCleanup(() => { mounted = false; window.clearTimeout(successTimer); });
+  const refreshAll = () => Promise.all([
+    canViewSync() && refetchSyncStatus(), refetchOperations(), refetchSummary(),
+    canViewOrders() && refetchRecentOrders(), refetchStatusTrend(), refetchStatusChanges(), refetchPressure(),
+  ]);
   onMount(() => {
-    const refreshAll = () => {
-      void refetchSyncStatus();
-      void refetchOperations();
-      void refetchSummary();
-      void refetchRecentOrders();
-      void refetchStatusTrend();
-	  void refetchStatusChanges();
-      void refetchPressure();
-    };
+    if (!canViewSync()) return;
     const timer = setInterval(() => {
       setNow(Date.now());
-      void refetchSyncStatus();
+      if (canViewSync()) void refetchSyncStatus();
     }, 30_000);
     const events = subscribeSyncEvents((event) => {
-      if (event.status.toUpperCase() === SYNC_STATUS.SUCCESS) refreshAll();
+      if (!canViewSync()) return;
+      if (event.status.toUpperCase() === SYNC_STATUS.SUCCESS) void refreshAll();
       else if (event.status.toUpperCase() === SYNC_STATUS.ERROR) void refetchSyncStatus();
     });
     onCleanup(() => { clearInterval(timer); events.close(); });
   });
   const lastSuccessfulSync = createMemo(() => {
-    const record = syncStatus()?.last_record;
+    const record = syncStatus.error ? undefined : syncStatus()?.last_record;
     if (record?.status.toUpperCase() !== SYNC_STATUS.SUCCESS) return null;
     const date = new Date(record.synced_at);
     return Number.isNaN(date.getTime()) ? null : date;
   });
   const syncWarning = createMemo(() => {
+    if (!canViewSync()) return '';
     if (syncStatus.error) return t('dashboard.syncStatusUnavailable');
     const status = syncStatus();
     if (!status) return '';
@@ -153,21 +155,24 @@ export const Dashboard: Component = () => {
     if (!last) return status.is_inside_work_hours ? t('dashboard.syncMissingWarning') : '';
     return status.is_inside_work_hours && now() - last.getTime() > 30 * 60_000 ? t('dashboard.syncStaleWarning') : '';
   });
-  const canSync = () => auth.user()?.role === USER_ROLE.ADMIN || auth.user()?.role === USER_ROLE.SUPERADMIN;
+  const canSync = () => auth.can('sync:trigger');
   const syncNow = async () => {
-    if (syncing()) return;
+    if (!canSync() || syncing()) return;
     window.clearTimeout(successTimer);
     setSyncing(true);
     setSyncActionError('');
     setSyncActionSuccess(false);
     try {
       await triggerSync();
-	  await Promise.all([refetchSyncStatus(), refetchOperations(), refetchSummary(), refetchRecentOrders(), refetchStatusTrend(), refetchStatusChanges(), refetchPressure()]);
+      if (!mounted) return;
+      await refreshAll();
+      if (!mounted) return;
       setSyncActionSuccess(true);
       successTimer = window.setTimeout(() => setSyncActionSuccess(false), 6000);
     } catch (error) {
+      if (!mounted) return;
       setSyncActionError(t('dashboard.syncActionFailed', { message: error instanceof Error ? error.message : t('sync.syncFailed') }));
-      void refetchSyncStatus();
+      if (canViewSync()) void refetchSyncStatus();
     } finally {
       setSyncing(false);
     }
@@ -529,6 +534,7 @@ export const Dashboard: Component = () => {
 
   return (
     <div class="flex flex-1 flex-col gap-6 min-w-0">
+      <Show when={canViewSync()}>
       <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground" aria-live="polite">
         <div class="flex min-w-0 items-center gap-2">
           <span class="size-2 shrink-0 rounded-full" classList={{ 'bg-status-batal': !!syncWarning(), 'bg-status-proses': !syncWarning() && (syncing() || syncStatus()?.status.toUpperCase() === SYNC_STATUS.SYNCING), 'bg-status-selesai': !syncWarning() && !syncing() && syncStatus()?.status.toUpperCase() !== SYNC_STATUS.SYNCING && !!lastSuccessfulSync(), 'bg-muted-foreground': !syncWarning() && !syncing() && !lastSuccessfulSync() }} aria-hidden="true" />
@@ -541,10 +547,11 @@ export const Dashboard: Component = () => {
         </div>
         <A href={ROUTES.sync} class="inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('syncManager.liveState')} <IconArrowRight class="size-3.5" aria-hidden="true" /></A>
       </div>
+      </Show>
       <Show when={syncWarning() || syncActionError() || syncActionSuccess()}>
         <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm" role={syncWarning() || syncActionError() ? 'alert' : 'status'} classList={{ 'border-destructive/30 bg-destructive/10': !!syncWarning() || !!syncActionError() }}>
           <span class="flex min-w-0 items-center gap-2"><IconAlertCircle class="size-4 shrink-0" aria-hidden="true" />{syncActionError() || syncWarning() || t('dashboard.syncActionSuccess')}</span>
-          <Show when={canSync() && (syncWarning() || syncActionError())} fallback={<A href={ROUTES.sync} class="text-sm font-medium underline underline-offset-4">{t('syncManager.liveState')}</A>}>
+          <Show when={canSync() && (syncWarning() || syncActionError())} fallback={canViewSync() && <A href={ROUTES.sync} class="text-sm font-medium underline underline-offset-4">{t('syncManager.liveState')}</A>}>
             <Button size="sm" variant="outline" disabled={syncing()} onClick={syncNow} class="gap-2"><IconRefresh class="size-4" classList={{ 'animate-spin': syncing() }} />{syncing() ? t('sync.syncing') : t('sync.syncNow')}</Button>
           </Show>
         </div>
@@ -554,24 +561,24 @@ export const Dashboard: Component = () => {
         <div class="px-4 pb-3 pt-4 md:px-6"><h2 class="text-base font-semibold">{t('dashboard.operationsTitle')}</h2><p class="text-sm text-muted-foreground">{t('dashboard.operationsDesc')}</p></div>
         <Show when={!operations.error} fallback={<div class="flex items-center justify-between gap-3 border-t px-4 py-4 text-sm md:px-6" role="alert"><span>{t('dashboard.operationsLoadError')}</span><Button variant="outline" size="sm" onClick={() => refetchOperations()}><IconRefresh class="size-4" />{t('common.retry')}</Button></div>}>
           <div class="grid border-t md:grid-cols-3 md:divide-x">
-            <A href={`${ROUTES.orders}?status=${encodeURIComponent(ORDER_STATUS.UNFINISHED)}`} class="group flex min-w-0 items-center gap-3 border-b px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:border-b-0 md:px-6">
+            <WorkspaceLink route={ROUTES.orders} href={`${ROUTES.orders}?status=${encodeURIComponent(ORDER_STATUS.UNFINISHED)}`} class="group flex min-w-0 items-center gap-3 border-b px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:border-b-0 md:px-6">
               <IconPackage class="size-5 shrink-0 text-status-belum-selesai" aria-hidden="true" />
               <span class="min-w-0 flex-1"><span class="block text-sm font-medium">{t('dashboard.backlogOrders')}</span><span class="block text-xs text-muted-foreground">{t('dashboard.backlogDesc')}</span></span>
               <Show when={!operations.loading} fallback={<Skeleton class="h-7 w-10" />}><strong class="text-xl font-semibold tabular-nums">{operations()?.active_backlog_orders.toLocaleString(intlLocale()) ?? '0'}</strong></Show>
-              <IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
-            </A>
-            <A href={`${ROUTES.items}?ready_to_dispatch=true`} class="group flex min-w-0 items-center gap-3 border-b px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:border-b-0 md:px-6">
+              <Show when={canViewOrders()}><IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" /></Show>
+            </WorkspaceLink>
+            <WorkspaceLink route={ROUTES.items} href={`${ROUTES.items}?ready_to_dispatch=true`} class="group flex min-w-0 items-center gap-3 border-b px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:border-b-0 md:px-6">
               <IconBuildingWarehouse class="size-5 shrink-0 text-status-proses" aria-hidden="true" />
               <span class="min-w-0 flex-1"><span class="block text-sm font-medium">{t('dashboard.shelfReady')}</span><span class="block text-xs text-muted-foreground">{t('dashboard.shelfReadyDesc')}</span></span>
               <Show when={!operations.loading} fallback={<Skeleton class="h-7 w-10" />}><strong class="text-xl font-semibold tabular-nums">{operations()?.shelf_ready_items.toLocaleString(intlLocale()) ?? '0'}</strong></Show>
-              <IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
-            </A>
-            <A href={`${ROUTES.deliveryFlow}?tab=runs`} class="group flex min-w-0 items-center gap-3 px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:px-6">
+              <Show when={canAccessRoute(auth, ROUTES.items)}><IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" /></Show>
+            </WorkspaceLink>
+            <WorkspaceLink route={ROUTES.deliveryFlow} href={`${ROUTES.deliveryFlow}?tab=runs`} class="group flex min-w-0 items-center gap-3 px-4 py-4 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:px-6">
               <IconTruckDelivery class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span class="min-w-0 flex-1"><span class="block text-sm font-medium">{t('dashboard.activeRuns')}</span><span class="block text-xs text-muted-foreground">{t('dashboard.activeRunsDesc')}</span></span>
               <Show when={!operations.loading} fallback={<Skeleton class="h-7 w-10" />}><strong class="text-xl font-semibold tabular-nums">{operations()?.active_runs.toLocaleString(intlLocale()) ?? '0'}</strong></Show>
-              <IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
-            </A>
+              <Show when={canAccessRoute(auth, ROUTES.deliveryFlow)}><IconArrowRight class="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" /></Show>
+            </WorkspaceLink>
           </div>
         </Show>
       </section>
@@ -628,32 +635,32 @@ export const Dashboard: Component = () => {
           </div>
         }>
           <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <A href={`${ROUTES.orders}?from=${fromDate()}&to=${toDate()}`} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.totalOrders')}>
+            <WorkspaceLink route={ROUTES.orders} href={`${ROUTES.orders}?from=${fromDate()}&to=${toDate()}`} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.totalOrders')}>
               <Card class="h-full transition-colors group-hover:bg-secondary/50">
                 <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.totalOrders')}</CardTitle><IconPackage class="size-4 text-muted-foreground" /></CardHeader>
                 <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.total_orders.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.totalOrdersDesc')}</p></Show></CardContent>
               </Card>
-            </A>
-            <A href={ROUTES.items} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
+            </WorkspaceLink>
+            <WorkspaceLink route={ROUTES.items} href={ROUTES.items} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
               <Card class="h-full transition-colors group-hover:bg-secondary/50">
                 <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.totalLineItems')}</CardTitle><IconListDetails class="size-4 text-muted-foreground" /></CardHeader>
                 <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.total_items.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.totalLineItemsDesc')}</p></Show></CardContent>
               </Card>
-            </A>
-            <A href={ROUTES.customers} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
+            </WorkspaceLink>
+            <WorkspaceLink route={ROUTES.customers} href={ROUTES.customers} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
               <Card class="h-full transition-colors group-hover:bg-secondary/50">
                 <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.uniqueCustomers')}</CardTitle><IconUsers class="size-4 text-muted-foreground" /></CardHeader>
                 <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.unique_customers.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.uniqueCustomersDesc')}</p></Show></CardContent>
               </Card>
-            </A>
-            <A href={ROUTES.areas} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
+            </WorkspaceLink>
+            <WorkspaceLink route={ROUTES.areas} href={ROUTES.areas} class="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={t('dashboard.viewAllRecords')}>
               <Card class="h-full transition-colors group-hover:bg-secondary/50">
                 <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('dashboard.coverageAreas')}</CardTitle><IconMapPin class="size-4 text-muted-foreground" /></CardHeader>
                 <CardContent><Show when={!summary.loading} fallback={<Skeleton class="h-8 w-24" />}><div class="text-2xl font-bold tabular-nums">{summary()?.unique_areas.toLocaleString(intlLocale()) ?? '0'}</div><p class="mt-1 text-xs text-muted-foreground">{t('dashboard.coverageAreasDesc')}</p></Show></CardContent>
               </Card>
-            </A>
+            </WorkspaceLink>
           </div>
-          <p class="-mt-3 text-xs text-muted-foreground">{t('dashboard.kpiDrilldownNote')}</p>
+          <Show when={canViewOrders() && canAccessRoute(auth, ROUTES.items) && canAccessRoute(auth, ROUTES.customers) && canAccessRoute(auth, ROUTES.areas)}><p class="-mt-3 text-xs text-muted-foreground">{t('dashboard.kpiDrilldownNote')}</p></Show>
 
           <div class="grid min-w-0 gap-6 lg:grid-cols-2">
             <Card class="min-w-0">
@@ -727,12 +734,12 @@ export const Dashboard: Component = () => {
                     <h3 class="mb-3 text-sm font-semibold">{t('dashboard.areaPressure')}</h3>
                     <ol class="space-y-1">
                       <For each={pressure()?.areas}>{(area) => <li>
-                        <A href={ordersInRange({ area: area.name })} class="group block rounded-md px-2 py-2.5 -mx-2 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        <WorkspaceLink route={ROUTES.orders} href={ordersInRange({ area: area.name })} class="group block rounded-md px-2 py-2.5 -mx-2 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                           <div class="flex items-baseline justify-between gap-3 text-sm"><span class="min-w-0 font-medium group-hover:underline">{area.name}</span><strong class="shrink-0 font-semibold tabular-nums">{area.unfinished_items.toLocaleString(intlLocale())}</strong></div>
                           <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden="true"><div class="h-full rounded-full bg-muted-foreground/70" style={{ width: `${100 * area.unfinished_items / (pressure()?.areas[0]?.unfinished_items || 1)}%` }} /></div>
                           <Show when={area.pending_items > 0}><span class="mt-1 block text-xs text-status-pending">{t('dashboard.pendingItems', { count: area.pending_items })}</span></Show>
-                          <span class="sr-only">{t('dashboard.openAreaOrders', { name: area.name })}. {t('dashboard.unfinishedItems', { count: area.unfinished_items })}</span>
-                        </A>
+                          <Show when={canViewOrders()}><span class="sr-only">{t('dashboard.openAreaOrders', { name: area.name })}. {t('dashboard.unfinishedItems', { count: area.unfinished_items })}</span></Show>
+                        </WorkspaceLink>
                       </li>}</For>
                     </ol>
                   </div>
@@ -740,13 +747,13 @@ export const Dashboard: Component = () => {
                     <h3 class="mb-3 text-sm font-semibold">{t('dashboard.customerPressure')}</h3>
                     <ol class="space-y-1">
                       <For each={pressure()?.customers}>{(customer) => <li>
-                        <A href={ordersInRange({ customer: customer.name })} class="group block rounded-md px-2 py-2.5 -mx-2 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        <WorkspaceLink route={ROUTES.orders} href={ordersInRange({ customer: customer.name })} class="group block rounded-md px-2 py-2.5 -mx-2 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                           <div class="flex items-baseline justify-between gap-3 text-sm"><span class="min-w-0 font-medium group-hover:underline">{customer.name}</span><strong class="shrink-0 font-semibold tabular-nums">{customer.unfinished_items.toLocaleString(intlLocale())}</strong></div>
                           <Show when={customer.area}><span class="block text-xs text-muted-foreground">{customer.area}</span></Show>
                           <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden="true"><div class="h-full rounded-full bg-muted-foreground/70" style={{ width: `${100 * customer.unfinished_items / (pressure()?.customers[0]?.unfinished_items || 1)}%` }} /></div>
                           <Show when={customer.pending_items > 0}><span class="mt-1 block text-xs text-status-pending">{t('dashboard.pendingItems', { count: customer.pending_items })}</span></Show>
-                          <span class="sr-only">{t('dashboard.openCustomerOrders', { name: customer.name })}. {t('dashboard.unfinishedItems', { count: customer.unfinished_items })}</span>
-                        </A>
+                          <Show when={canViewOrders()}><span class="sr-only">{t('dashboard.openCustomerOrders', { name: customer.name })}. {t('dashboard.unfinishedItems', { count: customer.unfinished_items })}</span></Show>
+                        </WorkspaceLink>
                       </li>}</For>
                     </ol>
                   </div>
@@ -761,7 +768,7 @@ export const Dashboard: Component = () => {
                   <Show when={leadTimeValue()} fallback={<span class="text-sm text-muted-foreground">{t('dashboard.noCompletedItems')}</span>}>
                     <strong class="block text-xl font-semibold tabular-nums">{t('dashboard.averageLeadTimeValue', { value: leadTimeValue()! })}</strong>
                     <span class="text-xs text-muted-foreground">{t('dashboard.completedItems', { count: pressure()?.completed_items ?? 0 })}</span>
-                    <A href={ordersInRange({ status: ORDER_STATUS.COMPLETE })} class="mt-1 block text-xs font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('dashboard.viewCompletedOrders')}</A>
+                    <Show when={canViewOrders()}><A href={ordersInRange({ status: ORDER_STATUS.COMPLETE })} class="mt-1 block text-xs font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('dashboard.viewCompletedOrders')}</A></Show>
                   </Show>
                 </div>
               </div>
@@ -839,6 +846,7 @@ export const Dashboard: Component = () => {
           </CardContent>
         </Card>
 
+        <Show when={canViewOrders()}>
         <Card>
           <CardHeader class="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-center sm:justify-between">
             <div><CardTitle class="text-base font-semibold">{t('dashboard.recentOrders')}</CardTitle><CardDescription>{t('dashboard.recentOrdersDesc')}</CardDescription></div>
@@ -872,6 +880,7 @@ export const Dashboard: Component = () => {
             </Show>
           </CardContent>
         </Card>
+        </Show>
       </Show>
     </div>
   );

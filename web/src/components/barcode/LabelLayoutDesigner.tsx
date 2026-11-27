@@ -1,5 +1,3 @@
-import { USER_ROLE } from '~/domain';
-
 import { createEffect, createResource, For, Show, createSignal } from 'solid-js';
 import { createLabelLayoutPreset, deleteLabelLayoutPreset, getLabelLayoutPresets, updateLabelLayoutPreset } from '~/api';
 import { useAuth } from '~/auth';
@@ -7,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useI18n } from '~/i18n';
 import { getEffectiveConfig } from '~/stores/barcodeConfig';
 import { addElement, labelLayout, removeElement, resetLayout, setLabelLayout, updateElement, serializeLayout, deserializeLayout } from '~/stores/labelLayout';
-import type { LabelElement, LabelElementType, LabelLayoutPreset } from '~/types';
+import type { LabelElement, LabelElementType } from '~/types';
 
 
 export function LabelLayoutDesigner() {
@@ -18,8 +16,7 @@ export function LabelLayoutDesigner() {
   const pxPerMm = () => Math.min(280 / Math.max(cfg().labelWidthMM, 1), 200 / Math.max(cfg().labelHeightMM, 1));
   const selected = () => labelLayout().find((el) => el.id === selectedId());
   const auth = useAuth();
-	const isAdmin = () => auth.user()?.role === USER_ROLE.ADMIN || auth.user()?.role === USER_ROLE.SUPERADMIN;
-  const [layoutPresets, { refetch: refetchLayoutPresets }] = createResource(() => getLabelLayoutPresets().then((result) => result.presets).catch(() => [] as LabelLayoutPreset[]));
+  const [layoutPresets, { refetch: refetchLayoutPresets }] = createResource(() => auth.can('preset:read'), async () => (await getLabelLayoutPresets()).presets);
   const [selectedPresetId, setSelectedPresetId] = createSignal('');
   const [presetName, setPresetName] = createSignal('');
   const [presetError, setPresetError] = createSignal('');
@@ -27,14 +24,14 @@ export function LabelLayoutDesigner() {
   let layoutPresetSelect: HTMLSelectElement | undefined;
   createEffect(() => {
     const id = selectedPresetId();
-    const presets = layoutPresets();
+    const presets = layoutPresets.error ? [] : layoutPresets();
     if (layoutPresetSelect && presets) {
       layoutPresetSelect.value = presets.some((preset) => String(preset.id) === id) ? id : '';
     }
   });
   const [confirmingDelete, setConfirmingDelete] = createSignal(false);
   const deleteLayoutPreset = async () => {
-    if (!selectedPresetId()) return;
+    if (!auth.can('preset:delete') || !selectedPresetId() || isSavingPreset()) return;
     setIsSavingPreset(true);
     setPresetError('');
     try {
@@ -42,7 +39,7 @@ export function LabelLayoutDesigner() {
       setSelectedPresetId('');
       setPresetName('');
       setConfirmingDelete(false);
-      await refetchLayoutPresets();
+      if (auth.can('preset:read')) await refetchLayoutPresets();
     } catch (error) {
       setPresetError(error instanceof Error ? error.message : t('barcode.deletePresetFailed'));
     } finally {
@@ -104,6 +101,7 @@ export function LabelLayoutDesigner() {
     </label>
   );
   const selectLayoutPreset = (id: string) => {
+    if (!auth.can('preset:read') || layoutPresets.error) return;
     setSelectedPresetId(id);
     setPresetError('');
     const preset = (layoutPresets() ?? []).find((item) => String(item.id) === id);
@@ -118,6 +116,7 @@ export function LabelLayoutDesigner() {
   };
 
   const saveLayoutPreset = async (update: boolean) => {
+    if (isSavingPreset() || (update ? !auth.can('preset:update') || !selectedPresetId() : !auth.can('preset:create'))) return;
     const name = presetName().trim();
     if (!name) {
       setPresetError(t('barcode.presetNameRequired'));
@@ -127,13 +126,13 @@ export function LabelLayoutDesigner() {
     setPresetError('');
     try {
       const payload = { name, label_layout: serializeLayout(labelLayout()) };
-      if (update && selectedPresetId()) {
+      if (update) {
         await updateLabelLayoutPreset(Number(selectedPresetId()), payload);
       } else {
         const result = await createLabelLayoutPreset(payload);
-        setSelectedPresetId(String(result.id));
+        if (auth.can('preset:read')) setSelectedPresetId(String(result.id));
       }
-      await refetchLayoutPresets();
+      if (auth.can('preset:read')) await refetchLayoutPresets();
     } catch (error) {
       setPresetError(error instanceof Error ? error.message : t('barcode.savePresetFailed'));
     } finally {
@@ -151,19 +150,27 @@ export function LabelLayoutDesigner() {
         </DialogHeader>
         <section class="space-y-2 min-w-0" aria-label={t('barcode.layoutDesigner')}>
         <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2 items-end">
+          <Show when={auth.can('preset:read')}>
           <div class="space-y-1">
             <label class="block text-[10px] text-muted-foreground">{t('barcode.labelLayoutPresets')}</label>
             <select ref={layoutPresetSelect} aria-label={t('barcode.labelLayoutPresets')} value={selectedPresetId()} onChange={(event) => selectLayoutPreset(event.currentTarget.value)} class="w-full h-8 px-2 border rounded bg-background text-xs">
               <option value="">{t('barcode.chooseLayoutPreset')}</option>
-              <For each={layoutPresets() ?? []}>{(preset) => <option value={String(preset.id)}>{preset.name}</option>}</For>
+              <For each={layoutPresets.error ? [] : layoutPresets() ?? []}>{(preset) => <option value={String(preset.id)}>{preset.name}</option>}</For>
             </select>
           </div>
+          </Show>
           <div class="flex flex-wrap justify-end gap-1.5">
-            <Show when={isAdmin()}>
-              <input value={presetName()} onInput={(event) => setPresetName(event.currentTarget.value)} placeholder={t('barcode.layoutPresetName')} class="h-8 w-36 px-2 border rounded bg-background text-xs" />
+            <Show when={auth.can('preset:create') || (auth.can('preset:update') && auth.can('preset:read'))}>
+              <input value={presetName()} onInput={(event) => setPresetName(event.currentTarget.value)} aria-label={t('barcode.layoutPresetName')} placeholder={t('barcode.layoutPresetName')} class="h-8 w-36 px-2 border rounded bg-background text-xs" />
+            </Show>
+            <Show when={auth.can('preset:create')}>
               <button type="button" disabled={isSavingPreset()} class="h-8 px-2 border rounded bg-background hover:bg-muted text-xs disabled:opacity-50" onClick={() => void saveLayoutPreset(false)}>{t('barcode.saveLayoutPreset')}</button>
+            </Show>
+            <Show when={auth.can('preset:read') && auth.can('preset:update')}>
               <button type="button" disabled={!selectedPresetId() || isSavingPreset()} class="h-8 px-2 border rounded bg-background hover:bg-muted text-xs disabled:opacity-50" onClick={() => void saveLayoutPreset(true)}>{t('barcode.updateLayoutPreset')}</button>
-              <button type="button" disabled={!selectedPresetId() || isSavingPreset()} class="h-8 px-2 border rounded text-destructive hover:bg-destructive/10 text-xs disabled:opacity-50" onClick={() => setConfirmingDelete(true)}>{t('common.delete')}</button>
+            </Show>
+            <Show when={auth.can('preset:read') && auth.can('preset:delete')}>
+              <button type="button" disabled={!selectedPresetId() || isSavingPreset()} class="h-8 px-2 border rounded text-destructive hover:bg-destructive/10 text-xs disabled:opacity-50" onClick={() => auth.can('preset:delete') && setConfirmingDelete(true)}>{t('common.delete')}</button>
             </Show>
             <select aria-label={t('barcode.addElement')} class="h-8 px-2 border rounded bg-background text-xs"
               value="" onChange={(event) => {
