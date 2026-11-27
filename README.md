@@ -379,6 +379,8 @@ Business endpoints are under `/api/v1`. A slash-separated pair of methods and ca
 
 Browser-local capabilities: `barcode:print` allows local label work; `logger_device:read` allows connecting and pulling readings; `logger_device:write` additionally allows hardware configuration/reset/format/display writes only with read access and an active connection. These control actions in this app, not use of hardware by other software.
 
+Changing unrelated grants leaves an authorized USB logger connection and its pending verification intact. Barcode lookups and open drawers reset when the Accurate tenant changes; explicitly queued labels are unchanged. Session refresh rechecks the server's auth mode, and sync event writes cannot outlive session expiry.
+
 The Go registry in `pkg/model/permission.go` owns the capability keys. After adding one, run `go generate ./pkg/model` to regenerate the TypeScript union and update the operation policy and role-editor locale copy.
 
 ---
