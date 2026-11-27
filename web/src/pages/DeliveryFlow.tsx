@@ -769,12 +769,19 @@ export const DeliveryFlow: Component = () => {
 
   const handleDeleteDriverClick = async (id: number) => {
     if (!auth.can('driver:delete')) return;
+    setDriverModalError('');
     try {
       await deleteDeliveryDriver(id);
       if (disposed) return;
       if (selectedDriverId() === id) {
         setSelectedDriverId(null);
         setDriverName('');
+      }
+      if (driverToEdit()?.id === id) {
+        setDriverToEdit(null);
+        setNewDriverName('');
+        setNewDriverPhone('');
+        setNewDriverVehicle('');
       }
       refetchDrivers();
     } catch (err: unknown) {
@@ -784,7 +791,7 @@ export const DeliveryFlow: Component = () => {
 
   // Driver reassignment on active runs
   const handleReassignDriver = async (runId: number, driverIdStr: string) => {
-    if (!auth.can('delivery:update') || !auth.can('driver:read')) return;
+    if (!auth.can('delivery:update') || (driverIdStr && !auth.can('driver:read'))) return;
     try {
       let updatedRun: DeliveryRun | undefined;
       if (!driverIdStr) {
@@ -1130,8 +1137,19 @@ export const DeliveryFlow: Component = () => {
     closeRunsDockPanel();
   };
 
+  const resetWorkspaceEditing = () => {
+    setRunsEditAll(false);
+    setRunsDispatchOpen(false);
+    setEditingItemKey(undefined);
+    if (runsDockPanel() === 'driver') closeRunsDockPanel();
+  };
+
+  createEffect(on(canEditWorkspace, (editable) => {
+    if (!editable) resetWorkspaceEditing();
+  }));
+
   const handleAssignRunDriver = async (driverId: number | null) => {
-    if (!canEditWorkspace() || !auth.can('driver:read')) return;
+    if (!canEditWorkspace() || (driverId !== null && !auth.can('driver:read'))) return;
     if (isDraft()) {
       if (driverId === null) {
         setSelectedDriverId(null);
@@ -1269,6 +1287,7 @@ export const DeliveryFlow: Component = () => {
         setDriverName('');
         setDeleteDialogOpen(false);
       });
+      resetWorkspaceEditing();
       return;
     }
     const run = pickedRun();
@@ -1987,15 +2006,16 @@ export const DeliveryFlow: Component = () => {
 
     return (
       <div class="grid min-w-0 gap-3.5">
-        <Show when={auth.can('driver:read')}>
+        <Show when={auth.canAny('driver:read', 'driver:create')}>
         <section class="min-w-0 space-y-2" aria-label={t('deliveryFlow.driverWorkload')}>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h3 class="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t('deliveryFlow.driverWorkload')}</h3>
-            <Button type="button" variant="outline" size="sm" class="h-8 lg:h-7 px-2 text-xs gap-1" onClick={() => { if (auth.can('driver:read')) setShowDriverModal(true); }}>
+            <Button type="button" variant="outline" size="sm" class="h-8 lg:h-7 px-2 text-xs gap-1" onClick={() => setShowDriverModal(true)}>
               <IconUsers class="size-3.5" aria-hidden="true" />
-              <span>{t('deliveryFlow.roster')}</span>
+              <span>{t(auth.can('driver:read') ? 'deliveryFlow.roster' : 'deliveryFlow.addDriver')}</span>
             </Button>
           </div>
+          <Show when={auth.can('driver:read')}>
           <div class="grid min-w-0 gap-1.5">
             <For
               each={driverWorkloads()}
@@ -2011,6 +2031,7 @@ export const DeliveryFlow: Component = () => {
                   <button
                     type="button"
                     aria-pressed={isSelected()}
+                    disabled={!canEditWorkspace()}
                     class={cn(
                       'grid min-h-12 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors hover:bg-muted',
                       insetFocusClass,
@@ -2047,7 +2068,10 @@ export const DeliveryFlow: Component = () => {
               }}
             </For>
           </div>
-          <Show when={activeDriverId() !== null}>
+          </Show>
+        </section>
+        </Show>
+          <Show when={canEditWorkspace() && activeDriverId() !== null}>
             <Button
               type="button"
               variant="ghost"
@@ -2058,8 +2082,6 @@ export const DeliveryFlow: Component = () => {
               {t('deliveryFlow.clearAssignment')}
             </Button>
           </Show>
-        </section>
-        </Show>
 
         <label class="grid min-w-0 gap-1 text-xs font-medium text-muted-foreground">
           {t('deliveryFlow.dispatchDateLabel')}
@@ -2418,10 +2440,10 @@ export const DeliveryFlow: Component = () => {
           </TabsTrigger>
         </TabsList>
       </Tabs>
-      <Show when={auth.can('driver:read') && (!canEditWorkspace() || (!isDraft() && !pickedRun()))}>
-        <Button type="button" variant="outline" size="sm" class="gap-1 no-print" onClick={() => { if (auth.can('driver:read')) setShowDriverModal(true); }}>
+      <Show when={auth.canAny('driver:read', 'driver:create') && (activeTab() === 'plan' || !canEditWorkspace() || (!isDraft() && !pickedRun()))}>
+        <Button type="button" variant="outline" size="sm" class="gap-1 no-print" onClick={() => setShowDriverModal(true)}>
           <IconUsers class="size-3.5" aria-hidden="true" />
-          {t('deliveryFlow.roster')}
+          {t(auth.can('driver:read') ? 'deliveryFlow.roster' : 'deliveryFlow.addDriver')}
         </Button>
       </Show>
         {/* TAB 1: PLAN DELIVERY (Orders Main Content + Floating Right Sidebar) */}
@@ -3216,10 +3238,10 @@ export const DeliveryFlow: Component = () => {
                     <div
                       class={cn(
                         'grid min-w-0 items-start gap-4',
-                        runsDispatchOpen() && 'lg:@min-[44rem]:grid-cols-[minmax(0,1fr)_17rem]'
+                        canEditWorkspace() && runsDispatchOpen() && 'lg:@min-[44rem]:grid-cols-[minmax(0,1fr)_17rem]'
                       )}
                     >
-                      <Show when={runsDispatchOpen()}>
+                      <Show when={canEditWorkspace() && runsDispatchOpen()}>
                         <section
                           aria-label={t('deliveryFlow.dispatchAndDriver')}
                           class="hidden min-w-0 rounded-lg border bg-card p-3 lg:block lg:@min-[44rem]:sticky lg:@min-[44rem]:top-4 lg:@min-[44rem]:col-start-2 lg:@min-[44rem]:row-start-1 animate-[card-enter_200ms_ease-out_both] motion-reduce:animate-none"
@@ -3256,8 +3278,8 @@ export const DeliveryFlow: Component = () => {
                                   const ordGroup = () => groupedWorkspaceOrderMap().get(orderId);
                                   const pickCount = () => orderPickTotals().get(orderId);
                                   const showFillBtn = () =>
-                                    runsEditAll() ||
-                                    (ordGroup()?.items.some((it) => it.key === editingItemKey()) ?? false);
+                                    canEditWorkspace() && (runsEditAll() ||
+                                    (ordGroup()?.items.some((it) => it.key === editingItemKey()) ?? false));
                                   const itemKeys = createMemo(() => (ordGroup()?.items || []).map((it) => it.key));
                                   return (
                                     <Show when={ordGroup()}>
@@ -3479,7 +3501,7 @@ export const DeliveryFlow: Component = () => {
                     <Show when={panel === 'runs'}>
                       <RunFeed />
                     </Show>
-                    <Show when={panel === 'driver'}>
+                    <Show when={panel === 'driver' && canEditWorkspace()}>
                       <Show when={!isDraft() && auth.can('delivery:update') && pickedRun()}>
                         {(run) => (
                           <div class="flex items-center justify-between gap-2 border-b pb-3">
@@ -3632,11 +3654,11 @@ export const DeliveryFlow: Component = () => {
               <DialogDescription>{t('deliveryFlow.manageDriversDesc')}</DialogDescription>
             </DialogHeader>
 
+            <Show when={driverModalError()}>
+              <div role="alert" class="p-2 rounded bg-destructive/15 text-xs text-destructive">{driverModalError()}</div>
+            </Show>
             <Show when={auth.can(driverToEdit() ? 'driver:update' : 'driver:create')}>
             <form onSubmit={handleAddDriver} class="space-y-3 pt-2">
-              <Show when={driverModalError()}>
-                <div class="p-2 rounded bg-destructive/15 text-xs text-destructive">{driverModalError()}</div>
-              </Show>
 
               <div class="space-y-2">
                 <input
@@ -3675,6 +3697,7 @@ export const DeliveryFlow: Component = () => {
             </form>
             </Show>
 
+            <Show when={auth.can('driver:read')}>
             <div class="border rounded mt-3 max-h-48 overflow-y-auto">
               <table class="w-full text-left text-xs">
                 <tbody>
@@ -3711,6 +3734,7 @@ export const DeliveryFlow: Component = () => {
                 </tbody>
               </table>
             </div>
+            </Show>
 
             <DialogFooter class="pt-2">
               <Button variant="outline" size="sm" onClick={() => setShowDriverModal(false)}>
