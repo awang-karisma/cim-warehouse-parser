@@ -8,6 +8,7 @@ export const ROUTES = {
   customerAliases: "/customer-aliases",
   areas: "/areas",
   deliveryFlow: "/delivery-flow",
+  purchaseOrders: "/purchase-orders",
   timeline: "/timeline",
   barcode: "/barcode",
   sync: "/sync",

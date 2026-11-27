@@ -167,7 +167,7 @@ func initFetcher(cfg *config.Config) worker.Fetcher {
 		if err == nil {
 			log.Printf("Using Google Sheets fetcher with spreadsheet ID %s, sheet %s",
 				cfg.SpreadsheetID, cfg.SheetName)
-			return worker.NewSheetsFetcher(svc, cfg.SpreadsheetID, cfg.SheetName)
+			return worker.NewSheetsFetcher(svc, cfg.SpreadsheetID, cfg.SheetName).WithPOSheetName(cfg.POSheetName)
 		}
 		log.Printf("warning: failed to initialize Google Sheets service from credentials (%s): %v. Falling back to CSV", credsPath, err)
 	} else if cfg.GoogleAPIKey != "" || os.Getenv("GOOGLE_API_KEY") != "" {
@@ -178,7 +178,7 @@ func initFetcher(cfg *config.Config) worker.Fetcher {
 		svc, err := sheets.NewService(context.Background(), option.WithAPIKey(apiKey))
 		if err == nil {
 			log.Printf("Using Google Sheets fetcher with API Key for spreadsheet ID %s, sheet %s", cfg.SpreadsheetID, cfg.SheetName)
-			return worker.NewSheetsFetcher(svc, cfg.SpreadsheetID, cfg.SheetName)
+			return worker.NewSheetsFetcher(svc, cfg.SpreadsheetID, cfg.SheetName).WithPOSheetName(cfg.POSheetName)
 		}
 		log.Printf("warning: failed to initialize Google Sheets service with API Key: %v. Falling back to CSV", err)
 	}

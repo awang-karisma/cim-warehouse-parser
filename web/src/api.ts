@@ -43,6 +43,7 @@ import type {
   DataloggerConfiguration,
   DataloggerProfile,
   DataloggerProfilesResponse,
+  PurchaseOrderListResponse,
 } from './types';
 
 export class ApiError extends Error {
@@ -516,3 +517,19 @@ export const deleteDataloggerProfile = (id: number) =>
   apiFetch<{ status: string }>(`/api/v1/datalogger/profiles/${id}`, {
     method: 'DELETE',
   });
+
+export const getPurchaseOrders = (params?: {
+  q?: string;
+  supplier?: string;
+  status?: string;
+  type?: string;
+  from?: string;
+  to?: string;
+  sort?: string;
+  order?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const query = qs(params);
+  return apiFetch<PurchaseOrderListResponse>(`/api/v1/purchase-orders${query ? `?${query}` : ''}`);
+};

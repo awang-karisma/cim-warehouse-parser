@@ -575,3 +575,37 @@ export interface DataloggerProfile {
 export interface DataloggerProfilesResponse {
   profiles: DataloggerProfile[];
 }
+
+export interface PurchaseOrderItem {
+  id: number;
+  row_index: number;
+  tanggal: string;
+  pemasok: string;
+  kode_barang: string;
+  nie: string;
+  nama_barang: string;
+  jumlah: string;
+  satuan: string;
+  status_order: string;
+  keterangan: string;
+  clients: string[];
+  is_stock: boolean;
+  catatan: string;
+}
+
+export interface PurchaseOrderStats {
+  total: number;
+  stock_items: number;
+  client_items: number;
+  suppliers_count: number;
+}
+
+export interface PurchaseOrderListResponse {
+  items: PurchaseOrderItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  stats: PurchaseOrderStats;
+  suppliers: string[];
+  statuses: string[];
+}

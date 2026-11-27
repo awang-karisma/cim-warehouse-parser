@@ -19,6 +19,7 @@ import { Items } from './pages/Items';
 import { OrderDetail } from './pages/OrderDetail';
 import { Orders } from './pages/Orders';
 import { Privacy } from './pages/Privacy';
+import { PurchaseOrders } from './pages/PurchaseOrders';
 import { Search } from './pages/Search';
 import { Settings } from './pages/Settings';
 import { SyncManager } from './pages/SyncManager';
@@ -48,6 +49,7 @@ if (root) {
 				<Route path={ROUTES.customerAliases} component={CustomerAliases} />
 				<Route path={ROUTES.areas} component={Areas} />
 				<Route path={ROUTES.deliveryFlow} component={DeliveryFlow} />
+				<Route path={ROUTES.purchaseOrders} component={PurchaseOrders} />
 				<Route path={ROUTES.timeline} component={Timeline} />
 				<Route path={ROUTES.barcode} component={Barcode} />
 				<Route path={ROUTES.sync} component={SyncManager} />

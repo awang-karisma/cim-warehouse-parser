@@ -901,6 +901,16 @@ func (s *Server) registerOperations() {
 		Tags:        []string{"datalogger"},
 		Metadata:    map[string]any{"minRole": "admin"},
 	}, s.handleDeleteDataloggerProfile)
+
+	huma.Register(s.humaAPI, huma.Operation{
+		OperationID: "list-purchase-orders",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/purchase-orders",
+		Summary:     "List purchase order items",
+		Description: "List normalized items from the PERMINTAAN PEMBELIAN sheet with filtering, sorting, pagination, and stats",
+		Tags:        []string{"purchase-orders"},
+		Metadata:    map[string]any{"minRole": "user"},
+	}, s.handleListPurchaseOrders)
 }
 
 // clearSessionCookie expires the warehouse_session cookie.

@@ -587,6 +587,25 @@ func (s *Storage) migrate() error {
 		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 	);
+	CREATE TABLE IF NOT EXISTS purchase_order_items (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		row_index INTEGER NOT NULL,
+		tanggal TEXT NOT NULL DEFAULT '',
+		pemasok TEXT NOT NULL DEFAULT '',
+		kode_barang TEXT NOT NULL DEFAULT '',
+		nie TEXT NOT NULL DEFAULT '',
+		nama_barang TEXT NOT NULL DEFAULT '',
+		jumlah TEXT NOT NULL DEFAULT '',
+		satuan TEXT NOT NULL DEFAULT '',
+		status_order TEXT NOT NULL DEFAULT '',
+		keterangan TEXT NOT NULL DEFAULT '',
+		clients_json TEXT NOT NULL DEFAULT '[]',
+		is_stock INTEGER NOT NULL DEFAULT 0,
+		catatan TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_po_items_tanggal ON purchase_order_items(tanggal);
+	CREATE INDEX IF NOT EXISTS idx_po_items_pemasok ON purchase_order_items(pemasok);
+	CREATE INDEX IF NOT EXISTS idx_po_items_status ON purchase_order_items(status_order);
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -3498,7 +3517,7 @@ func (s *Storage) ClearData(ctx context.Context) error {
 		_ = tx.Rollback()
 	}()
 
-	tables := []string{"deliveries", "items", "orders", "daily_order_statuses", "daily_order_status_days", "sync_status_snapshots", "sync_history"}
+	tables := []string{"deliveries", "items", "orders", "purchase_order_items", "daily_order_statuses", "daily_order_status_days", "sync_status_snapshots", "sync_history"}
 	for _, table := range tables {
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", table)); err != nil {
 			return fmt.Errorf("failed to clear table %s: %w", table, err)

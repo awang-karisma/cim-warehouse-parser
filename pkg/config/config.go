@@ -28,6 +28,7 @@ type Config struct {
 	Timezone                       string        `mapstructure:"sync_timezone" json:"timezone"`
 	SpreadsheetID                  string        `mapstructure:"spreadsheet_id" json:"spreadsheet_id"`
 	SheetName                      string        `mapstructure:"sheet_name" json:"sheet_name"`
+	POSheetName                    string        `mapstructure:"po_sheet_name" json:"po_sheet_name"`
 	GoogleApplicationCredentials   string        `mapstructure:"google_application_credentials" json:"google_application_credentials"`
 	GoogleAPIKey                   string        `mapstructure:"google_api_key" json:"google_api_key"`
 	CSVFallbackPath                string        `mapstructure:"csv_fallback_path" json:"csv_fallback_path"`
@@ -53,6 +54,7 @@ func DefaultConfig() Config {
 		Timezone:                       "Asia/Makassar",
 		SpreadsheetID:                  "1X3FqpqpP7utvkyFK98YE863ItVsvmmUrBTBsGfuzK3s",
 		SheetName:                      "PESANAN",
+		POSheetName:                    "PERMINTAAN PEMBELIAN",
 		GoogleApplicationCredentials:   "",
 		GoogleAPIKey:                   "",
 		CSVFallbackPath:                "testdata/orders_sample.csv",
@@ -91,6 +93,7 @@ func Load(envFiles ...string) (*Config, error) {
 	v.SetDefault("sync_timezone", defaults.Timezone)
 	v.SetDefault("spreadsheet_id", defaults.SpreadsheetID)
 	v.SetDefault("sheet_name", defaults.SheetName)
+	v.SetDefault("po_sheet_name", defaults.POSheetName)
 	v.SetDefault("google_application_credentials", defaults.GoogleApplicationCredentials)
 	v.SetDefault("google_api_key", defaults.GoogleAPIKey)
 	v.SetDefault("csv_fallback_path", defaults.CSVFallbackPath)
@@ -112,6 +115,7 @@ func Load(envFiles ...string) (*Config, error) {
 	_ = v.BindEnv("sync_timezone", "SYNC_TIMEZONE")
 	_ = v.BindEnv("spreadsheet_id", "SPREADSHEET_ID")
 	_ = v.BindEnv("sheet_name", "SHEET_NAME")
+	_ = v.BindEnv("po_sheet_name", "PO_SHEET_NAME")
 	_ = v.BindEnv("google_application_credentials", "GOOGLE_APPLICATION_CREDENTIALS")
 	_ = v.BindEnv("google_api_key", "GOOGLE_API_KEY")
 	_ = v.BindEnv("csv_fallback_path", "CSV_FALLBACK_PATH")
@@ -206,6 +210,7 @@ func (c *Config) WorkerConfig() worker.Config {
 		Timezone:                   c.Timezone,
 		SpreadsheetID:              c.SpreadsheetID,
 		SheetName:                  c.SheetName,
+		POSheetName:                c.POSheetName,
 		CSVFallbackPath:            c.CSVFallbackPath,
 		BypassWorkHoursOnFirstSync: &c.SyncBypassWorkHoursOnFirstSync,
 	}

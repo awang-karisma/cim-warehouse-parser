@@ -28,6 +28,7 @@ type Config struct {
 	WorkDays                   []time.Weekday `json:"work_days"`        // e.g. Mon-Sat
 	SpreadsheetID              string         `json:"spreadsheet_id"`
 	SheetName                  string         `json:"sheet_name"`
+	POSheetName                string         `json:"po_sheet_name"`
 	CSVFallbackPath            string         `json:"csv_fallback_path"`
 	BypassWorkHoursOnFirstSync *bool          `json:"bypass_work_hours_on_first_sync"`
 }
@@ -35,6 +36,40 @@ type Config struct {
 // Fetcher defines the interface for retrieving order items and orders from remote data.
 type Fetcher interface {
 	Fetch(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error)
+}
+
+// PurchaseOrderFetcher is an optional interface implemented by Fetchers
+// that can also retrieve purchase order items from the "PERMINTAAN PEMBELIAN" sheet.
+type PurchaseOrderFetcher interface {
+	FetchPurchaseOrders(ctx context.Context, aliases map[string]string) ([]model.PurchaseOrderItem, error)
+}
+
+// SheetsFetcher fetches both order tracking items and purchase order items from Google Sheets.
+type SheetsFetcher struct {
+	svc           *sheets.Service
+	spreadsheetID string
+	sheetName     string
+	poSheetName   string
+}
+
+// Fetch retrieves normalized order items and grouped orders from the main sheet.
+func (f *SheetsFetcher) Fetch(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
+	return parser.ParseSheetWithAliases(ctx, f.svc, f.spreadsheetID, f.sheetName, aliases)
+}
+
+// FetchPurchaseOrders retrieves purchase order items from the configured PO sheet.
+func (f *SheetsFetcher) FetchPurchaseOrders(ctx context.Context, aliases map[string]string) ([]model.PurchaseOrderItem, error) {
+	sheetName := f.poSheetName
+	if sheetName == "" {
+		sheetName = "PERMINTAAN PEMBELIAN"
+	}
+	return parser.ParsePurchaseOrderSheet(ctx, f.svc, f.spreadsheetID, sheetName, aliases)
+}
+
+// WithPOSheetName sets the purchase order sheet name on the SheetsFetcher.
+func (f *SheetsFetcher) WithPOSheetName(poSheetName string) *SheetsFetcher {
+	f.poSheetName = poSheetName
+	return f
 }
 
 // FetcherFunc is an adapter to allow the use of ordinary functions as Fetchers.
@@ -46,10 +81,13 @@ func (f FetcherFunc) Fetch(ctx context.Context, aliases map[string]model.Custome
 }
 
 // NewSheetsFetcher creates a Fetcher backed by the Google Sheets service.
-func NewSheetsFetcher(svc *sheets.Service, spreadsheetID, sheetName string) Fetcher {
-	return FetcherFunc(func(ctx context.Context, aliases map[string]model.CustomerAlias) ([]model.NormalizedItem, []model.Order, error) {
-		return parser.ParseSheetWithAliases(ctx, svc, spreadsheetID, sheetName, aliases)
-	})
+func NewSheetsFetcher(svc *sheets.Service, spreadsheetID, sheetName string) *SheetsFetcher {
+	return &SheetsFetcher{
+		svc:           svc,
+		spreadsheetID: spreadsheetID,
+		sheetName:     sheetName,
+		poSheetName:   "PERMINTAAN PEMBELIAN",
+	}
 }
 
 // NewCSVFetcher creates a Fetcher backed by a local CSV file.
@@ -387,6 +425,19 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 
 	w.broadcast(SyncEvent{Status: string(model.Syncing), Message: "writing to database"})
 	err = w.store.SyncMirror(ctx, items, orders)
+	if err == nil {
+		if poFetcher, ok := w.fetcher.(PurchaseOrderFetcher); ok {
+			poAliases := make(map[string]string, len(aliases))
+			for k, v := range aliases {
+				poAliases[k] = v.Canonical
+			}
+			if poItems, poErr := poFetcher.FetchPurchaseOrders(ctx, poAliases); poErr != nil {
+				log.Printf("warning: failed to fetch purchase orders: %v", poErr)
+			} else if syncErr := w.store.SyncPurchaseOrders(ctx, poItems); syncErr != nil {
+				log.Printf("warning: failed to sync purchase orders: %v", syncErr)
+			}
+		}
+	}
 	duration := time.Since(startTime)
 
 	w.mu.Lock()
@@ -401,6 +452,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: err.Error(), DurationMs: duration.Milliseconds()})
 		return fmt.Errorf("sync mirror failed: %w", err)
 	}
+
 	_ = w.store.UpdateLastSyncDuration(ctx, duration.Milliseconds())
 
 	w.status = string(model.WorkerIdle)
