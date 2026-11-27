@@ -75,6 +75,8 @@ export const AuthProvider: ParentComponent = (props) => {
   let generation = 0;
   let changing = false;
   let inflight: Promise<void> | undefined;
+  let refreshAgain = false;
+  let logoutPending = false;
 
   const publish = (next: AuthUser | null | undefined, cfg = authConfig()) => {
     const changed = sessionKey(next, cfg) !== accessKey();
@@ -92,18 +94,20 @@ export const AuthProvider: ParentComponent = (props) => {
 
   const refetch = (): Promise<void> => {
     if (changing) return Promise.resolve();
-    if (inflight) return inflight;
+    if (logoutPending) return logout();
+    if (inflight) {
+      refreshAgain = true;
+      return inflight;
+    }
     const started = generation;
-    const refresh = async () => {
+    const refreshOnce = async () => {
       try {
-        let cfg = authConfig();
-        if (!cfg) {
-          const response = await fetch('/auth/config', { cache: 'no-store' });
-          if (!response.ok) throw new Error('Failed to load authentication configuration');
-          cfg = await response.json() as AuthConfig;
-          if (typeof cfg?.auth_enabled !== 'boolean') throw new Error('Invalid authentication configuration');
-        }
+        const configResponse = await fetch('/auth/config', { cache: 'no-store' });
+        if (!configResponse.ok) throw new Error('Failed to load authentication configuration');
+        const cfg = await configResponse.json() as AuthConfig;
+        if (typeof cfg?.auth_enabled !== 'boolean') throw new Error('Invalid authentication configuration');
         if (started !== generation) return;
+        if (authConfig() && authConfig()?.auth_enabled !== cfg.auth_enabled) publish(undefined, cfg);
         let next: AuthUser | null;
         if (cfg.auth_enabled === false) {
           next = { email: '', name: 'Developer', picture: '', role: USER_ROLE.SUPERADMIN, permissions: ['*'] };
@@ -118,23 +122,29 @@ export const AuthProvider: ParentComponent = (props) => {
       } catch {
         if (started !== generation) return;
         batch(() => { publish(undefined); setFailed(true); });
+      }
+    };
+    inflight = Promise.resolve().then(async () => {
+      try {
+        do {
+          refreshAgain = false;
+          await refreshOnce();
+        } while (started === generation && refreshAgain);
       } finally {
         if (started === generation) {
           inflight = undefined;
           setLoading(false);
         }
       }
-    };
-    // Schedule after the slot is assigned, including the auth-disabled path.
-    inflight = Promise.resolve().then(refresh);
+    });
     return inflight;
   };
 
   onMount(() => {
-    const focus = () => { void refetch(); };
+    const focus = () => { if (!logoutPending) void refetch(); };
     const forget = observeAuthorizationFailures((status) => {
-      if (changing || authConfig()?.auth_enabled !== true) return;
-      if (status === 401) {
+      if (changing || logoutPending) return;
+      if (status === 401 && authConfig()?.auth_enabled === true) {
         generation++;
         inflight = undefined;
         publish(null);
@@ -178,10 +188,15 @@ export const AuthProvider: ParentComponent = (props) => {
     const started = ++generation;
     inflight = undefined;
     changing = true;
+    logoutPending = true;
     publish(null);
     try {
       const res = await fetch('/auth/logout', { method: 'POST' });
       if (!res.ok) throw new Error('Logout failed');
+      if (started === generation) {
+        logoutPending = false;
+        setFailed(false);
+      }
     } catch {
       if (started === generation) setFailed(true);
     } finally {
