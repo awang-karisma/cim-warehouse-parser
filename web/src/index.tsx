@@ -7,7 +7,7 @@ import { render } from 'solid-js/web';
 import './app.css';
 
 import { App } from './App';
-import { AuthProvider, useAuth } from './auth';
+import { AuthProvider, useAuth, type AuthContextValue } from './auth';
 import { WorkspaceAccess } from './components/WorkspaceAccess';
 import { I18nProvider } from './i18n';
 import { Areas } from './pages/Areas';
@@ -31,11 +31,11 @@ const Datalogger = lazy(() => import('./pages/datalogger'));
 const DataloggerRecords = lazy(() => import('./pages/DataloggerRecords'));
 const storageManager = createLocalStorageManager('warehouse-ui-theme');
 
-function guardedPage(route: WorkspaceRoute, Page: Component): Component {
+function guardedPage(route: WorkspaceRoute, Page: Component, key = (auth: AuthContextValue) => auth.accessKey()): Component {
   return () => {
     const auth = useAuth();
     return (
-      <Show when={canAccessRoute(auth, route) && auth.accessKey()} keyed fallback={<WorkspaceAccess kind="denied" />}>
+      <Show when={canAccessRoute(auth, route) && key(auth)} keyed fallback={<WorkspaceAccess kind="denied" />}>
         {(_key) => <Page />}
       </Show>
     );
@@ -86,7 +86,10 @@ if (root) {
                 <Route path={ROUTES.roles} component={guardedPage(ROUTES.roles, RoleManagement)} />
                 <Route path={ROUTES.privacy} component={Privacy} />
                 <Route path={ROUTES.terms} component={Terms} />
-                <Route path={ROUTES.datalogger} component={guardedPage(ROUTES.datalogger, Datalogger)} />
+                <Route path={ROUTES.datalogger} component={guardedPage(ROUTES.datalogger, Datalogger, (auth) => JSON.stringify([
+                  auth.authConfig()?.auth_enabled, auth.user()?.email,
+                  auth.can('logger_device:read'), auth.can('logger_device:write'),
+                ]))} />
                 <Route path={ROUTES.dataloggerRecordsPattern} component={guardedPage(ROUTES.dataloggerRecordsPattern, DataloggerRecords)} />
               </Router>
             </I18nProvider>

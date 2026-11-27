@@ -10,7 +10,7 @@ import {
 } from '@tabler/icons-solidjs';
 import { getDataloggerRecordsBatch, getDataloggerSessions } from '~/api';
 import { useAuth } from '~/auth';
-import { createDataloggerDeviceSession } from '~/components/datalogger/device-session';
+import { createDataloggerDeviceSession, type DataloggerDeviceSession } from '~/components/datalogger/device-session';
 import { PageTransition } from '~/components/PageTransition';
 import { Badge } from '~/components/ui/badge';
 import { Button } from '~/components/ui/button';
@@ -27,6 +27,20 @@ import { SessionsTab } from './SessionsTab';
 const ThermalMapTab = lazy(() => import('./ThermalMapTab'));
 
 export default function Datalogger() {
+  const auth = useAuth();
+  const device = createDataloggerDeviceSession(undefined, {
+    canRead: () => auth.can('logger_device:read'),
+    canWrite: () => auth.can('logger_device:write'),
+  });
+  // Server-backed state resets on grant changes without closing an authorized HID handle.
+  return (
+    <Show when={auth.accessKey()} keyed>
+      {(_key) => <DataloggerWorkspace device={device} />}
+    </Show>
+  );
+}
+
+function DataloggerWorkspace(props: { device: DataloggerDeviceSession }) {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const auth = useAuth();
@@ -34,10 +48,7 @@ export default function Datalogger() {
   const canImport = () => auth.canAny('logger_session:create', 'logger_device:read');
   const canDevice = () => auth.can('logger_device:read');
   const [sessionsData, { refetch }] = createResource(canRead, () => getDataloggerSessions());
-  const device = createDataloggerDeviceSession(undefined, {
-    canRead: canDevice,
-    canWrite: () => canDevice() && auth.can('logger_device:write'),
-  });
+  const device = props.device;
   let disposed = false;
   onCleanup(() => { disposed = true; });
 
@@ -69,7 +80,7 @@ export default function Datalogger() {
   createEffect(() => { if (activeTab() === 'thermal') setThermalVisited(true); });
 
   const setTab = (value: string) => {
-    if (!tabAllowed(value)) return;
+    if (disposed || !tabAllowed(value)) return;
     setSearchParams({ tab: value, sessions: undefined }, { replace: true });
   };
 

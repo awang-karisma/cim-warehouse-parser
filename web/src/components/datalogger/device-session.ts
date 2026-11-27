@@ -554,7 +554,7 @@ export function createDataloggerDeviceSession(
   };
 
   const verifyPendingOperation = async (): Promise<boolean> => {
-    if (disposed) return false;
+    if (disposed || options.canRead?.() === false) return false;
     const pending = pendingVerification();
     if (!pending) return false;
 

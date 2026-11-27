@@ -778,6 +778,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
       />
 
       {/* 2. Reusable Configuration Profiles Card */}
+      <Show when={auth.canAny('logger_profile:read', 'logger_profile:create', 'logger_profile:update', 'logger_profile:delete')}>
       <Card>
         <CardHeader>
           <CardTitle class="flex items-center gap-2">
@@ -914,6 +915,7 @@ export function ConfigurationTab(props: ConfigurationTabProps) {
           </Show>
         </CardContent>
       </Card>
+      </Show>
 
       {/* 3. Recording Configuration Form Card */}
       <Card>
