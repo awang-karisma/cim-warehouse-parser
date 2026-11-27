@@ -49,11 +49,10 @@ func (s *Server) handleGoogleCallback(c fiber.Ctx) error {
 	if s.store == nil {
 		return storageUnavailable
 	}
-	user, err := s.store.UpsertUser(ctx, email, name, picture)
-	if err != nil {
+	if _, err := s.store.UpsertUser(ctx, email, name, picture); err != nil {
 		return storageUnavailable
 	}
-	principal, err := s.resolveCurrentUser(ctx, s.identity(user.Email))
+	principal, err := s.resolveCurrentUser(ctx, s.identity(email))
 	if err != nil {
 		return storageUnavailable
 	}
