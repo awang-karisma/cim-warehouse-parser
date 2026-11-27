@@ -8,7 +8,10 @@ import {
   onMount,
   Show,
 } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import {
+  IconAdjustmentsHorizontal,
+  IconChevronDown,
   IconAlertTriangle,
   IconCircleCheck,
   IconClock,
@@ -16,6 +19,7 @@ import {
   IconRotateClockwise,
   IconShoppingCart,
   IconUsers,
+  IconX,
 } from '@tabler/icons-solidjs';
 import { getPurchaseOrders, subscribeSyncEvents } from '~/api';
 import { Badge } from '~/components/Badge';
@@ -62,6 +66,7 @@ function isStockClient(name: string): boolean {
 export const PurchaseOrders: Component = () => {
   const { t, formatDate } = useI18n();
   const [searchDraft, setSearchDraft] = createSignal('');
+  const [dockFilterOpen, setDockFilterOpen] = createSignal(false);
   let debounceTimer: number | undefined;
 
   const filters = createUrlFilter({
@@ -120,6 +125,14 @@ export const PurchaseOrders: Component = () => {
       serialize: (v) => (v === 0 ? null : String(v)),
     },
   });
+
+  const activeFilterCount = createMemo(
+    () =>
+      Number(Boolean(filters.values.q())) +
+      Number(filters.values.type() !== 'all') +
+      Number(Boolean(filters.values.supplier())) +
+      Number(Boolean(filters.values.status()))
+  );
 
   onMount(() => {
     setSearchDraft(filters.values.q());
@@ -303,7 +316,7 @@ export const PurchaseOrders: Component = () => {
   const total = () => data()?.total ?? 0;
 
   return (
-    <div class="flex flex-1 flex-col gap-6 min-w-0">
+    <div class="flex flex-1 flex-col gap-6 min-w-0 pb-24 md:pb-0">
       {/* KPI Strip */}
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -380,7 +393,7 @@ export const PurchaseOrders: Component = () => {
       </div>
 
       {/* Filter Toolbar */}
-      <Card>
+      <Card class="hidden md:block">
         <CardContent class="p-4 md:p-6">
           <form class="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end gap-4" onSubmit={applyFilters}>
             <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[220px]">
@@ -722,6 +735,202 @@ export const PurchaseOrders: Component = () => {
           </Show>
         </CardContent>
       </Card>
+      <Portal>
+        <Show when={dockFilterOpen()}>
+          <div
+            class="df-dock-backdrop md:hidden no-print"
+            onClick={() => setDockFilterOpen(false)}
+          />
+        </Show>
+        <div
+          class="fixed bottom-2 left-2 right-2 z-40 rounded-2xl border bg-card/98 p-2.5 shadow-2xl backdrop-blur-md md:hidden no-print"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && dockFilterOpen()) {
+              e.stopPropagation();
+              setDockFilterOpen(false);
+            }
+          }}
+        >
+          <Show when={dockFilterOpen()}>
+            <div class="mb-2.5 p-3 rounded-xl border bg-background shadow-inner max-h-[65dvh] overflow-y-auto space-y-3 animate-[card-enter_200ms_ease-out_both] motion-reduce:animate-none">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-xs text-foreground flex items-center gap-1.5">
+                  <IconAdjustmentsHorizontal class="size-3.5 text-primary" />
+                  <span>{t('deliveryFlow.filters')}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDockFilterOpen(false)}
+                  class="size-6 inline-flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground"
+                  aria-label={t('common.close')}
+                >
+                  <IconX class="size-3.5" />
+                </button>
+              </div>
+
+              <TextField value={searchDraft()} onChange={handleSearchInput}>
+                <TextFieldLabel class="text-xs font-semibold text-muted-foreground">
+                  {t('purchaseOrders.searchLabel')}
+                </TextFieldLabel>
+                <TextFieldInput
+                  placeholder={t('purchaseOrders.searchPlaceholder')}
+                  class="h-9 w-full"
+                />
+              </TextField>
+
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-semibold text-muted-foreground">
+                  {t('purchaseOrders.typeLabel')}
+                </label>
+                <Select<SelectOption>
+                  options={typeOptions()}
+                  optionValue="value"
+                  optionTextValue="label"
+                  value={selectedTypeOption()}
+                  allowDuplicateSelectionEvents={false}
+                  onChange={(opt) => {
+                    const next = opt?.value || 'all';
+                    if (next !== filters.values.type()) {
+                      filters.setters.type(next);
+                    }
+                  }}
+                  itemComponent={(itemProps) => (
+                    <SelectItem item={itemProps.item}>{itemProps.item.rawValue.label}</SelectItem>
+                  )}
+                >
+                  <SelectTrigger class="h-9 w-full">
+                    <SelectValue<SelectOption>>
+                      {(state) => state.selectedOption()?.label ?? t('purchaseOrders.typeAll')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent />
+                </Select>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-semibold text-muted-foreground">
+                  {t('purchaseOrders.supplierLabel')}
+                </label>
+                <Select<SelectOption>
+                  options={supplierOptions()}
+                  optionValue="value"
+                  optionTextValue="label"
+                  value={selectedSupplierOption()}
+                  allowDuplicateSelectionEvents={false}
+                  onChange={(opt) => {
+                    const next = opt?.value || '';
+                    if (next !== filters.values.supplier()) {
+                      filters.setters.supplier(next);
+                    }
+                  }}
+                  itemComponent={(itemProps) => (
+                    <SelectItem item={itemProps.item}>{itemProps.item.rawValue.label}</SelectItem>
+                  )}
+                >
+                  <SelectTrigger class="h-9 w-full">
+                    <SelectValue<SelectOption>>
+                      {(state) => state.selectedOption()?.label ?? t('purchaseOrders.allSuppliers')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent />
+                </Select>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-semibold text-muted-foreground">
+                  {t('purchaseOrders.statusLabel')}
+                </label>
+                <Select<SelectOption>
+                  options={statusOptions()}
+                  optionValue="value"
+                  optionTextValue="label"
+                  value={selectedStatusOption()}
+                  allowDuplicateSelectionEvents={false}
+                  onChange={(opt) => {
+                    const next = opt?.value || '';
+                    if (next !== filters.values.status()) {
+                      filters.setters.status(next);
+                    }
+                  }}
+                  itemComponent={(itemProps) => (
+                    <SelectItem item={itemProps.item}>{itemProps.item.rawValue.label}</SelectItem>
+                  )}
+                >
+                  <SelectTrigger class="h-9 w-full">
+                    <SelectValue<SelectOption>>
+                      {(state) => state.selectedOption()?.label ?? t('purchaseOrders.allStatuses')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent />
+                </Select>
+              </div>
+
+              <div class="flex items-center gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class="h-9 flex-1 gap-1.5"
+                  onClick={handleReset}
+                >
+                  <IconRotateClockwise class="size-3.5" />
+                  {t('common.reset')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  class="h-9 flex-1"
+                  onClick={() => setDockFilterOpen(false)}
+                >
+                  {t('deliveryFlow.done')}
+                </Button>
+              </div>
+            </div>
+          </Show>
+
+          <div class="flex items-center gap-2">
+            <Button
+              type="button"
+              variant={dockFilterOpen() ? 'default' : 'outline'}
+              class="flex-1 h-10 rounded-xl gap-1.5 text-xs font-medium"
+              onClick={() => setDockFilterOpen((prev) => !prev)}
+              aria-expanded={dockFilterOpen()}
+            >
+              <IconAdjustmentsHorizontal class="size-4" />
+              <span>{t('deliveryFlow.filters')}</span>
+              <Show when={activeFilterCount() > 0}>
+                <span
+                  class={`inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full text-[11px] font-semibold tabular-nums ${
+                    dockFilterOpen()
+                      ? 'bg-primary-foreground/20 text-primary-foreground'
+                      : 'bg-primary/15 text-primary'
+                  }`}
+                >
+                  {activeFilterCount()}
+                </span>
+              </Show>
+              <IconChevronDown
+                class={`size-3.5 ml-auto transition-transform duration-200 ${
+                  dockFilterOpen() ? 'rotate-180' : ''
+                }`}
+              />
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              class="size-10 rounded-xl shrink-0"
+              onClick={() => void refetch()}
+              disabled={data.loading}
+              aria-label={t('common.refresh')}
+              title={t('common.refresh')}
+            >
+              <IconRefresh class={`size-4 ${data.loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+        </div>
+      </Portal>
     </div>
   );
 };
