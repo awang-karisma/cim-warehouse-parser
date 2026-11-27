@@ -24,16 +24,16 @@ export const Badge: Component<BadgeProps> = (props) => {
 
     if (props.kind === 'item') {
 		if (s === STOCK_STATUS.PROCESSING_ORDER) {
-			return 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30';
+			return 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30';
 		}
 		if (s === STOCK_STATUS.WAREHOUSE) {
-			return 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30';
+			return 'bg-status-selesai/15 text-status-selesai border-status-selesai/30';
 		}
 		if (s === STOCK_STATUS.DONE) {
 			return 'bg-status-selesai/15 text-status-selesai border-status-selesai/30';
 		}
 		if (s === STOCK_STATUS.VENDOR_DELIVERY) {
-			return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30';
+			return 'bg-status-pending/15 text-status-pending border-status-pending/30';
 		}
       return 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30';
     }

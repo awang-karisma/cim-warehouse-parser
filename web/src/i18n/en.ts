@@ -460,7 +460,7 @@ export const dict = {
     itemName: "Item Name",
     stockStatus: "Stock Status",
     orderStatus: "Order Status",
-    remoteRemaining: "Remote Rem.",
+    remoteRemaining: "Qty",
     qtyToDeliver: "Qty to Deliver",
     pickingNote: "Picking Note",
     errEnterDeliveryDate: "Please enter a delivery date.",

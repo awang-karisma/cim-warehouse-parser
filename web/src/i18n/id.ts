@@ -458,7 +458,7 @@ export const dict: RawDictionary = {
     itemName: "Nama Barang",
     stockStatus: "Status Stok",
     orderStatus: "Status Order",
-    remoteRemaining: "Sisa Remote",
+    remoteRemaining: "Jumlah",
     qtyToDeliver: "Jumlah Kirim",
     pickingNote: "Catatan Pengambilan",
     errEnterDeliveryDate: "Silakan masukkan tanggal pengiriman.",
