@@ -20,6 +20,7 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/gofiber/fiber/v3"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const fixtureSecret = "disposable-rbac-test-key"
@@ -386,4 +387,39 @@ func TestSSEStopsBeforeBroadcastAfterGrantRevocation(t *testing.T) {
 		t.Fatalf("revoked stream did not terminate cleanly: %q (%v)", line, err)
 	}
 	requestRBAC(t, srv, "GET", "/api/v1/status", cookie, "", 403)
+}
+
+func TestSSEWriteDeadlineDoesNotOutliveSession(t *testing.T) {
+	srv, store, _ := setupTestServer(t, fixtureConfig())
+	grantDefaultUser(t, store, model.PermSyncRead)
+	const email = "blocked@example.test"
+	cookie := fixtureIdentity(t, store, email, 2)
+	requestRBAC(t, srv, "GET", "/api/v1/status", cookie, "", 200)
+	expiry := time.Now().Truncate(time.Second).Add(3 * time.Second)
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(expiry)}, Email: email,
+	}).SignedString([]byte(fixtureSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	served := make(chan error, 1)
+	go func() { served <- srv.App().Server().ServeConn(server) }()
+	if err := client.SetWriteDeadline(expiry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintf(client, "GET /api/v1/sync/events HTTP/1.1\r\nHost: localhost\r\nCookie: warehouse_session=%s\r\n\r\n", token); err != nil {
+		t.Fatal(err)
+	}
+	// Never read the response: net.Pipe blocks the first socket write.
+	select {
+	case err := <-served:
+		if timeout, ok := err.(net.Error); !ok || !timeout.Timeout() || time.Now().Before(expiry) {
+			t.Fatalf("expected the blocked write to time out at session expiry, got %v", err)
+		}
+	case <-time.After(time.Until(expiry) + time.Second):
+		t.Fatal("blocked SSE write outlived session expiry")
+	}
 }

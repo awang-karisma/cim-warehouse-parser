@@ -1068,11 +1068,12 @@ func (s *Server) handleSyncSSE(c fiber.Ctx) error {
 
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-store")
-	c.Set("Connection", "keep-alive")
+	c.Set("Connection", "close")
 	c.Set("X-Accel-Buffering", "no")
 
 	identity, expiresAt, userID := access.identity, access.expiresAt, access.principal.User.ID
 	identity.Email = strings.Clone(identity.Email)
+	conn := c.RequestCtx().Conn()
 
 	return c.SendStreamWriter(func(w *bufio.Writer) {
 		ch := s.worker.Subscribe()
@@ -1099,12 +1100,24 @@ func (s *Server) handleSyncSSE(c fiber.Ctx) error {
 			p, err := s.resolveCurrentUser(ctx, identity)
 			return err == nil && p != nil && p.User.ID == userID && p.Can(model.PermSyncRead) && time.Now().Before(expiresAt)
 		}
+		// The stream writer feeds a pipe; deadline the actual client connection
+		// so a blocked socket also releases the pipe and subscription.
+		setWriteDeadline := func() bool {
+			deadline := time.Now().Add(5 * time.Second)
+			if !identity.AuthDisabled && expiresAt.Before(deadline) {
+				deadline = expiresAt
+			}
+			return conn.SetWriteDeadline(deadline) == nil
+		}
 		send := func(evt worker.SyncEvent) bool {
 			if !allowed() {
 				return false
 			}
 			data, err := json.Marshal(evt)
 			if err != nil {
+				return false
+			}
+			if !setWriteDeadline() {
 				return false
 			}
 			_, err = fmt.Fprintf(w, "event: sync\ndata: %s\n\n", data)
@@ -1120,7 +1133,7 @@ func (s *Server) handleSyncSSE(c fiber.Ctx) error {
 					return
 				}
 			case <-heartbeat.C:
-				if !allowed() {
+				if !allowed() || !setWriteDeadline() {
 					return
 				}
 				if _, err := w.WriteString(": keep-alive\n\n"); err != nil || w.Flush() != nil {
