@@ -24,7 +24,6 @@ import { Search } from './pages/Search';
 import { Settings } from './pages/Settings';
 import { SyncManager } from './pages/SyncManager';
 import { Terms } from './pages/Terms';
-import { Timeline } from './pages/Timeline';
 import { UserManagement } from './pages/UserManagement';
 const Datalogger = lazy(() => import('./pages/datalogger'));
 const DataloggerRecords = lazy(() => import('./pages/DataloggerRecords'));
@@ -50,7 +49,6 @@ if (root) {
 				<Route path={ROUTES.areas} component={Areas} />
 				<Route path={ROUTES.deliveryFlow} component={DeliveryFlow} />
 				<Route path={ROUTES.purchaseOrders} component={PurchaseOrders} />
-				<Route path={ROUTES.timeline} component={Timeline} />
 				<Route path={ROUTES.barcode} component={Barcode} />
 				<Route path={ROUTES.sync} component={SyncManager} />
 				<Route path={ROUTES.search} component={Search} />

@@ -38,6 +38,8 @@ import { DataTablePagination } from '../components/data-table-pagination';
 import { SortableTableHead } from '~/components/SortableTableHead';
 import { createUrlFilter } from '../utils/tableFilters';
 import { getDominantOrderStatus } from '~/utils/orderStatus';
+import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
+import { DeliveryDateBadges } from '~/components/DeliveryDateBadges';
 
 const VALID_STATUSES = [ORDER_STATUS.UNFINISHED, ORDER_STATUS.COMPLETE, ORDER_STATUS.PROCESSING, ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED] as const;
 const validRangeDate = (value: string | null): string => {
@@ -397,6 +399,7 @@ export const Orders: Component = () => {
                                             <TableHead class="w-12 h-9 px-3 text-muted-foreground font-semibold">#</TableHead>
                                             <TableHead class="h-9 px-3 text-muted-foreground font-semibold">{t('orders.itemName')}</TableHead>
                                             <TableHead class="h-9 px-3 text-muted-foreground font-semibold min-w-[140px]">{t('orders.progress')}</TableHead>
+                                            <TableHead class="h-9 px-3 text-muted-foreground font-semibold">{t('orderDetail.leadTime')}</TableHead>
                                             <TableHead class="h-9 px-3 text-muted-foreground font-semibold">{t('orders.statusOrder')}</TableHead>
                                             <TableHead class="h-9 px-3 text-muted-foreground font-semibold">{t('orders.statusBarang')}</TableHead>
                                           </TableRow>
@@ -406,7 +409,7 @@ export const Orders: Component = () => {
                                             when={order.items && order.items.length > 0}
                                             fallback={
                                               <TableRow>
-                                                <TableCell colspan={5} class="h-16 text-center text-xs text-muted-foreground">
+                                                <TableCell colspan={6} class="h-16 text-center text-xs text-muted-foreground">
                                                   {t('orders.noLineItemsFound')}
                                                 </TableCell>
                                               </TableRow>
@@ -443,6 +446,33 @@ export const Orders: Component = () => {
                                                         {item.jumlah_terkirim || '0'} / {item.jumlah || '0'}{item.satuan ? ` ${item.satuan}` : ''}
                                                       </span>
                                                     </div>
+                                                  </TableCell>
+                                                  <TableCell class="py-2.5 px-3">
+                                                    {(() => {
+                                                      const hasLeadTime = Boolean(item.lead_time_pengiriman && item.lead_time_pengiriman.trim() !== '' && item.lead_time_pengiriman.trim() !== '-');
+                                                      const hasDeliveryDate = Boolean(item.tanggal_pengiriman && item.tanggal_pengiriman.trim() !== '' && item.tanggal_pengiriman.trim() !== '-');
+                                                      if (hasDeliveryDate) {
+                                                        return (
+                                                          <Tooltip>
+                                                            <TooltipTrigger
+                                                              as="span"
+                                                              tabIndex={0}
+                                                              onClick={(e: MouseEvent) => e.stopPropagation()}
+                                                              class="inline-flex items-center font-mono text-xs tabular-nums underline decoration-dotted underline-offset-4 cursor-help focus:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-xs"
+                                                            >
+                                                              {hasLeadTime ? `${item.lead_time_pengiriman}d` : '-'}
+                                                            </TooltipTrigger>
+                                                            <TooltipContent class="max-w-xs p-2">
+                                                              <DeliveryDateBadges date={item.tanggal_pengiriman} />
+                                                            </TooltipContent>
+                                                          </Tooltip>
+                                                        );
+                                                      }
+                                                      if (hasLeadTime) {
+                                                        return <span class="font-mono text-xs tabular-nums">{item.lead_time_pengiriman}d</span>;
+                                                      }
+                                                      return <span class="text-xs text-muted-foreground">-</span>;
+                                                    })()}
                                                   </TableCell>
                                                   <TableCell class="py-2.5 px-3">
                                                     <Badge status={item.status_order} kind="order" />

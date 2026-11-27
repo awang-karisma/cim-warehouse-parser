@@ -50,7 +50,6 @@ export const App: Component<RouteSectionProps> = (props) => {
 		if (path.startsWith(ROUTES.areas)) return t('nav.areaMap');
 		if (path.startsWith(ROUTES.deliveryFlow)) return t('nav.deliveryFlow');
 		if (path.startsWith(ROUTES.purchaseOrders)) return t('nav.purchaseOrders');
-		if (path.startsWith(ROUTES.timeline)) return t('nav.deliveryTimeline');
 		if (path.startsWith(ROUTES.barcode)) return t('nav.barcodePrinter');
 		if (path.startsWith('/datalogger-records')) return t('nav.dataloggerReadings');
 		if (path.startsWith(ROUTES.datalogger)) return t('nav.datalogger');

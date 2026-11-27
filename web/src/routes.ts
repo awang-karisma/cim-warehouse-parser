@@ -9,7 +9,6 @@ export const ROUTES = {
   areas: "/areas",
   deliveryFlow: "/delivery-flow",
   purchaseOrders: "/purchase-orders",
-  timeline: "/timeline",
   barcode: "/barcode",
   sync: "/sync",
   search: "/search",

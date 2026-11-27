@@ -15,7 +15,6 @@ import {
   IconMapPin,
   IconTruckDelivery,
   IconShoppingCart,
-  IconTimeline,
   IconBarcode,
   IconRefresh,
   IconSearch,
@@ -281,7 +280,6 @@ export const AppSidebar: Component = () => {
 			{ href: ROUTES.items, label: t('nav.items'), icon: IconPackage },
 			{ href: ROUTES.purchaseOrders, label: t('nav.purchaseOrders'), icon: IconShoppingCart },
 			{ href: ROUTES.deliveryFlow, label: t('nav.deliveryFlow'), icon: IconTruckDelivery },
-			{ href: ROUTES.timeline, label: t('nav.deliveryTimeline'), icon: IconTimeline },
 		] },
 		{ label: t('navGroups.customersAndAreas'), items: [
 			{ href: ROUTES.customers, label: t('nav.customerView'), icon: IconUsers },
