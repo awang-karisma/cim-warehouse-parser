@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "posthog": {
+      "type": "http",
+      "url": "https://mcp.posthog.com/mcp",
+      "auth": {
+        "type": "oauth",
+        "credentialId": "mcp_oauth:profile:default:https://mcp.posthog.com/mcp",
+        "tokenUrl": "https://oauth.posthog.com/oauth/token/",
+        "clientId": "uoFSKnsirz5k8spbb5YK0BigQGaQPodQmK8tw1fz",
+        "resource": "https://mcp.posthog.com/mcp"
+      },
+      "oauth": {
+        "clientId": "uoFSKnsirz5k8spbb5YK0BigQGaQPodQmK8tw1fz"
+      }
+    }
+  }
+}
