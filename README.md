@@ -103,6 +103,11 @@ Automated order ingestion, normalization, and visualization system.
     - Per-user locale preference persistence in `localStorage` (`warehouse-ui-locale:<email>`) and embedded SQLite database (`users.locale` via `PUT /api/v1/user/locale`).
     - Status badge text localizes dynamically while preserving exact status color mapping.
   - Dedicated views for Dashboard, Orders, Items, Customer View, Customer Aliases, Area Map, Delivery Flow, Barcode Printer, Data Logger, Sync Manager, Search, Settings, User Management, and Role Management.
+  - **Interactive NTB Coverage & Client Map (`/areas`)**:
+    - Read-only MapLibre GL JS map rendering official NTB Kabupaten/Kota administrative boundaries and plotted client coordinate dots (with automatic circular spider-offset for co-located facility units) over a first-party disk-cached basemap proxy (`Theme` CARTO Dark/Light, `Street` OSM, and `Satellite` Esri).
+    - Hovering a region displays area order/customer/item totals and status breakdown; hovering a client dot takes priority and reveals client fulfillment metrics and optional click-through to filtered orders.
+    - Manual coordinate entry (smart `"lat, lng"` paste or interactive pin-dropper) inside `/customers` and `/customer-aliases` persisted in SQLite (`customer_locations`) across spreadsheet syncs and database clears, with optional `locations` backup in alias JSON export/import.
+    - Configurable disk tile cache (`MAP_TILE_CACHE_DIR`, `MAP_TILE_CACHE_TTL`, `MAP_TILE_CACHE_MAX_SIZE_MB`) with oldest-first eviction, offline stale fallback, and non-destructive soft invalidation from `/settings`.
   - Smooth page transitions, staggered card entrances, and standardized table shimmer skeletons.
   - Order detail view featuring direct Google Sheets row linking (`range=A{row_index}`), dedicated shipment lead time metrics, interactive hover/focus tooltips for item notes, and multi-column client-side sorting.
   - Standardized `DataTable` presentation shell with unified comfortable density (`px-3 py-3` cells, `h-11 px-3` headers) and responsive horizontal overflow.
@@ -231,6 +236,12 @@ sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
 | `POSTHOG_SERVICE_NAME` | `warehouse-parser-api` | OpenTelemetry `service.name` attribute (falls back to `OTEL_SERVICE_NAME`). |
 | `POSTHOG_ENVIRONMENT` | `production` | OpenTelemetry `deployment.environment` attribute (falls back to `APP_ENV`). |
 | `POSTHOG_LOG_LEVEL` | `info` | Minimum exported backend log level (`debug`, `info`, `warn`, `error`). |
+| `MAP_TILE_CACHE_DIR` | `data/maptiles` | Disk directory for first-party cached map basemap tiles (`/data/maptiles` in Docker). |
+| `MAP_TILE_CACHE_TTL` | `720h` | Maximum age before cached map tiles lazily revalidate (`0` disables age-based expiry). |
+| `MAP_TILE_CACHE_MAX_SIZE_MB` | `512` | Maximum disk cache size in MiB before oldest-first eviction (`0` disables size limit). |
+| `MAP_CARTO_API_KEY` | `""` | Optional CARTO Basemaps API key appended server-side (`?key=`) for CARTO Dark/Light tiles (falls back to OSM when unset; never exposed to browser). |
+| `MAP_OSM_API_KEY` | `""` | Optional API key appended server-side (`?key=`) to OpenStreetMap tile requests (never exposed to browser). |
+| `MAP_ESRI_API_KEY` | `""` | Optional ArcGIS token appended server-side (`?token=`) to Esri World Imagery satellite tile requests (never exposed to browser). |
 
 ---
 
@@ -358,6 +369,9 @@ Business endpoints are under `/api/v1`. A slash-separated pair of methods and ca
 | `/items`; `/items/export` | GET | `item:read`; export also requires `item:export` |
 | `/purchase-orders` | GET | `purchase_order:read` |
 | `/customers`; `/areas` | GET | `customer:read`; `area:read` |
+| `/customers/location` | PUT | `alias:write` |
+| `/map-tiles/config`, `/map-tiles/{provider}/{z}/{x}/{y}` | GET | Any of `area:read`, `customer:read`, `alias:read`, `alias:write` |
+| `/admin/map-tiles/invalidate` | POST | `system:read` |
 | `/customer-aliases`; `/customer-aliases/{alias}` | GET / PUT / DELETE | `alias:read` / `alias:write` / `alias:delete` |
 | `/customer-aliases/import`; `/customer-aliases/export` | POST / GET | `alias:import` (includes bulk replacement) / `alias:read` + `alias:export` |
 | `/deliveries`, `/deliveries/stats` | GET | `timeline:read` |

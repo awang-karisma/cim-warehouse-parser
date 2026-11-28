@@ -136,6 +136,8 @@ export interface CustomerSummary {
   total_items: number;
   last_order_date: string;
   status_counts: Record<string, number>;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface AreaSummary {
@@ -190,6 +192,19 @@ export interface ConfigResponse {
   timezone: string;
   work_days: string[];
   spreadsheet_id: string;
+  map_tile_cache_dir?: string;
+  map_tile_cache_ttl?: string;
+  map_tile_cache_max_size_mb?: number;
+  map_tile_invalidated_at?: string;
+  map_carto_api_key_configured?: boolean;
+  map_osm_api_key_configured?: boolean;
+  map_esri_api_key_configured?: boolean;
+}
+
+export interface MapTileConfigResponse {
+  carto_api_key_configured: boolean;
+  osm_api_key_configured: boolean;
+  satellite_api_key_configured: boolean;
 }
 
 export interface SystemResponse {
@@ -233,6 +248,8 @@ export interface CustomerAliasGroup {
   canonical: string;
   area?: string;
   aliases: string[];
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface CustomerAliasesResponse {

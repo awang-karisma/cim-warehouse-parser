@@ -48,6 +48,12 @@ type Config struct {
 	PostHogServiceName             string        `mapstructure:"posthog_service_name" json:"posthog_service_name"`
 	PostHogEnvironment             string        `mapstructure:"posthog_environment" json:"posthog_environment"`
 	PostHogLogLevel                string        `mapstructure:"posthog_log_level" json:"posthog_log_level"`
+	MapTileCacheDir                string        `mapstructure:"map_tile_cache_dir" json:"map_tile_cache_dir"`
+	MapTileCacheTTL                time.Duration `mapstructure:"map_tile_cache_ttl" json:"map_tile_cache_ttl"`
+	MapTileCacheMaxSizeMB          int64         `mapstructure:"map_tile_cache_max_size_mb" json:"map_tile_cache_max_size_mb"`
+	MapCartoAPIKey                 string        `mapstructure:"map_carto_api_key" json:"-"`
+	MapOSMAPIKey                   string        `mapstructure:"map_osm_api_key" json:"-"`
+	MapEsriAPIKey                  string        `mapstructure:"map_esri_api_key" json:"-"`
 }
 
 // DefaultConfig returns a Config struct with default configuration values.
@@ -79,6 +85,12 @@ func DefaultConfig() Config {
 		PostHogServiceName:             telemetry.DefaultServiceName,
 		PostHogEnvironment:             telemetry.DefaultEnvironment,
 		PostHogLogLevel:                string(telemetry.LevelInfo),
+		MapTileCacheDir:                "data/maptiles",
+		MapTileCacheTTL:                720 * time.Hour,
+		MapTileCacheMaxSizeMB:          512,
+		MapCartoAPIKey:                 "",
+		MapOSMAPIKey:                   "",
+		MapEsriAPIKey:                  "",
 	}
 }
 
@@ -123,6 +135,12 @@ func Load(envFiles ...string) (*Config, error) {
 	v.SetDefault("posthog_service_name", defaults.PostHogServiceName)
 	v.SetDefault("posthog_environment", defaults.PostHogEnvironment)
 	v.SetDefault("posthog_log_level", defaults.PostHogLogLevel)
+	v.SetDefault("map_tile_cache_dir", defaults.MapTileCacheDir)
+	v.SetDefault("map_tile_cache_ttl", defaults.MapTileCacheTTL)
+	v.SetDefault("map_tile_cache_max_size_mb", defaults.MapTileCacheMaxSizeMB)
+	v.SetDefault("map_carto_api_key", defaults.MapCartoAPIKey)
+	v.SetDefault("map_osm_api_key", defaults.MapOSMAPIKey)
+	v.SetDefault("map_esri_api_key", defaults.MapEsriAPIKey)
 	// Bind environment keys
 	_ = v.BindEnv("server_port", "SERVER_PORT", "PORT")
 	_ = v.BindEnv("db_path", "DB_PATH")
@@ -150,6 +168,12 @@ func Load(envFiles ...string) (*Config, error) {
 	_ = v.BindEnv("posthog_service_name", "POSTHOG_SERVICE_NAME", "OTEL_SERVICE_NAME")
 	_ = v.BindEnv("posthog_environment", "POSTHOG_ENVIRONMENT", "APP_ENV")
 	_ = v.BindEnv("posthog_log_level", "POSTHOG_LOG_LEVEL")
+	_ = v.BindEnv("map_tile_cache_dir", "MAP_TILE_CACHE_DIR")
+	_ = v.BindEnv("map_tile_cache_ttl", "MAP_TILE_CACHE_TTL")
+	_ = v.BindEnv("map_tile_cache_max_size_mb", "MAP_TILE_CACHE_MAX_SIZE_MB")
+	_ = v.BindEnv("map_carto_api_key", "MAP_CARTO_API_KEY")
+	_ = v.BindEnv("map_osm_api_key", "MAP_OSM_API_KEY")
+	_ = v.BindEnv("map_esri_api_key", "MAP_ESRI_API_KEY")
 	var cfg Config
 	decodeHook := viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
 		mapstructure.StringToTimeDurationHookFunc(),
@@ -195,6 +219,19 @@ func Load(envFiles ...string) (*Config, error) {
 			return nil, err
 		}
 	}
+
+	if cfg.MapTileCacheTTL < 0 {
+		return nil, fmt.Errorf("MAP_TILE_CACHE_TTL cannot be negative: %s", cfg.MapTileCacheTTL)
+	}
+	if cfg.MapTileCacheMaxSizeMB < 0 {
+		return nil, fmt.Errorf("MAP_TILE_CACHE_MAX_SIZE_MB cannot be negative: %d", cfg.MapTileCacheMaxSizeMB)
+	}
+	if strings.TrimSpace(cfg.MapTileCacheDir) == "" {
+		cfg.MapTileCacheDir = defaults.MapTileCacheDir
+	}
+	cfg.MapCartoAPIKey = strings.TrimSpace(cfg.MapCartoAPIKey)
+	cfg.MapOSMAPIKey = strings.TrimSpace(cfg.MapOSMAPIKey)
+	cfg.MapEsriAPIKey = strings.TrimSpace(cfg.MapEsriAPIKey)
 
 	return &cfg, nil
 }

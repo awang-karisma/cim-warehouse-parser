@@ -196,12 +196,19 @@ type SearchOutput struct {
 
 // Config
 type ConfigResponse struct {
-	SyncInterval   string   `json:"sync_interval"`
-	WorkHoursStart string   `json:"work_hours_start"`
-	WorkHoursEnd   string   `json:"work_hours_end"`
-	Timezone       string   `json:"timezone"`
-	WorkDays       []string `json:"work_days"`
-	SpreadsheetID  string   `json:"spreadsheet_id"`
+	SyncInterval             string   `json:"sync_interval"`
+	WorkHoursStart           string   `json:"work_hours_start"`
+	WorkHoursEnd             string   `json:"work_hours_end"`
+	Timezone                 string   `json:"timezone"`
+	WorkDays                 []string `json:"work_days"`
+	SpreadsheetID            string   `json:"spreadsheet_id"`
+	MapTileCacheDir          string   `json:"map_tile_cache_dir"`
+	MapTileCacheTTL          string   `json:"map_tile_cache_ttl"`
+	MapTileCacheMaxSizeMB    int64    `json:"map_tile_cache_max_size_mb"`
+	MapTileInvalidatedAt     string   `json:"map_tile_invalidated_at"`
+	MapCartoAPIKeyConfigured bool     `json:"map_carto_api_key_configured"`
+	MapOSMAPIKeyConfigured   bool     `json:"map_osm_api_key_configured"`
+	MapEsriAPIKeyConfigured  bool     `json:"map_esri_api_key_configured"`
 }
 
 type ConfigOutput struct {
@@ -757,8 +764,8 @@ func (s *Server) handleListCustomers(ctx context.Context, input *ListCustomersIn
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > 1000 {
+		limit = 1000
 	}
 	offset := input.Offset
 	if offset < 0 {
@@ -844,13 +851,26 @@ func (s *Server) handleConfig(ctx context.Context, input *struct{}) (*ConfigOutp
 		def := config.DefaultConfig()
 		cfg = &def
 	}
+	invalidatedAt := ""
+	if s.tileCache != nil {
+		if ts := s.tileCache.InvalidatedAt(); !ts.IsZero() {
+			invalidatedAt = ts.UTC().Format(time.RFC3339)
+		}
+	}
 	resp := ConfigResponse{
-		SyncInterval:   cfg.SyncInterval.String(),
-		WorkHoursStart: cfg.WorkHoursStart,
-		WorkHoursEnd:   cfg.WorkHoursEnd,
-		Timezone:       cfg.Timezone,
-		WorkDays:       []string{string(model.WeekdayMonday), string(model.WeekdayTuesday), string(model.WeekdayWednesday), string(model.WeekdayThursday), string(model.WeekdayFriday), string(model.WeekdaySaturday)},
-		SpreadsheetID:  cfg.SpreadsheetID,
+		SyncInterval:             cfg.SyncInterval.String(),
+		WorkHoursStart:           cfg.WorkHoursStart,
+		WorkHoursEnd:             cfg.WorkHoursEnd,
+		Timezone:                 cfg.Timezone,
+		WorkDays:                 []string{string(model.WeekdayMonday), string(model.WeekdayTuesday), string(model.WeekdayWednesday), string(model.WeekdayThursday), string(model.WeekdayFriday), string(model.WeekdaySaturday)},
+		SpreadsheetID:            cfg.SpreadsheetID,
+		MapTileCacheDir:          cfg.MapTileCacheDir,
+		MapTileCacheTTL:          cfg.MapTileCacheTTL.String(),
+		MapTileCacheMaxSizeMB:    cfg.MapTileCacheMaxSizeMB,
+		MapTileInvalidatedAt:     invalidatedAt,
+		MapCartoAPIKeyConfigured: s.tileCache != nil && s.tileCache.HasProviderKey("carto"),
+		MapOSMAPIKeyConfigured:   s.tileCache != nil && s.tileCache.HasProviderKey("osm"),
+		MapEsriAPIKeyConfigured:  s.tileCache != nil && s.tileCache.HasProviderKey("satellite"),
 	}
 	return &ConfigOutput{Body: resp}, nil
 }
@@ -1226,6 +1246,30 @@ func (s *Server) handleDeleteCustomerAlias(ctx context.Context, input *DeleteCus
 
 	if err := s.store.DeleteCustomerAlias(ctx, alias); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete customer alias", err)
+	}
+	return &StatusOKOutput{
+		Body: StatusOKResponse{Status: string(ResultOK)},
+	}, nil
+}
+
+// SetCustomerLocationInput defines the request body for setting or clearing customer coordinates.
+type SetCustomerLocationInput struct {
+	Body struct {
+		Customer  string   `json:"customer" doc:"Customer name (canonical or active order customer)" example:"RSUD Provinsi NTB"`
+		Latitude  *float64 `json:"latitude,omitempty" doc:"WGS84 latitude (-90 to 90); omit or null with longitude to clear"`
+		Longitude *float64 `json:"longitude,omitempty" doc:"WGS84 longitude (-180 to 180); omit or null with latitude to clear"`
+	}
+}
+
+func (s *Server) handleSetCustomerLocation(ctx context.Context, input *SetCustomerLocationInput) (*StatusOKOutput, error) {
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("storage service not available")
+	}
+	if err := s.store.SetCustomerLocation(ctx, input.Body.Customer, input.Body.Latitude, input.Body.Longitude); err != nil {
+		if errors.Is(err, storage.ErrValidation) {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		return nil, huma.Error500InternalServerError("failed to set customer location", err)
 	}
 	return &StatusOKOutput{
 		Body: StatusOKResponse{Status: string(ResultOK)},

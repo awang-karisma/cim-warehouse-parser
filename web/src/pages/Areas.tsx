@@ -1,11 +1,8 @@
 import { ROUTES, canAccessRoute } from '~/routes';
-
-import { ORDER_STATUS } from '~/domain';
-
 import { type Component, createSignal, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
-import { A } from '@solidjs/router';
+import { A, useNavigate } from '@solidjs/router';
 import { IconMapPin, IconArrowRight } from '@tabler/icons-solidjs';
 import { getAreas, getCustomers } from '../api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
@@ -17,66 +14,15 @@ import {
   TableCell,
 } from '~/components/ui/table';
 import { DataTable } from '~/components/DataTable';
-import { Tooltip, TooltipTrigger, TooltipContent } from '~/components/ui/tooltip';
 import { Button } from '~/components/ui/button';
-import { Skeleton } from '~/components/ui/skeleton';
 import { Badge } from '../components/Badge';
 import { TableSkeleton } from '~/components/TableSkeleton';
-
-const MiniStatusBreakdown: Component<{ counts?: Record<string, number> }> = (props) => {
-  const segments = createMemo(() => {
-    const counts = props.counts || {};
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    if (total === 0) return { total: 0, items: [] };
-
-	const selesai = (counts[ORDER_STATUS.COMPLETE] || 0) + (counts.COMPLETED || 0);
-	const proses = (counts[ORDER_STATUS.PROCESSING] || 0) + (counts.PARTIAL || 0);
-	const belumSelesai = counts[ORDER_STATUS.UNFINISHED] || 0;
-	const batal = (counts[ORDER_STATUS.CANCELLED] || 0) + (counts[ORDER_STATUS.CANCEL] || 0);
-    const pending = Math.max(0, total - selesai - proses - belumSelesai - batal);
-
-    const items = [
-      { label: 'Selesai', count: selesai, pct: Math.round((selesai / total) * 100), color: 'var(--color-status-selesai, #10b981)' },
-      { label: 'Proses', count: proses, pct: Math.round((proses / total) * 100), color: 'var(--color-status-proses, #f59e0b)' },
-      { label: 'Belum Selesai', count: belumSelesai, pct: Math.round((belumSelesai / total) * 100), color: 'var(--color-status-belum-selesai, #eab308)' },
-      { label: 'Pending', count: pending, pct: Math.round((pending / total) * 100), color: 'var(--color-status-pending, #a855f7)' },
-      { label: 'Batal', count: batal, pct: Math.round((batal / total) * 100), color: 'var(--color-status-batal, #ef4444)' },
-    ].filter((s) => s.count > 0);
-
-    return { total, items };
-  });
-
-  return (
-    <Tooltip>
-      <TooltipTrigger as="div" class="w-full min-w-[120px] cursor-pointer">
-        <div class="flex h-2.5 w-full overflow-hidden rounded-full bg-secondary">
-          <For each={segments().items}>
-            {(item) => (
-              <div
-                class="h-full transition-all duration-200"
-                style={{ width: `${item.pct}%`, 'background-color': item.color }}
-              />
-            )}
-          </For>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent class="p-2 text-xs space-y-1">
-        <For each={segments().items}>
-          {(item) => (
-            <div class="flex items-center gap-1.5">
-              <span class="size-2 rounded-full shrink-0" style={{ background: item.color }} />
-              <span>{item.label}: {item.count} ({item.pct}%)</span>
-            </div>
-          )}
-        </For>
-      </TooltipContent>
-    </Tooltip>
-  );
-};
-
+import { MiniStatusBreakdown } from '~/components/MiniStatusBreakdown';
+import { AreasMap } from '~/components/AreasMap';
 export const Areas: Component = () => {
   const { t } = useI18n();
   const auth = useAuth();
+  const navigate = useNavigate();
   const [areasData] = createResource(getAreas);
   const [selectedArea, setSelectedArea] = createSignal<string>('');
 
@@ -87,6 +33,11 @@ export const Areas: Component = () => {
     }
     return '';
   });
+
+  const [allCustomers] = createResource(
+    () => (auth.can('customer:read') ? true : false),
+    () => getCustomers({ limit: 1000 })
+  );
 
   const [areaCustomers] = createResource(
     () => auth.can('customer:read') && (currentArea() || false),
@@ -136,6 +87,21 @@ export const Areas: Component = () => {
           }}
         </For>
       </div>
+
+      {/* Interactive NTB Area & Client Map */}
+      <AreasMap
+        areas={areasData()?.areas || []}
+        customers={allCustomers()?.customers || []}
+        selectedArea={currentArea()}
+        onSelectArea={setSelectedArea}
+        canReadCustomers={auth.can('customer:read')}
+        canViewOrders={canAccessRoute(auth, ROUTES.orders)}
+        onNavigateCustomerOrders={(customerName) => {
+          if (canAccessRoute(auth, ROUTES.orders)) {
+            navigate(`${ROUTES.orders}?customer=${encodeURIComponent(customerName)}`);
+          }
+        }}
+      />
 
       {/* Regional Breakdown Table Card */}
       <Card>

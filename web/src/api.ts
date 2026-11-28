@@ -46,6 +46,7 @@ import type {
   DataloggerProfile,
   DataloggerProfilesResponse,
   PurchaseOrderListResponse,
+  MapTileConfigResponse,
 } from './types';
 import type { Permission } from './permissions.generated';
 import { captureEvent, captureException, captureLog, normalizeApiPath, withCorrelationHeaders } from '~/posthog';
@@ -379,6 +380,13 @@ export const deleteCustomerAlias = (alias: string) =>
   apiFetch<{ status: string }>(`/api/v1/customer-aliases/${encodeURIComponent(alias)}`, {
     method: 'DELETE',
   });
+
+export const setCustomerLocation = (customer: string, latitude: number | null, longitude: number | null) =>
+  apiFetch<{ status: string }>('/api/v1/customers/location', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customer, latitude, longitude }),
+  });
 export interface AliasImportResult {
   status: string;
   imported: number;
@@ -432,6 +440,14 @@ export const clearDatabase = () =>
   apiFetch<{ status: string; message: string }>('/api/v1/admin/clear-database', {
     method: 'POST',
   });
+
+export const invalidateMapTileCache = () =>
+  apiFetch<{ status: string; invalidated_at: string }>('/api/v1/admin/map-tiles/invalidate', {
+    method: 'POST',
+  });
+
+export const getMapTileConfig = () =>
+  apiFetch<MapTileConfigResponse>('/api/v1/map-tiles/config');
 
 export const getWorkdayPolicies = () =>
   apiFetch<WorkdayPoliciesResponse>('/api/v1/workday-policies');

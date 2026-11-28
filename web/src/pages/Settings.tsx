@@ -15,6 +15,7 @@ import {
   IconCalendar,
   IconCheck,
   IconAlertCircle,
+  IconMap,
 } from '@tabler/icons-solidjs';
 import { useColorMode } from '@kobalte/core';
 import { useAuth } from '~/auth';
@@ -24,9 +25,11 @@ import {
   getStatus,
   triggerSync,
   clearDatabase,
+  invalidateMapTileCache,
   getWorkdayPolicies,
   setWorkdayPolicy,
 } from '../api';
+import { bumpMapTileCacheBust } from '~/components/mapStyles';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '~/components/ui/card';
 import {
   TableHeader,
@@ -54,7 +57,7 @@ export const Settings: Component = () => {
   const { colorMode, setColorMode } = useColorMode();
   const auth = useAuth();
   const [system] = createResource(() => auth.can('system:read'), getSystemInfo);
-  const [config] = createResource(() => auth.can('system:read'), getConfig);
+  const [config, { refetch: refetchConfig }] = createResource(() => auth.can('system:read'), getConfig);
   const canSeeStatus = () => auth.can('system:read') && auth.can('sync:read');
   const [status, { refetch: refetchStatus }] = createResource(canSeeStatus, getStatus);
   const [showClearDbDialog, setShowClearDbDialog] = createSignal(false);
@@ -136,6 +139,27 @@ export const Settings: Component = () => {
       setResyncMsg(err instanceof Error ? err.message : t('settings.resyncError'));
     } finally {
       setResyncing(false);
+    }
+  };
+
+  const [invalidatingTiles, setInvalidatingTiles] = createSignal(false);
+  const [tileInvalidateMsg, setTileInvalidateMsg] = createSignal<string | null>(null);
+  const [tileInvalidateError, setTileInvalidateError] = createSignal<string | null>(null);
+
+  const handleInvalidateMapTiles = async () => {
+    if (!auth.can('system:read') || invalidatingTiles()) return;
+    setInvalidatingTiles(true);
+    setTileInvalidateMsg(null);
+    setTileInvalidateError(null);
+    try {
+      const res = await invalidateMapTileCache();
+      bumpMapTileCacheBust(res.invalidated_at);
+      void refetchConfig();
+      setTileInvalidateMsg(t('settings.mapTilesInvalidatedSuccess', { time: res.invalidated_at }));
+    } catch (err: unknown) {
+      setTileInvalidateError(err instanceof Error ? err.message : t('settings.mapTilesInvalidateError'));
+    } finally {
+      setInvalidatingTiles(false);
     }
   };
 
@@ -323,6 +347,52 @@ export const Settings: Component = () => {
                 </Show>
               </div>
               </Show>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1 gap-4">
+                <span class="text-xs text-muted-foreground">{t('settings.mapTileCacheDir')}</span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-28" />}>
+                  <span class="font-mono text-xs font-semibold truncate">
+                    {config()?.map_tile_cache_dir || 'data/maptiles'}
+                  </span>
+                </Show>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">{t('settings.mapTileCacheTtl')}</span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-20" />}>
+                  <span class="font-semibold">{config()?.map_tile_cache_ttl || '720h0m0s'}</span>
+                </Show>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1">
+                <span class="text-xs text-muted-foreground">{t('settings.mapTileCacheMaxSize')}</span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-20" />}>
+                  <span class="font-semibold">
+                    {(config()?.map_tile_cache_max_size_mb ?? 512) > 0
+                      ? `${config()?.map_tile_cache_max_size_mb ?? 512} MB`
+                      : t('settings.unlimited')}
+                  </span>
+                </Show>
+              </div>
+              <Separator />
+              <div class="flex justify-between items-center text-sm py-1 gap-4">
+                <span class="text-xs text-muted-foreground">{t('settings.mapProviderKeys')}</span>
+                <Show when={!config.loading} fallback={<Skeleton class="h-5 w-32" />}>
+                  <div class="flex flex-wrap items-center justify-end gap-1.5 text-[11px]">
+                    <span class={config()?.map_carto_api_key_configured ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}>
+                      CARTO: {config()?.map_carto_api_key_configured ? t('settings.configured') : t('settings.notSet')}
+                    </span>
+                    <span class="text-muted-foreground">·</span>
+                    <span class={config()?.map_osm_api_key_configured ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}>
+                      OSM: {config()?.map_osm_api_key_configured ? t('settings.configured') : t('settings.notSet')}
+                    </span>
+                    <span class="text-muted-foreground">·</span>
+                    <span class={config()?.map_esri_api_key_configured ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}>
+                      Esri: {config()?.map_esri_api_key_configured ? t('settings.configured') : t('settings.notSet')}
+                    </span>
+                  </div>
+                </Show>
+              </div>
             </CardContent>
           </div>
         </Card>
@@ -508,7 +578,7 @@ export const Settings: Component = () => {
       </Show>
 
       {/* Maintenance Operations Card */}
-      <Show when={auth.canAny('sync:trigger', 'database:clear')}>
+      <Show when={auth.canAny('sync:trigger', 'database:clear', 'system:read')}>
       <Card>
         <CardHeader class="flex flex-row items-center gap-2 space-y-0 pb-4">
           <IconTool class="size-5 text-primary" />
@@ -541,6 +611,41 @@ export const Settings: Component = () => {
           <Show when={resyncMsg()}>
             <div class="p-3 rounded-md bg-muted text-xs font-medium">
               {resyncMsg()}
+            </div>
+          </Show>
+
+          <Show when={auth.can('system:read')}>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded-lg border bg-muted/20">
+              <div>
+                <h4 class="text-sm font-semibold">{t('settings.invalidateMapTilesTitle')}</h4>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.invalidateMapTilesDesc')}
+                </p>
+                <Show when={tileInvalidateMsg()}>
+                  <p class="text-xs font-medium text-emerald-600 dark:text-emerald-400 mt-2">
+                    {tileInvalidateMsg()}
+                  </p>
+                </Show>
+                <Show when={tileInvalidateError()}>
+                  <p class="text-xs font-medium text-destructive mt-2">
+                    {tileInvalidateError()}
+                  </p>
+                </Show>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                class="gap-1.5 shrink-0"
+                disabled={invalidatingTiles()}
+                onClick={handleInvalidateMapTiles}
+              >
+                <IconMap class={`size-4 ${invalidatingTiles() ? 'animate-pulse' : ''}`} />
+                <span>
+                  {invalidatingTiles()
+                    ? t('settings.invalidatingMapTiles')
+                    : t('settings.invalidateMapTilesBtn')}
+                </span>
+              </Button>
             </div>
           </Show>
 

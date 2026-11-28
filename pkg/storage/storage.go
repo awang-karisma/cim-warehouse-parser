@@ -245,6 +245,8 @@ type CustomerSummary struct {
 	TotalItems    int            `json:"total_items"`
 	LastOrderDate string         `json:"last_order_date"`
 	StatusCounts  map[string]int `json:"status_counts"`
+	Latitude      *float64       `json:"latitude,omitempty"`
+	Longitude     *float64       `json:"longitude,omitempty"`
 }
 
 // CustomerAliasGroup groups variant aliases under a canonical customer name and optional linked area.
@@ -252,6 +254,8 @@ type CustomerAliasGroup struct {
 	Canonical string   `json:"canonical"`
 	Area      string   `json:"area,omitempty"`
 	Aliases   []string `json:"aliases"`
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
 }
 
 // AreaSummary represents aggregated area statistics.
@@ -452,6 +456,13 @@ func (s *Storage) migrate() error {
 		area TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX IF NOT EXISTS idx_customer_aliases_alias ON customer_aliases(alias);
+
+	CREATE TABLE IF NOT EXISTS customer_locations (
+		customer TEXT PRIMARY KEY COLLATE NOCASE,
+		latitude REAL NOT NULL,
+		longitude REAL NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	);
 
 	CREATE TABLE IF NOT EXISTS deliveries (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1564,13 +1575,38 @@ func (s *Storage) GetCustomerAliasesGrouped(ctx context.Context) ([]CustomerAlia
 		return nil, fmt.Errorf("error reading grouped customer alias rows: %w", err)
 	}
 
+	locMap := make(map[string][2]float64)
+	locRows, err := s.db.QueryContext(ctx, "SELECT customer, latitude, longitude FROM customer_locations")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query customer locations: %w", err)
+	}
+	defer locRows.Close()
+	for locRows.Next() {
+		var cust string
+		var lat, lng float64
+		if err := locRows.Scan(&cust, &lat, &lng); err != nil {
+			return nil, fmt.Errorf("failed to scan customer location: %w", err)
+		}
+		locMap[strings.ToLower(strings.TrimSpace(cust))] = [2]float64{lat, lng}
+	}
+	if err := locRows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading customer location rows: %w", err)
+	}
+
 	result := make([]CustomerAliasGroup, 0, len(canonicalOrder))
 	for _, c := range canonicalOrder {
-		result = append(result, CustomerAliasGroup{
+		grp := CustomerAliasGroup{
 			Canonical: c,
 			Area:      areaMap[c],
 			Aliases:   groupsMap[c],
-		})
+		}
+		if coords, ok := locMap[strings.ToLower(strings.TrimSpace(c))]; ok {
+			lat := coords[0]
+			lng := coords[1]
+			grp.Latitude = &lat
+			grp.Longitude = &lng
+		}
+		result = append(result, grp)
 	}
 	return result, nil
 }
@@ -1605,10 +1641,18 @@ func (s *Storage) GetCustomerAliasesFlat(ctx context.Context) ([]model.CustomerA
 	return result, nil
 }
 
+// CustomerLocation represents a saved WGS84 coordinate pair for a customer.
+type CustomerLocation struct {
+	Customer  string  `json:"customer"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
 // CustomerAliasesDocument represents the versioned JSON interchange document for customer aliases.
 type CustomerAliasesDocument struct {
-	Version int                  `json:"version"`
-	Aliases []CustomerAliasEntry `json:"aliases"`
+	Version   int                  `json:"version"`
+	Aliases   []CustomerAliasEntry `json:"aliases"`
+	Locations []CustomerLocation   `json:"locations,omitempty"`
 }
 
 // CustomerAliasEntry represents a single customer alias mapping in CustomerAliasesDocument.
@@ -1632,11 +1676,78 @@ func (e *ValidationError) Unwrap() error {
 	return ErrValidation
 }
 
+func validateCoordinates(lat, lng float64) error {
+	if math.IsNaN(lat) || math.IsInf(lat, 0) || math.IsNaN(lng) || math.IsInf(lng, 0) ||
+		lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+		return &ValidationError{Message: "latitude must be between -90 and 90 and longitude between -180 and 180"}
+	}
+	return nil
+}
+
+// SetCustomerLocation creates, updates, or clears WGS84 coordinates for a customer.
+func (s *Storage) SetCustomerLocation(ctx context.Context, customer string, lat, lng *float64) error {
+	trimmed := strings.TrimSpace(customer)
+	if trimmed == "" {
+		return &ValidationError{Message: "customer cannot be empty"}
+	}
+	if (lat == nil) != (lng == nil) {
+		return &ValidationError{Message: "latitude and longitude must both be provided or both be null"}
+	}
+	if lat == nil && lng == nil {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM customer_locations WHERE customer = ? COLLATE NOCASE`, trimmed); err != nil {
+			return fmt.Errorf("failed to clear customer location: %w", err)
+		}
+		return nil
+	}
+	if err := validateCoordinates(*lat, *lng); err != nil {
+		return err
+	}
+	query := `
+		INSERT INTO customer_locations (customer, latitude, longitude, updated_at)
+		VALUES (?, ?, ?, datetime('now'))
+		ON CONFLICT(customer) DO UPDATE SET
+			customer = excluded.customer,
+			latitude = excluded.latitude,
+			longitude = excluded.longitude,
+			updated_at = datetime('now')
+	`
+	if _, err := s.db.ExecContext(ctx, query, trimmed, *lat, *lng); err != nil {
+		return fmt.Errorf("failed to set customer location: %w", err)
+	}
+	return nil
+}
+
+// GetCustomerLocations returns all saved customer coordinates ordered by customer name.
+func (s *Storage) GetCustomerLocations(ctx context.Context) ([]CustomerLocation, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT customer, latitude, longitude FROM customer_locations ORDER BY customer COLLATE NOCASE")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query customer locations: %w", err)
+	}
+	defer rows.Close()
+
+	var result []CustomerLocation
+	for rows.Next() {
+		var loc CustomerLocation
+		if err := rows.Scan(&loc.Customer, &loc.Latitude, &loc.Longitude); err != nil {
+			return nil, fmt.Errorf("failed to scan customer location: %w", err)
+		}
+		result = append(result, loc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading customer location rows: %w", err)
+	}
+	return result, nil
+}
+
 // ExportCustomerAliasesJSON returns the version-1 JSON document of all customer aliases ordered by canonical and alias.
 func (s *Storage) ExportCustomerAliasesJSON(ctx context.Context) ([]byte, error) {
 	aliases, err := s.GetCustomerAliasesFlat(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get customer aliases for export: %w", err)
+	}
+	locations, err := s.GetCustomerLocations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get customer locations for export: %w", err)
 	}
 
 	entries := make([]CustomerAliasEntry, 0, len(aliases))
@@ -1649,8 +1760,9 @@ func (s *Storage) ExportCustomerAliasesJSON(ctx context.Context) ([]byte, error)
 	}
 
 	doc := CustomerAliasesDocument{
-		Version: 1,
-		Aliases: entries,
+		Version:   1,
+		Aliases:   entries,
+		Locations: locations,
 	}
 
 	return json.Marshal(doc)
@@ -1682,6 +1794,18 @@ func applyCustomerAliasTx(ctx context.Context, tx *sql.Tx, trimmedAlias, trimmed
 		query := `UPDATE ` + table + ` SET customer = ?, area = CASE WHEN ? != '' THEN ? WHEN TRIM(COALESCE(area, '')) = '' THEN ? ELSE area END WHERE customer = ? COLLATE NOCASE`
 		if _, err := tx.ExecContext(ctx, query, trimmedCanonical, trimmedArea, trimmedArea, canonicalArea, trimmedAlias); err != nil {
 			return fmt.Errorf("failed to canonicalize customer alias in %s: %w", table, err)
+		}
+	}
+	if strings.EqualFold(trimmedAlias, trimmedCanonical) {
+		if _, err := tx.ExecContext(ctx, `UPDATE customer_locations SET customer = ?, updated_at = datetime('now') WHERE customer = ? COLLATE NOCASE`, trimmedCanonical, trimmedAlias); err != nil {
+			return fmt.Errorf("failed to update customer location casing: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `UPDATE OR IGNORE customer_locations SET customer = ?, updated_at = datetime('now') WHERE customer = ? COLLATE NOCASE`, trimmedCanonical, trimmedAlias); err != nil {
+			return fmt.Errorf("failed to migrate customer location: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM customer_locations WHERE customer = ? COLLATE NOCASE`, trimmedAlias); err != nil {
+			return fmt.Errorf("failed to clean up migrated customer location: %w", err)
 		}
 	}
 	return nil
@@ -1738,6 +1862,11 @@ func (s *Storage) ImportCustomerAliasesJSON(ctx context.Context, data []byte, mo
 			Canonical *string `json:"canonical"`
 			Area      *string `json:"area"`
 		} `json:"aliases"`
+		Locations *[]struct {
+			Customer  *string  `json:"customer"`
+			Latitude  *float64 `json:"latitude"`
+			Longitude *float64 `json:"longitude"`
+		} `json:"locations"`
 	}
 
 	if err := dec.Decode(&rawDoc); err != nil {
@@ -1792,6 +1921,37 @@ func (s *Storage) ImportCustomerAliasesJSON(ctx context.Context, data []byte, mo
 		})
 	}
 
+	var validatedLocations []CustomerLocation
+	if rawDoc.Locations != nil {
+		locDedup := make(map[string]CustomerLocation)
+		var locOrder []string
+		for idx, entry := range *rawDoc.Locations {
+			if entry.Customer == nil || strings.TrimSpace(*entry.Customer) == "" {
+				return res, &ValidationError{Message: fmt.Sprintf("location %d: customer cannot be empty", idx+1)}
+			}
+			if entry.Latitude == nil || entry.Longitude == nil {
+				return res, &ValidationError{Message: fmt.Sprintf("location %d: latitude and longitude are required", idx+1)}
+			}
+			if err := validateCoordinates(*entry.Latitude, *entry.Longitude); err != nil {
+				return res, &ValidationError{Message: fmt.Sprintf("location %d: %s", idx+1, err.Error())}
+			}
+			trimmedCustomer := strings.TrimSpace(*entry.Customer)
+			key := strings.ToLower(trimmedCustomer)
+			if _, exists := locDedup[key]; !exists {
+				locOrder = append(locOrder, key)
+			}
+			locDedup[key] = CustomerLocation{
+				Customer:  trimmedCustomer,
+				Latitude:  *entry.Latitude,
+				Longitude: *entry.Longitude,
+			}
+		}
+		validatedLocations = make([]CustomerLocation, 0, len(locOrder))
+		for _, key := range locOrder {
+			validatedLocations = append(validatedLocations, locDedup[key])
+		}
+	}
+
 	// Dedup case-insensitively, last-wins, preserving insertion order
 	deduped := make(map[string]validatedAlias)
 	var order []string
@@ -1813,6 +1973,11 @@ func (s *Storage) ImportCustomerAliasesJSON(ctx context.Context, data []byte, mo
 		if _, err := tx.ExecContext(ctx, "DELETE FROM customer_aliases"); err != nil {
 			return res, fmt.Errorf("failed to clear customer aliases for replace import: %w", err)
 		}
+		if rawDoc.Locations != nil {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM customer_locations"); err != nil {
+				return res, fmt.Errorf("failed to clear customer locations for replace import: %w", err)
+			}
+		}
 	}
 
 	for _, key := range order {
@@ -1821,6 +1986,21 @@ func (s *Storage) ImportCustomerAliasesJSON(ctx context.Context, data []byte, mo
 			return res, err
 		}
 		res.Imported++
+	}
+
+	for _, loc := range validatedLocations {
+		locQuery := `
+			INSERT INTO customer_locations (customer, latitude, longitude, updated_at)
+			VALUES (?, ?, ?, datetime('now'))
+			ON CONFLICT(customer) DO UPDATE SET
+				customer = excluded.customer,
+				latitude = excluded.latitude,
+				longitude = excluded.longitude,
+				updated_at = datetime('now')
+		`
+		if _, err := tx.ExecContext(ctx, locQuery, loc.Customer, loc.Latitude, loc.Longitude); err != nil {
+			return res, fmt.Errorf("failed to import customer location: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -3059,8 +3239,11 @@ func (s *Storage) GetCustomers(ctx context.Context, search, area string, limit, 
 
 	query := `
 		SELECT o.customer, COALESCE(MAX(o.area), ''), COUNT(DISTINCT o.id) as total_orders,
-		       COUNT(i.id) as total_items, COALESCE(MAX(o.tanggal), '') as last_order_date
-		FROM orders o LEFT JOIN items i ON i.order_id = o.id
+		       COUNT(i.id) as total_items, COALESCE(MAX(o.tanggal), '') as last_order_date,
+		       MAX(cl.latitude), MAX(cl.longitude)
+		FROM orders o
+		LEFT JOIN items i ON i.order_id = o.id
+		LEFT JOIN customer_locations cl ON cl.customer = o.customer COLLATE NOCASE
 	` + whereClause + " GROUP BY o.customer ORDER BY total_orders DESC"
 
 	queryArgs := append([]any{}, args...)
@@ -3086,8 +3269,15 @@ func (s *Storage) GetCustomers(ctx context.Context, search, area string, limit, 
 	var customerNames []string
 	for rows.Next() {
 		var cs CustomerSummary
-		if err := rows.Scan(&cs.Name, &cs.Area, &cs.TotalOrders, &cs.TotalItems, &cs.LastOrderDate); err != nil {
+		var lat, lng sql.NullFloat64
+		if err := rows.Scan(&cs.Name, &cs.Area, &cs.TotalOrders, &cs.TotalItems, &cs.LastOrderDate, &lat, &lng); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan customer summary: %w", err)
+		}
+		if lat.Valid && lng.Valid {
+			vLat := lat.Float64
+			vLng := lng.Float64
+			cs.Latitude = &vLat
+			cs.Longitude = &vLng
 		}
 		cs.StatusCounts = make(map[string]int)
 		customers = append(customers, cs)

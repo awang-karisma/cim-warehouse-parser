@@ -22,6 +22,12 @@ services:
       - POSTHOG_SERVICE_NAME=${POSTHOG_SERVICE_NAME:-warehouse-parser-api}
       - POSTHOG_ENVIRONMENT=${POSTHOG_ENVIRONMENT:-production}
       - POSTHOG_LOG_LEVEL=${POSTHOG_LOG_LEVEL:-info}
+      - MAP_TILE_CACHE_DIR=${MAP_TILE_CACHE_DIR:-/data/maptiles}
+      - MAP_TILE_CACHE_TTL=${MAP_TILE_CACHE_TTL:-720h}
+      - MAP_TILE_CACHE_MAX_SIZE_MB=${MAP_TILE_CACHE_MAX_SIZE_MB:-512}
+      - MAP_CARTO_API_KEY=${MAP_CARTO_API_KEY:-}
+      - MAP_OSM_API_KEY=${MAP_OSM_API_KEY:-}
+      - MAP_ESRI_API_KEY=${MAP_ESRI_API_KEY:-}
     volumes:
       - warehouse-data:/data
 

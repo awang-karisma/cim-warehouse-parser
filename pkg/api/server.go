@@ -10,6 +10,7 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
 	"github.com/awang-karisma/warehouse-parser/pkg/telemetry"
+	"github.com/awang-karisma/warehouse-parser/pkg/tilecache"
 	"github.com/awang-karisma/warehouse-parser/pkg/version"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/danielgtaylor/huma/v2"
@@ -37,6 +38,7 @@ type Config struct {
 	AccurateProvider accurate.Provider
 	AccurateSession  *session.Manager
 	AccurateRegistry *adapter.Registry
+	TileCache        *tilecache.Cache
 }
 
 // Server wraps the Fiber v3 HTTP application and Huma v2 API.
@@ -49,6 +51,7 @@ type Server struct {
 	accurateProvider accurate.Provider
 	accurateSession  *session.Manager
 	accurateRegistry *adapter.Registry
+	tileCache        *tilecache.Cache
 	startTime        time.Time
 	policyRoutes     map[string]struct{}
 }
@@ -67,6 +70,25 @@ func New(cfg Config) *Server {
 			return c.Status(code).JSON(fiber.Map{"error": err.Error()})
 		},
 	})
+	tc := cfg.TileCache
+	if tc == nil {
+		appCfg := cfg.AppConfig
+		if appCfg == nil {
+			def := config.DefaultConfig()
+			appCfg = &def
+		}
+		tc = tilecache.NewWithKeys(
+			appCfg.MapTileCacheDir,
+			appCfg.MapTileCacheTTL,
+			appCfg.MapTileCacheMaxSizeMB*1024*1024,
+			tilecache.ProviderKeys{
+				Carto:     appCfg.MapCartoAPIKey,
+				OSM:       appCfg.MapOSMAPIKey,
+				Satellite: appCfg.MapEsriAPIKey,
+			},
+			nil,
+		)
+	}
 	s := &Server{
 		app:              app,
 		store:            cfg.Store,
@@ -76,9 +98,9 @@ func New(cfg Config) *Server {
 		accurateProvider: cfg.AccurateProvider,
 		accurateSession:  cfg.AccurateSession,
 		accurateRegistry: cfg.AccurateRegistry,
+		tileCache:        tc,
 		policyRoutes:     make(map[string]struct{}),
 	}
-
 	// Middlewares
 	app.Use(s.telemetryMiddleware)
 	app.Use(recover.New(recover.Config{
@@ -121,7 +143,8 @@ func New(cfg Config) *Server {
 	s.registerRaw(http.MethodGet, "/api/v1/sync/events", allOf(model.PermSyncRead), s.handleSyncSSE)
 	s.registerRaw(http.MethodGet, "/api/v1/customer-aliases/export", allOf(model.PermAliasRead, model.PermAliasExport), s.handleExportCustomerAliases)
 	s.registerRaw(http.MethodPost, "/api/v1/customer-aliases/import", allOf(model.PermAliasImport), s.handleImportCustomerAliases)
-
+	s.registerRaw(http.MethodGet, "/api/v1/map-tiles/config", anyOf(model.PermAreaRead, model.PermCustomerRead, model.PermAliasRead, model.PermAliasWrite), s.handleGetMapTileConfig)
+	s.registerRaw(http.MethodGet, "/api/v1/map-tiles/:provider/:z/:x/:y", anyOf(model.PermAreaRead, model.PermCustomerRead, model.PermAliasRead, model.PermAliasWrite), s.handleGetMapTile)
 	// Auth routes (raw Fiber routes)
 	s.registerRaw(http.MethodGet, "/auth/config", publicPolicy, s.handleAuthConfig)
 	s.registerRaw(http.MethodPost, "/auth/google/callback", publicPolicy, s.handleGoogleCallback)
@@ -133,6 +156,7 @@ func New(cfg Config) *Server {
 	s.registerRaw(http.MethodPut, "/api/v1/admin/users/:email/role", anyOf(model.PermUserCreate, model.PermUserUpdate), s.handleSetUserRole)
 	s.registerRaw(http.MethodDelete, "/api/v1/admin/users/:email", allOf(model.PermUserDelete), s.handleDeleteUser)
 	s.registerRaw(http.MethodPost, "/api/v1/admin/clear-database", allOf(model.PermDatabaseClear), s.handleClearDatabase)
+	s.registerRaw(http.MethodPost, "/api/v1/admin/map-tiles/invalidate", allOf(model.PermSystemRead), s.handleInvalidateMapTileCache)
 	s.registerRaw(http.MethodGet, "/api/v1/admin/permissions", allOf(model.PermRoleRead), s.handleListPermissions)
 	s.registerRaw(http.MethodGet, "/api/v1/admin/roles", allOf(model.PermRoleRead), s.handleListRoles)
 	s.registerRaw(http.MethodPost, "/api/v1/admin/roles", allOf(model.PermRoleCreate), s.handleCreateRole)
@@ -422,6 +446,15 @@ func (s *Server) registerOperations() {
 		Description: "Delete a customer name alias mapping",
 		Tags:        []string{"customers"},
 	}, s.handleDeleteCustomerAlias)
+
+	registerOperation(s, allOf(model.PermAliasWrite), huma.Operation{
+		OperationID: "set-customer-location",
+		Method:      http.MethodPut,
+		Path:        "/api/v1/customers/location",
+		Summary:     "Set or clear customer coordinates",
+		Description: "Set or clear WGS84 latitude and longitude coordinates for a customer",
+		Tags:        []string{"customers"},
+	}, s.handleSetCustomerLocation)
 
 	registerOperation(s, allOf(model.PermWorkdayRead), huma.Operation{
 		OperationID: "get-workday-policies",

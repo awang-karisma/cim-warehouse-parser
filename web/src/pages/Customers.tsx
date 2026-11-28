@@ -20,10 +20,12 @@ import {
   IconEdit,
   IconLoader2,
   IconAlertCircle,
+  IconMapPin,
 } from '@tabler/icons-solidjs';
-import { getCustomers, getCustomerAliases, setCustomerAlias, getAreas } from '../api';
+import { getCustomers, getCustomerAliases, setCustomerAlias, setCustomerLocation, getAreas } from '../api';
 import type { CustomerSummary } from '../types';
 import { AreaCombobox } from '~/components/AreaCombobox';
+import { CustomerLocationPicker, parseCoordinatePair } from '~/components/CustomerLocationPicker';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '~/components/ui/card';
 import { TextField, TextFieldInput, TextFieldLabel } from '~/components/ui/text-field';
 import { Button } from '~/components/ui/button';
@@ -261,8 +263,18 @@ export const Customers: Component = () => {
   const [selectedCanonical, setSelectedCanonical] = createSignal('');
   const [newCanonicalName, setNewCanonicalName] = createSignal('');
   const [aliasArea, setAliasArea] = createSignal('');
+  const [locationLat, setLocationLat] = createSignal('');
+  const [locationLng, setLocationLng] = createSignal('');
+  const [initialHasLocation, setInitialHasLocation] = createSignal(false);
   const [isSubmitting, setIsSubmitting] = createSignal(false);
   const [errorMessage, setErrorMessage] = createSignal('');
+
+  createEffect(() => {
+    if (!auth.can('alias:write')) {
+      setModalOpen(false);
+      setErrorMessage('');
+    }
+  });
 
   const openEditModal = (cust: CustomerSummary) => {
     if (!auth.can('alias:write')) return;
@@ -284,13 +296,16 @@ export const Customers: Component = () => {
       if (!cust.area && existingGroup.area) {
         setAliasArea(existingGroup.area);
       }
-    } else if (groups.length > 0) {
-      setSelectedCanonical(groups[0].canonical);
-      setNewCanonicalName('');
     } else {
       setSelectedCanonical('__NEW__');
       setNewCanonicalName(cust.name);
     }
+
+    const lat = cust.latitude ?? existingGroup?.latitude ?? null;
+    const lng = cust.longitude ?? existingGroup?.longitude ?? null;
+    setLocationLat(lat !== null && lat !== undefined ? String(lat) : '');
+    setLocationLng(lng !== null && lng !== undefined ? String(lng) : '');
+    setInitialHasLocation(lat !== null && lat !== undefined && lng !== null && lng !== undefined);
 
     setModalOpen(true);
   };
@@ -315,11 +330,29 @@ export const Customers: Component = () => {
       }
     }
 
+    const coord = parseCoordinatePair(locationLat(), locationLng());
+    if (!coord.valid) {
+      setErrorMessage(t(coord.errorKey || 'customers.coordRangeError'));
+      return;
+    }
+
+    const isAliasChange = alias.toLowerCase() !== canonical.toLowerCase();
+    const shouldUpdateLocation = !coord.empty || initialHasLocation();
+    if (!isAliasChange && !shouldUpdateLocation) {
+      setErrorMessage(t('customers.aliasEqualOrLocationRequired'));
+      return;
+    }
+
     const area = aliasArea().trim();
 
     setIsSubmitting(true);
     try {
-      await setCustomerAlias(alias, canonical, area);
+      if (isAliasChange) {
+        await setCustomerAlias(alias, canonical, area);
+      }
+      if (shouldUpdateLocation) {
+        await setCustomerLocation(canonical, coord.lat, coord.lng);
+      }
       setModalOpen(false);
       await Promise.all([refetchCustomers(), ...(auth.can('alias:read') ? [refetchAliases()] : [])]);
     } catch (err: unknown) {
@@ -453,6 +486,15 @@ export const Customers: Component = () => {
                           </div>
                         </div>
 
+                        <Show when={cust.latitude != null && cust.longitude != null}>
+                          <div class="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-mono">
+                            <IconMapPin class="size-3 shrink-0" />
+                            <span>
+                              {cust.latitude!.toFixed(4)}, {cust.longitude!.toFixed(4)}
+                            </span>
+                          </div>
+                        </Show>
+
                         <div class="space-y-1">
                           <div class="flex justify-between text-xs">
                             <span class="text-muted-foreground">{t('customers.fulfillmentRate')}</span>
@@ -539,7 +581,7 @@ export const Customers: Component = () => {
 
       {/* Solid-UI Dialog for Edit Customer Alias */}
       <Dialog open={modalOpen()} onOpenChange={setModalOpen}>
-        <DialogContent class="sm:max-w-md">
+        <DialogContent class="sm:max-w-lg">
           <form onSubmit={handleSaveAlias} class="space-y-4">
             <DialogHeader>
               <DialogTitle>{t('customers.editAliasTitle')}</DialogTitle>
@@ -613,6 +655,17 @@ export const Customers: Component = () => {
                   class="w-full"
                 />
               </div>
+
+              <Show when={auth.can('alias:write')}>
+                <CustomerLocationPicker
+                  latitude={locationLat()}
+                  longitude={locationLng()}
+                  onLatitudeChange={setLocationLat}
+                  onLongitudeChange={setLocationLng}
+                  area={aliasArea()}
+                  disabled={isSubmitting() || !auth.can('alias:write')}
+                />
+              </Show>
             </div>
 
             <DialogFooter class="pt-2">

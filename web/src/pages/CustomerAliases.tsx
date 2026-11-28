@@ -1,7 +1,7 @@
 import { captureException } from '~/posthog';
 import { canAccessRoute, ROUTES } from '~/routes';
 
-import { type Component, createSignal, createResource, createMemo, Show, For } from 'solid-js';
+import { type Component, createSignal, createResource, createMemo, createEffect, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
 import { A } from '@solidjs/router';
 import {
@@ -28,6 +28,7 @@ import { useAuth } from '~/auth';
 import {
   getCustomerAliases,
   setCustomerAlias,
+  setCustomerLocation,
   deleteCustomerAlias,
   getAreas,
   getCustomerAliasesExportUrl,
@@ -55,8 +56,8 @@ import {
 } from '~/components/ui/dialog';
 import { Button } from '~/components/ui/button';
 import { AreaCombobox } from '~/components/AreaCombobox';
+import { CustomerLocationPicker, parseCoordinatePair } from '~/components/CustomerLocationPicker';
 import { Skeleton } from '~/components/ui/skeleton';
-
 export const CustomerAliases: Component = () => {
   const { t } = useI18n();
   const auth = useAuth();
@@ -91,6 +92,8 @@ export const CustomerAliases: Component = () => {
   const [modalAliasInput, setModalAliasInput] = createSignal('');
   const [modalCanonicalInput, setModalCanonicalInput] = createSignal('');
   const [modalAreaInput, setModalAreaInput] = createSignal('');
+  const [modalLat, setModalLat] = createSignal('');
+  const [modalLng, setModalLng] = createSignal('');
   const [modalError, setModalError] = createSignal('');
   const [isModalAdding, setIsModalAdding] = createSignal(false);
 
@@ -99,6 +102,8 @@ export const CustomerAliases: Component = () => {
   const [editGroup, setEditGroup] = createSignal<CustomerAliasGroup | null>(null);
   const [editCanonical, setEditCanonical] = createSignal('');
   const [editArea, setEditArea] = createSignal('');
+  const [editLat, setEditLat] = createSignal('');
+  const [editLng, setEditLng] = createSignal('');
   const [editGroupError, setEditGroupError] = createSignal('');
   const [isEditingGroup, setIsEditingGroup] = createSignal(false);
 
@@ -108,6 +113,9 @@ export const CustomerAliases: Component = () => {
   const [editAliasSpelling, setEditAliasSpelling] = createSignal('');
   const [editAliasCanonical, setEditAliasCanonical] = createSignal('');
   const [editAliasArea, setEditAliasArea] = createSignal('');
+  const [editAliasLat, setEditAliasLat] = createSignal('');
+  const [editAliasLng, setEditAliasLng] = createSignal('');
+  const [editAliasInitialHadLoc, setEditAliasInitialHadLoc] = createSignal(false);
   const [editAliasError, setEditAliasError] = createSignal('');
   const [isEditingAlias, setIsEditingAlias] = createSignal(false);
 
@@ -115,6 +123,19 @@ export const CustomerAliases: Component = () => {
   const [aliasToDelete, setAliasToDelete] = createSignal<string>('');
   const [isDeleting, setIsDeleting] = createSignal(false);
 
+  createEffect(() => {
+    if (!canWrite()) {
+      setShowAddModal(false);
+      setShowEditGroupDialog(false);
+      setShowEditAliasDialog(false);
+      setActiveInlineAdd(null);
+    }
+  });
+  createEffect(() => {
+    if (!auth.can('alias:delete')) {
+      setAliasToDelete('');
+    }
+  });
   // Import JSON state
   const [importMode, setImportMode] = createSignal<'merge' | 'replace'>('merge');
   const [isImporting, setIsImporting] = createSignal(false);
@@ -224,13 +245,23 @@ export const CustomerAliases: Component = () => {
       setModalError(t('customerAliases.aliasEqualError'));
       return;
     }
+    const coord = parseCoordinatePair(modalLat(), modalLng());
+    if (!coord.valid) {
+      setModalError(t(coord.errorKey || 'customers.coordRangeError'));
+      return;
+    }
     setIsModalAdding(true);
     setModalError('');
     try {
       await setCustomerAlias(a, c, modalAreaInput().trim() || undefined);
+      if (!coord.empty) {
+        await setCustomerLocation(c, coord.lat, coord.lng);
+      }
       setModalAliasInput('');
       setModalCanonicalInput('');
       setModalAreaInput('');
+      setModalLat('');
+      setModalLng('');
       setShowAddModal(false);
       refetchAliases();
     } catch (err: unknown) {
@@ -258,12 +289,24 @@ export const CustomerAliases: Component = () => {
         return;
       }
     }
+    const coord = parseCoordinatePair(editLat(), editLng());
+    if (!coord.valid) {
+      setEditGroupError(t(coord.errorKey || 'customers.coordRangeError'));
+      return;
+    }
+    const hadLoc = grp.latitude != null && grp.longitude != null;
     setIsEditingGroup(true);
     setEditGroupError('');
     try {
       for (const alias of grp.aliases) {
         if (!canWrite()) return;
         await setCustomerAlias(alias, newCanonical, newArea);
+      }
+      if (!coord.empty || hadLoc) {
+        await setCustomerLocation(newCanonical, coord.lat, coord.lng);
+        if (newCanonical.toLowerCase() !== grp.canonical.toLowerCase() && coord.empty && hadLoc) {
+          await setCustomerLocation(grp.canonical, null, null);
+        }
       }
       setShowEditGroupDialog(false);
       refetchAliases();
@@ -292,6 +335,11 @@ export const CustomerAliases: Component = () => {
       setEditAliasError(t('customerAliases.aliasEqualError'));
       return;
     }
+    const coord = parseCoordinatePair(editAliasLat(), editAliasLng());
+    if (!coord.valid) {
+      setEditAliasError(t(coord.errorKey || 'customers.coordRangeError'));
+      return;
+    }
 
     setIsEditingAlias(true);
     setEditAliasError('');
@@ -301,6 +349,9 @@ export const CustomerAliases: Component = () => {
         if (!canWrite()) return;
       }
       await setCustomerAlias(spelling, canonical, area);
+      if (!coord.empty || editAliasInitialHadLoc()) {
+        await setCustomerLocation(canonical, coord.lat, coord.lng);
+      }
       setShowEditAliasDialog(false);
       refetchAliases();
     } catch (err: unknown) {
@@ -442,6 +493,8 @@ export const CustomerAliases: Component = () => {
                 setModalAliasInput('');
                 setModalCanonicalInput('');
                 setModalAreaInput('');
+                setModalLat('');
+                setModalLng('');
                 setModalError('');
                 setShowAddModal(true);
               }}
@@ -747,7 +800,7 @@ export const CustomerAliases: Component = () => {
                             <CardTitle class="text-sm font-bold text-foreground leading-snug truncate">
                               {grp.canonical}
                             </CardTitle>
-                            <div class="flex items-center gap-1.5 mt-0.5">
+                            <div class="flex flex-wrap items-center gap-1.5 mt-0.5">
                               <Show
                                 when={grp.area}
                                 fallback={
@@ -757,6 +810,14 @@ export const CustomerAliases: Component = () => {
                                 <span class="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
                                   <IconMapPin class="size-3 text-primary" />
                                   <span>{grp.area}</span>
+                                </span>
+                              </Show>
+                              <Show when={grp.latitude != null && grp.longitude != null}>
+                                <span class="inline-flex items-center gap-1 rounded bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-mono">
+                                  <IconMapPin class="size-2.5 shrink-0" />
+                                  <span>
+                                    {grp.latitude!.toFixed(4)}, {grp.longitude!.toFixed(4)}
+                                  </span>
                                 </span>
                               </Show>
                             </div>
@@ -773,6 +834,8 @@ export const CustomerAliases: Component = () => {
                               setEditGroup(grp);
                               setEditCanonical(grp.canonical);
                               setEditArea(grp.area || '');
+                              setEditLat(grp.latitude != null ? String(grp.latitude) : '');
+                              setEditLng(grp.longitude != null ? String(grp.longitude) : '');
                               setEditGroupError('');
                               setShowEditGroupDialog(true);
                             }}
@@ -814,6 +877,9 @@ export const CustomerAliases: Component = () => {
                                         setEditAliasSpelling(al);
                                         setEditAliasCanonical(grp.canonical);
                                         setEditAliasArea(grp.area || '');
+                                        setEditAliasLat(grp.latitude != null ? String(grp.latitude) : '');
+                                        setEditAliasLng(grp.longitude != null ? String(grp.longitude) : '');
+                                        setEditAliasInitialHadLoc(grp.latitude != null && grp.longitude != null);
                                         setEditAliasError('');
                                         setShowEditAliasDialog(true);
                                       }}
@@ -929,7 +995,7 @@ export const CustomerAliases: Component = () => {
 
       {/* Add Customer Modal */}
       <Dialog open={showAddModal()} onOpenChange={setShowAddModal}>
-        <DialogContent class="sm:max-w-md">
+        <DialogContent class="sm:max-w-lg">
           <form onSubmit={handleAddSubmit} class="space-y-4">
             <DialogHeader>
               <DialogTitle>{t('customerAliases.addMapping')}</DialogTitle>
@@ -968,8 +1034,18 @@ export const CustomerAliases: Component = () => {
                   disabled={isModalAdding()}
                 />
               </div>
-            </div>
 
+              <Show when={canWrite()}>
+                <CustomerLocationPicker
+                  latitude={modalLat()}
+                  longitude={modalLng()}
+                  onLatitudeChange={setModalLat}
+                  onLongitudeChange={setModalLng}
+                  area={modalAreaInput()}
+                  disabled={isModalAdding() || !canWrite()}
+                />
+              </Show>
+            </div>
             <DialogFooter class="pt-2 flex flex-col sm:flex-row sm:justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setShowAddModal(false)} disabled={isModalAdding()}>
                 {t('common.cancel')}
@@ -988,7 +1064,7 @@ export const CustomerAliases: Component = () => {
 
       {/* Edit Group Dialog */}
       <Dialog open={showEditGroupDialog()} onOpenChange={setShowEditGroupDialog}>
-        <DialogContent class="sm:max-w-md">
+        <DialogContent class="sm:max-w-lg">
           <form onSubmit={handleSaveGroup} class="space-y-4">
             <DialogHeader>
               <DialogTitle>{t('customerAliases.editGroup')}</DialogTitle>
@@ -1021,6 +1097,17 @@ export const CustomerAliases: Component = () => {
                   class="w-full"
                 />
               </div>
+
+              <Show when={canWrite()}>
+                <CustomerLocationPicker
+                  latitude={editLat()}
+                  longitude={editLng()}
+                  onLatitudeChange={setEditLat}
+                  onLongitudeChange={setEditLng}
+                  area={editArea()}
+                  disabled={isEditingGroup() || !canWrite()}
+                />
+              </Show>
             </div>
             <DialogFooter class="pt-2 flex flex-col sm:flex-row sm:justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setShowEditGroupDialog(false)} disabled={isEditingGroup()}>
@@ -1040,7 +1127,7 @@ export const CustomerAliases: Component = () => {
 
       {/* Edit Single Alias Dialog */}
       <Dialog open={showEditAliasDialog()} onOpenChange={setShowEditAliasDialog}>
-        <DialogContent class="sm:max-w-md">
+        <DialogContent class="sm:max-w-lg">
           <form onSubmit={handleSaveSingleAlias} class="space-y-4">
             <DialogHeader>
               <DialogTitle>{t('customerAliases.editAlias')}</DialogTitle>
@@ -1078,8 +1165,18 @@ export const CustomerAliases: Component = () => {
                   class="w-full"
                 />
               </div>
-            </div>
 
+              <Show when={canWrite()}>
+                <CustomerLocationPicker
+                  latitude={editAliasLat()}
+                  longitude={editAliasLng()}
+                  onLatitudeChange={setEditAliasLat}
+                  onLongitudeChange={setEditAliasLng}
+                  area={editAliasArea()}
+                  disabled={isEditingAlias() || !canWrite()}
+                />
+              </Show>
+            </div>
             <DialogFooter class="pt-2 flex flex-col sm:flex-row sm:justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setShowEditAliasDialog(false)} disabled={isEditingAlias()}>
                 {t('common.cancel')}
