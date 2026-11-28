@@ -46,6 +46,7 @@ Automated order ingestion, normalization, and visualization system.
   - `/admin/roles` shows the capability catalog and role editor; `/admin/users` displays assignments and only the actions and role choices the server allows for each target.
   - Navigation, direct routes, secondary requests, and actions use the same capability contract. Approved users without workspace access can still refresh access, open preferences, or sign out. `/privacy` and `/terms` remain public.
   - Intentionally leaving `GOOGLE_CLIENT_ID` empty enables full local development access, including user and role administration. An auth error never enables that mode.
+  - Technical reference (architecture, SQLite schema, delegation rules, file map, and implementation guide for adding permissions, pages, and subpages): [`docs/rbac.md`](docs/rbac.md).
 
 - **Accurate Online Integration & Barcode Printing (`/barcode`)**:
   - Reusable Accurate API layer supporting both official Bearer-token API (with request signing and host redirect handling) and web automation login (with MFA/TOTP challenge support). The web login flow follows redirects only on the configured IdP host and scheme; redirects to other hosts or schemes are rejected to avoid forwarding authentication data.
@@ -377,11 +378,13 @@ Business endpoints are under `/api/v1`. A slash-separated pair of methods and ca
 
 `POST /api/v1/admin/roles` and `PUT /api/v1/admin/roles/{id}` accept `{name, description, permissions}`. Supply `[]` to clear grants; `*` and unknown grants are not assignable. Role metadata and grants save atomically; roles with assignees cannot be deleted. User assignments accept `{role_id: number}` using IDs from the user directory (the approval target is the built-in `user`, ID 2). Role IDs are not reused after deletion. The list returns allowed target actions and assignable role IDs/names without requiring `role:read`.
 
+The role management workspace at `/admin/roles` (`role:read`) uses a route-first, multi-page editor (`/admin/roles/:id` for role overview and `/admin/roles/:id/:surface` for each Warehouse Parser workspace surface). Administrators can switch or clone roles, inspect which sidebar pages a role unlocks via live visibility banners, apply delegation-safe bulk `Read`/`Full`/`None` actions per surface, resolve missing prerequisite grants (`item:export`, `alias:export`, `logger_device:write`) in one click, review elevated/destructive permissions, and save or delete roles atomically. Switching between surfaces for the same role preserves unsaved edits while switching roles guards against accidental loss.
+
 Browser-local capabilities: `barcode:print` allows local label work; `logger_device:read` allows connecting and pulling readings; `logger_device:write` additionally allows hardware configuration/reset/format/display writes only with read access and an active connection. These control actions in this app, not use of hardware by other software.
 
 Changing unrelated grants leaves an authorized USB logger connection and its pending verification intact. Barcode lookups and open drawers reset when the Accurate tenant changes; explicitly queued labels are unchanged. Session refresh rechecks the server's auth mode, and sync event writes cannot outlive session expiry.
 
-The Go registry in `pkg/model/permission.go` owns the capability keys. After adding one, run `go generate ./pkg/model` to regenerate the TypeScript union and update the operation policy and role-editor locale copy.
+The Go registry in `pkg/model/permission.go` owns the capability keys. After adding one, run `go generate ./pkg/model` to regenerate the TypeScript union and update the operation policy and role-editor locale copy. See [`docs/rbac.md`](docs/rbac.md) for the full architecture, file reference, and new page/subpage guide.
 
 ---
 

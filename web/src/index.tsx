@@ -83,7 +83,7 @@ if (root) {
                 <Route path={ROUTES.search} component={guardedPage(ROUTES.search, Search)} />
                 <Route path={ROUTES.settings} component={guardedPage(ROUTES.settings, Settings)} />
                 <Route path={ROUTES.users} component={guardedPage(ROUTES.users, UserManagement)} />
-                <Route path={ROUTES.roles} component={guardedPage(ROUTES.roles, RoleManagement)} />
+                <Route path={`${ROUTES.roles}/*rest`} component={guardedPage(ROUTES.roles, RoleManagement)} />
                 <Route path={ROUTES.privacy} component={Privacy} />
                 <Route path={ROUTES.terms} component={Terms} />
                 <Route path={ROUTES.datalogger} component={guardedPage(ROUTES.datalogger, Datalogger, (auth) => JSON.stringify([
