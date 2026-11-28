@@ -10,6 +10,7 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/auth"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"github.com/awang-karisma/warehouse-parser/pkg/telemetry"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 	"github.com/gofiber/fiber/v3"
@@ -67,7 +68,20 @@ func registerOperation[I, O any](s *Server, p operationPolicy, op huma.Operation
 		op.Metadata = make(map[string]any, 1)
 	}
 	op.Metadata[policyMetadata] = p
-	huma.Register(s.humaAPI, op, handler)
+	wrapped := func(ctx context.Context, input *I) (*O, error) {
+		if corr := telemetry.CorrelationFromContext(ctx); corr != nil {
+			corr.OperationID = op.OperationID
+		}
+		applyPrincipalCorrelation(ctx, accessFromContext(ctx))
+		out, err := handler(ctx, input)
+		if err != nil {
+			if corr := telemetry.CorrelationFromContext(ctx); corr != nil {
+				corr.HandlerErr = err
+			}
+		}
+		return out, err
+	}
+	huma.Register(s.humaAPI, op, wrapped)
 }
 
 func checkPolicy(method, path string, p operationPolicy) {
@@ -82,9 +96,13 @@ func (s *Server) registerRaw(method, path string, p operationPolicy, handler fib
 	guard := func(c fiber.Ctx) error {
 		access, err := s.authorize(c, p)
 		if err != nil {
+			if corr := telemetry.CorrelationFromContext(c.Context()); corr != nil {
+				corr.HandlerErr = err
+			}
 			return err
 		}
 		if access != nil {
+			applyPrincipalCorrelation(c.Context(), access)
 			c.SetContext(context.WithValue(c.Context(), requestAccessKey{}, access))
 		}
 		return c.Next()
@@ -217,6 +235,9 @@ func (s *Server) humaAuthMiddleware(ctx huma.Context, next func(huma.Context)) {
 	}
 	a, err := s.authorize(humafiber.Unwrap(ctx), p)
 	if err != nil {
+		if corr := telemetry.CorrelationFromContext(ctx.Context()); corr != nil {
+			corr.HandlerErr = err
+		}
 		var status *fiber.Error
 		if errors.As(err, &status) {
 			_ = huma.WriteErr(s.humaAPI, ctx, status.Code, status.Message)
@@ -226,6 +247,7 @@ func (s *Server) humaAuthMiddleware(ctx huma.Context, next func(huma.Context)) {
 		return
 	}
 	if a != nil {
+		applyPrincipalCorrelation(ctx.Context(), a)
 		ctx = huma.WithValue(ctx, requestAccessKey{}, a)
 	}
 	next(ctx)

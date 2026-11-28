@@ -1,12 +1,16 @@
 package session
 
 import (
+	"context"
 	"log"
 	"sync"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/provider/official"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/provider/web"
+	"github.com/awang-karisma/warehouse-parser/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	otellog "go.opentelemetry.io/otel/log"
 )
 
 // SessionStore defines the interface for persisting Accurate session state.
@@ -56,6 +60,16 @@ func NewManager(st SessionStore, prov ...accurate.Provider) *Manager {
 		providerID, email, deviceID, cookies, tenant, officialState, err := st.LoadAccurateSession()
 		if err != nil {
 			log.Printf("session: failed to load session from store: %v", err)
+			telemetry.Emit(context.Background(), telemetry.Event{
+				Name:     "accurate.session.load_failed",
+				Severity: otellog.SeverityError,
+				Body:     "Failed to load Accurate session from store",
+				Err:      err,
+				Attributes: []attribute.KeyValue{
+					attribute.String("accurate.provider", providerIDForTelemetry(p)),
+					attribute.String("error.message", err.Error()),
+				},
+			})
 		} else {
 			if p == nil || p.ID() == providerID {
 				if accurate.ProviderKind(providerID) == accurate.ProviderOfficial {
@@ -234,6 +248,16 @@ func (m *Manager) resetLocked() {
 	if m.store != nil {
 		if err := m.store.ClearAccurateSession(); err != nil {
 			log.Printf("session: failed to clear session in store: %v", err)
+			telemetry.Emit(context.Background(), telemetry.Event{
+				Name:     "accurate.session.clear_failed",
+				Severity: otellog.SeverityError,
+				Body:     "Failed to clear Accurate session in store",
+				Err:      err,
+				Attributes: []attribute.KeyValue{
+					attribute.String("accurate.provider", providerIDForTelemetry(m.prov)),
+					attribute.String("error.message", err.Error()),
+				},
+			})
 		}
 	}
 }
@@ -279,5 +303,22 @@ func (m *Manager) persist() {
 
 	if err := m.store.SaveAccurateSession(provID, m.email, deviceID, jar, m.tenantSession, m.officialSession); err != nil {
 		log.Printf("session: failed to persist session: %v", err)
+		telemetry.Emit(context.Background(), telemetry.Event{
+			Name:     "accurate.session.save_failed",
+			Severity: otellog.SeverityError,
+			Body:     "Failed to persist Accurate session to store",
+			Err:      err,
+			Attributes: []attribute.KeyValue{
+				attribute.String("accurate.provider", provID),
+				attribute.String("error.message", err.Error()),
+			},
+		})
 	}
+}
+
+func providerIDForTelemetry(p accurate.Provider) string {
+	if p != nil {
+		return p.ID()
+	}
+	return string(accurate.ProviderWeb)
 }

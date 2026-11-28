@@ -22,7 +22,10 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/api"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"github.com/awang-karisma/warehouse-parser/pkg/telemetry"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
+	"go.opentelemetry.io/otel/attribute"
+	otellog "go.opentelemetry.io/otel/log"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
@@ -38,6 +41,14 @@ func main() {
 		return strings.TrimSpace(email) != ""
 	}) {
 		log.Fatal("SUPERADMIN_EMAILS must include a recovery account when authentication is enabled")
+	}
+
+	telemetryProvider, err := telemetry.Setup(context.Background(), cfg.TelemetryConfig())
+	if err != nil {
+		log.Fatalf("failed to initialize telemetry: %v", err)
+	}
+	if telemetryProvider.Enabled() {
+		log.Printf("PostHog OTLP logging enabled (service: %s, env: %s, level: %s)", cfg.PostHogServiceName, cfg.PostHogEnvironment, cfg.PostHogLogLevel)
 	}
 
 	// 2. Ensure DB directory exists and initialize SQLite storage
@@ -114,6 +125,16 @@ func main() {
 	addr := ":" + cfg.Port
 	go func() {
 		log.Printf("Starting HTTP server listening on %s (Scalar Docs: http://localhost:%s/docs, OpenAPI: http://localhost:%s/openapi.json)", addr, cfg.Port, cfg.Port)
+		telemetry.Emit(context.Background(), telemetry.Event{
+			Name:     "server.started",
+			Severity: otellog.SeverityInfo,
+			Body:     "Warehouse HTTP server started",
+			Attributes: []attribute.KeyValue{
+				attribute.String("server.port", cfg.Port),
+				attribute.String("accurate.provider", cfg.AccurateProvider),
+				attribute.Bool("auth.enabled", cfg.GoogleClientID != ""),
+			},
+		})
 		if err := app.Listen(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}
@@ -132,6 +153,19 @@ func main() {
 
 	select {
 	case err := <-serverErrors:
+		telemetry.Emit(context.Background(), telemetry.Event{
+			Name:     "server.listen_error",
+			Severity: otellog.SeverityError,
+			Body:     "HTTP server listen error",
+			Err:      err,
+			Attributes: []attribute.KeyValue{
+				attribute.String("server.port", cfg.Port),
+				attribute.String("error.message", err.Error()),
+			},
+		})
+		errFlushCtx, errFlushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = telemetryProvider.Shutdown(errFlushCtx)
+		errFlushCancel()
 		log.Fatalf("HTTP server listen error: %v", err)
 	case sig := <-quit:
 		log.Printf("Received shutdown signal %v, terminating gracefully...", sig)
@@ -147,6 +181,14 @@ func main() {
 	}
 	if err := store.Close(); err != nil {
 		log.Printf("warning: storage close error: %v", err)
+	}
+	telemetry.Emit(context.Background(), telemetry.Event{
+		Name:     "server.stopped",
+		Severity: otellog.SeverityInfo,
+		Body:     "Warehouse HTTP server stopped gracefully",
+	})
+	if err := telemetryProvider.Shutdown(shutdownCtx); err != nil {
+		log.Printf("warning: telemetry shutdown error: %v", err)
 	}
 	log.Println("Server gracefully stopped.")
 }

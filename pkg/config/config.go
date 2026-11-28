@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
+	"github.com/awang-karisma/warehouse-parser/pkg/telemetry"
+	"github.com/awang-karisma/warehouse-parser/pkg/version"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/joho/godotenv"
@@ -41,6 +43,11 @@ type Config struct {
 	AccuratePassword               string        `mapstructure:"accurate_password" json:"-"`
 	AccurateAPIToken               string        `mapstructure:"accurate_api_token" json:"-"`
 	AccurateAPISignatureSecret     string        `mapstructure:"accurate_api_signature_secret" json:"-"`
+	PostHogAPIKey                  string        `mapstructure:"posthog_api_key" json:"-"`
+	PostHogHost                    string        `mapstructure:"posthog_host" json:"posthog_host"`
+	PostHogServiceName             string        `mapstructure:"posthog_service_name" json:"posthog_service_name"`
+	PostHogEnvironment             string        `mapstructure:"posthog_environment" json:"posthog_environment"`
+	PostHogLogLevel                string        `mapstructure:"posthog_log_level" json:"posthog_log_level"`
 }
 
 // DefaultConfig returns a Config struct with default configuration values.
@@ -67,6 +74,11 @@ func DefaultConfig() Config {
 		AccuratePassword:               "",
 		AccurateAPIToken:               "",
 		AccurateAPISignatureSecret:     "",
+		PostHogAPIKey:                  "",
+		PostHogHost:                    telemetry.DefaultHost,
+		PostHogServiceName:             telemetry.DefaultServiceName,
+		PostHogEnvironment:             telemetry.DefaultEnvironment,
+		PostHogLogLevel:                string(telemetry.LevelInfo),
 	}
 }
 
@@ -106,6 +118,11 @@ func Load(envFiles ...string) (*Config, error) {
 	v.SetDefault("accurate_password", defaults.AccuratePassword)
 	v.SetDefault("accurate_api_token", defaults.AccurateAPIToken)
 	v.SetDefault("accurate_api_signature_secret", defaults.AccurateAPISignatureSecret)
+	v.SetDefault("posthog_api_key", defaults.PostHogAPIKey)
+	v.SetDefault("posthog_host", defaults.PostHogHost)
+	v.SetDefault("posthog_service_name", defaults.PostHogServiceName)
+	v.SetDefault("posthog_environment", defaults.PostHogEnvironment)
+	v.SetDefault("posthog_log_level", defaults.PostHogLogLevel)
 	// Bind environment keys
 	_ = v.BindEnv("server_port", "SERVER_PORT", "PORT")
 	_ = v.BindEnv("db_path", "DB_PATH")
@@ -128,6 +145,11 @@ func Load(envFiles ...string) (*Config, error) {
 	_ = v.BindEnv("accurate_password", "ACCURATE_PASSWORD")
 	_ = v.BindEnv("accurate_api_token", "ACCURATE_API_TOKEN")
 	_ = v.BindEnv("accurate_api_signature_secret", "ACCURATE_API_SIGNATURE_SECRET")
+	_ = v.BindEnv("posthog_api_key", "POSTHOG_API_KEY", "VITE_POSTHOG_KEY")
+	_ = v.BindEnv("posthog_host", "POSTHOG_HOST", "VITE_POSTHOG_HOST")
+	_ = v.BindEnv("posthog_service_name", "POSTHOG_SERVICE_NAME", "OTEL_SERVICE_NAME")
+	_ = v.BindEnv("posthog_environment", "POSTHOG_ENVIRONMENT", "APP_ENV")
+	_ = v.BindEnv("posthog_log_level", "POSTHOG_LOG_LEVEL")
 	var cfg Config
 	decodeHook := viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
 		mapstructure.StringToTimeDurationHookFunc(),
@@ -162,6 +184,17 @@ func Load(envFiles ...string) (*Config, error) {
 		return nil, fmt.Errorf("invalid ACCURATE_PROVIDER %q: must be 'web', 'official', or empty", cfg.AccurateProvider)
 	}
 	cfg.AccurateProvider = prov
+
+	logLvl, _, err := telemetry.ParseLogLevel(cfg.PostHogLogLevel)
+	if err != nil {
+		return nil, err
+	}
+	cfg.PostHogLogLevel = string(logLvl)
+	if strings.TrimSpace(cfg.PostHogAPIKey) != "" {
+		if _, err := telemetry.ResolveEndpointURL(cfg.PostHogHost); err != nil {
+			return nil, err
+		}
+	}
 
 	return &cfg, nil
 }
@@ -213,5 +246,17 @@ func (c *Config) WorkerConfig() worker.Config {
 		POSheetName:                c.POSheetName,
 		CSVFallbackPath:            c.CSVFallbackPath,
 		BypassWorkHoursOnFirstSync: &c.SyncBypassWorkHoursOnFirstSync,
+	}
+}
+
+// TelemetryConfig converts the Config struct into telemetry.Config.
+func (c *Config) TelemetryConfig() telemetry.Config {
+	return telemetry.Config{
+		APIKey:         c.PostHogAPIKey,
+		Host:           c.PostHogHost,
+		ServiceName:    c.PostHogServiceName,
+		ServiceVersion: version.Version,
+		Environment:    c.PostHogEnvironment,
+		LogLevel:       c.PostHogLogLevel,
 	}
 }

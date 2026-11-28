@@ -113,6 +113,9 @@ Automated order ingestion, normalization, and visualization system.
   - Mobile-responsive layout: viewport-constrained flex shell, auto-dismissing mobile navigation drawer, reflowing search and filter toolbars, and phone-fitted modals and dialogs.
   - The sidebar shows permitted destinations under Overview, Operations, Customers & Areas, Tools, and Administration. The same access rules apply to desktop, icon rail, mobile drawer, and deep links. The footer shows status for `sync:read`, a manual sync button for `sync:trigger`, and configuration-dependent freshness color only with `system:read`.
   - OpenAPI 3.1 specification at `/openapi.json` and interactive Scalar documentation at `/docs`.
+- **PostHog OpenTelemetry Backend Logging & Frontend Correlation**:
+  - Exports structured OpenTelemetry (OTLP/HTTP) wide events from `warehouse-server` to PostHog (`/i/v1/logs`) covering HTTP API/auth requests, recovered panics, worker sync runs, Accurate session persistence errors, and server lifecycle events. Defaults to a zero-overhead no-op when `POSTHOG_API_KEY` (and `VITE_POSTHOG_KEY`) is unset.
+  - Correlates frontend and backend logs, Error Tracking exceptions, Person profiles, and Session Replays end-to-end via W3C `traceparent`, `X-Request-Id`, `X-Trace-Id`, `X-PostHog-Session-Id`, `X-PostHog-Distinct-Id`, and `X-PostHog-Window-Id`.
 ---
 
 ## Architecture Overview
@@ -223,6 +226,11 @@ sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
 | `ACCURATE_PASSWORD` | `""` | User password for Accurate web automation provider (never logged or persisted). |
 | `ACCURATE_API_TOKEN` | `""` | Accurate Online API Bearer token for official provider. |
 | `ACCURATE_API_SIGNATURE_SECRET` | `""` | Optional HMAC-SHA256 signature secret for official API request signing. |
+| `POSTHOG_API_KEY` | `""` | PostHog project token for OTLP backend logging (falls back to `VITE_POSTHOG_KEY`; leave blank to disable). |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | PostHog host or OTLP logs URL (falls back to `VITE_POSTHOG_HOST`). |
+| `POSTHOG_SERVICE_NAME` | `warehouse-parser-api` | OpenTelemetry `service.name` attribute (falls back to `OTEL_SERVICE_NAME`). |
+| `POSTHOG_ENVIRONMENT` | `production` | OpenTelemetry `deployment.environment` attribute (falls back to `APP_ENV`). |
+| `POSTHOG_LOG_LEVEL` | `info` | Minimum exported backend log level (`debug`, `info`, `warn`, `error`). |
 
 ---
 

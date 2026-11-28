@@ -48,14 +48,18 @@ import type {
   PurchaseOrderListResponse,
 } from './types';
 import type { Permission } from './permissions.generated';
-import { captureEvent, captureException, normalizeApiPath } from '~/posthog';
+import { captureEvent, captureException, captureLog, normalizeApiPath, withCorrelationHeaders } from '~/posthog';
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  requestId?: string;
+  traceId?: string;
+  constructor(message: string, status: number, requestId?: string, traceId?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.requestId = requestId;
+    this.traceId = traceId;
   }
 }
 
@@ -89,26 +93,48 @@ async function apiResponse(path: string, options?: RequestInit): Promise<Respons
   const session = apiSession.signal;
   const signal = options?.signal ? AbortSignal.any([session, options.signal]) : session;
   const method = (options?.method ?? 'GET').toUpperCase();
+  const endpoint = normalizeApiPath(path);
+  const { headers, correlation } = withCorrelationHeaders(options?.headers);
   const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
   let res: Response;
   try {
-    res = await fetch(path, { ...options, signal });
+    res = await fetch(path, { ...options, headers, signal });
   } catch (err) {
     if (!signal.aborted) {
       const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
+      const online = typeof navigator !== 'undefined' ? navigator.onLine : undefined;
       captureException(err, {
         source: 'api_network',
-        endpoint: normalizeApiPath(path),
+        endpoint,
         method,
         duration_ms: durationMs,
-        online: typeof navigator !== 'undefined' ? navigator.onLine : undefined,
+        online,
+        request_id: correlation.requestId,
+        trace_id: correlation.traceId,
+        span_id: correlation.spanId,
+      });
+      captureLog({
+        level: 'error',
+        body: `${method} ${endpoint} network failure`,
+        correlation,
+        attributes: {
+          event: 'api.request.network_error',
+          source: 'api_network',
+          endpoint,
+          method,
+          duration_ms: durationMs,
+          online,
+          'error.message': err instanceof Error ? err.message : String(err),
+        },
       });
     }
     throw err;
   }
   signal.throwIfAborted();
   const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
-  const endpoint = normalizeApiPath(path);
+  const requestId = res.headers.get('X-Request-Id') || correlation.requestId;
+  const traceId = res.headers.get('X-Trace-Id') || correlation.traceId;
+  const resolvedCorrelation = { ...correlation, requestId, traceId };
   if (!res.ok) {
     const errorText = await res.text();
     let message = errorText;
@@ -127,11 +153,25 @@ async function apiResponse(path: string, options?: RequestInit): Promise<Respons
           endpoint,
           method,
           route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+          request_id: requestId,
+          trace_id: traceId,
+        });
+        captureLog({
+          level: 'warn',
+          body: `${method} ${endpoint} 403`,
+          correlation: resolvedCorrelation,
+          attributes: {
+            event: 'api.permission_denied',
+            endpoint,
+            method,
+            'http.response.status_code': 403,
+            duration_ms: durationMs,
+          },
         });
       }
       onAuthorizationFailure?.(upstreamAuth ? 403 : res.status);
     }
-    const apiErr = new ApiError(message || `HTTP ${res.status}: ${res.statusText}`, res.status);
+    const apiErr = new ApiError(message || `HTTP ${res.status}: ${res.statusText}`, res.status, requestId, traceId);
     if (res.status >= 500) {
       captureException(apiErr, {
         source: 'api_server',
@@ -139,6 +179,23 @@ async function apiResponse(path: string, options?: RequestInit): Promise<Respons
         method,
         status: res.status,
         duration_ms: durationMs,
+        request_id: requestId,
+        trace_id: traceId,
+        span_id: correlation.spanId,
+      });
+      captureLog({
+        level: 'error',
+        body: `${method} ${endpoint} ${res.status}`,
+        correlation: resolvedCorrelation,
+        attributes: {
+          event: 'api.request.failed',
+          source: 'api_server',
+          endpoint,
+          method,
+          'http.response.status_code': res.status,
+          duration_ms: durationMs,
+          'error.message': apiErr.message,
+        },
       });
     }
     throw apiErr;
@@ -148,6 +205,20 @@ async function apiResponse(path: string, options?: RequestInit): Promise<Respons
       endpoint,
       method,
       duration_ms: durationMs,
+      request_id: requestId,
+      trace_id: traceId,
+    });
+    captureLog({
+      level: 'warn',
+      body: `${method} ${endpoint} slow (${durationMs}ms)`,
+      correlation: resolvedCorrelation,
+      attributes: {
+        event: 'api.request.slow',
+        endpoint,
+        method,
+        'http.response.status_code': res.status,
+        duration_ms: durationMs,
+      },
     });
   }
   return res;

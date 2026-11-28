@@ -1,5 +1,5 @@
 import { USER_ROLE } from '~/domain';
-import posthog, { isPosthogConfigured, registerPosthogContext } from '~/posthog';
+import posthog, { isPosthogConfigured, registerPosthogContext, withCorrelationHeaders } from '~/posthog';
 
 import { discardApiSession, observeAuthorizationFailures } from '~/api';
 import type { Permission } from '~/permissions.generated';
@@ -135,7 +135,7 @@ export const AuthProvider: ParentComponent = (props) => {
     const started = generation;
     const refreshOnce = async () => {
       try {
-        const configResponse = await fetch('/auth/config', { cache: 'no-store' });
+        const configResponse = await fetch('/auth/config', { cache: 'no-store', headers: withCorrelationHeaders().headers });
         if (!configResponse.ok) throw new Error('Failed to load authentication configuration');
         const cfg = await configResponse.json() as AuthConfig;
         if (typeof cfg?.auth_enabled !== 'boolean') throw new Error('Invalid authentication configuration');
@@ -145,7 +145,7 @@ export const AuthProvider: ParentComponent = (props) => {
         if (cfg.auth_enabled === false) {
           next = { email: '', name: 'Developer', picture: '', role: USER_ROLE.SUPERADMIN, permissions: ['*'] };
         } else {
-          const response = await fetch('/auth/me', { cache: 'no-store' });
+          const response = await fetch('/auth/me', { cache: 'no-store', headers: withCorrelationHeaders().headers });
           if (response.status === 401) next = null;
           else if (response.ok) next = await readUser(response);
           else throw new Error('Failed to load authentication session');
@@ -202,7 +202,7 @@ export const AuthProvider: ParentComponent = (props) => {
     try {
       const res = await fetch('/auth/google/callback', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: withCorrelationHeaders({ 'Content-Type': 'application/json' }).headers,
         body: JSON.stringify({ credential }),
       });
       if (!res.ok) {
@@ -224,7 +224,7 @@ export const AuthProvider: ParentComponent = (props) => {
     logoutPending = true;
     publish(null);
     try {
-      const res = await fetch('/auth/logout', { method: 'POST' });
+      const res = await fetch('/auth/logout', { method: 'POST', headers: withCorrelationHeaders().headers });
       if (!res.ok) throw new Error('Logout failed');
       if (started === generation) {
         logoutPending = false;

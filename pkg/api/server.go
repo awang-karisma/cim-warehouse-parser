@@ -2,12 +2,14 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/adapter"
 	"github.com/awang-karisma/warehouse-parser/pkg/accurate/session"
 	"github.com/awang-karisma/warehouse-parser/pkg/config"
 	"github.com/awang-karisma/warehouse-parser/pkg/model"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"github.com/awang-karisma/warehouse-parser/pkg/telemetry"
 	"github.com/awang-karisma/warehouse-parser/pkg/version"
 	"github.com/awang-karisma/warehouse-parser/pkg/worker"
 	"github.com/danielgtaylor/huma/v2"
@@ -22,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -64,10 +67,34 @@ func New(cfg Config) *Server {
 			return c.Status(code).JSON(fiber.Map{"error": err.Error()})
 		},
 	})
+	s := &Server{
+		app:              app,
+		store:            cfg.Store,
+		worker:           cfg.Worker,
+		appConfig:        cfg.AppConfig,
+		startTime:        time.Now(),
+		accurateProvider: cfg.AccurateProvider,
+		accurateSession:  cfg.AccurateSession,
+		accurateRegistry: cfg.AccurateRegistry,
+		policyRoutes:     make(map[string]struct{}),
+	}
+
 	// Middlewares
-	app.Use(recover.New())
+	app.Use(s.telemetryMiddleware)
+	app.Use(recover.New(recover.Config{
+		EnableStackTrace: true,
+		StackTraceHandler: func(c fiber.Ctx, e any) {
+			stack := string(debug.Stack())
+			fmt.Fprintf(os.Stderr, "recovered panic: %v\n\n%s\n", e, stack)
+			if corr := telemetry.CorrelationFromContext(c.Context()); corr != nil {
+				corr.PanicStack = stack
+			}
+		},
+	}))
 	app.Use(logger.New())
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{
+		ExposeHeaders: []string{telemetry.HeaderRequestID, telemetry.HeaderTraceID},
+	}))
 
 	humaCfg := huma.DefaultConfig("Warehouse Order Tracking API", version.Version)
 	humaCfg.DocsRenderer = huma.DocsRendererScalar
@@ -85,19 +112,7 @@ func New(cfg Config) *Server {
 		return name
 	})
 	humaAPI := humafiber.New(app, humaCfg)
-
-	s := &Server{
-		app:              app,
-		humaAPI:          humaAPI,
-		store:            cfg.Store,
-		worker:           cfg.Worker,
-		appConfig:        cfg.AppConfig,
-		startTime:        time.Now(),
-		accurateProvider: cfg.AccurateProvider,
-		accurateSession:  cfg.AccurateSession,
-		accurateRegistry: cfg.AccurateRegistry,
-		policyRoutes:     make(map[string]struct{}),
-	}
+	s.humaAPI = humaAPI
 	humaAPI.UseMiddleware(s.humaAuthMiddleware)
 
 	s.registerOperations()

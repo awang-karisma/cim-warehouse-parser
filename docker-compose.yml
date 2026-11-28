@@ -17,6 +17,11 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - JWT_SECRET=${JWT_SECRET:-}
       - SUPERADMIN_EMAILS=${SUPERADMIN_EMAILS:-}
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-https://us.i.posthog.com}
+      - POSTHOG_SERVICE_NAME=${POSTHOG_SERVICE_NAME:-warehouse-parser-api}
+      - POSTHOG_ENVIRONMENT=${POSTHOG_ENVIRONMENT:-production}
+      - POSTHOG_LOG_LEVEL=${POSTHOG_LOG_LEVEL:-info}
     volumes:
       - warehouse-data:/data
 

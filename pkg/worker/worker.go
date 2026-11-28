@@ -16,6 +16,9 @@ import (
 	"github.com/awang-karisma/warehouse-parser/pkg/normalizer"
 	"github.com/awang-karisma/warehouse-parser/pkg/parser"
 	"github.com/awang-karisma/warehouse-parser/pkg/storage"
+	"github.com/awang-karisma/warehouse-parser/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	otellog "go.opentelemetry.io/otel/log"
 	"google.golang.org/api/sheets/v4"
 )
 
@@ -348,6 +351,13 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 		log.Println("First-time sync detected (no prior successful sync in database): bypassing working hours check to populate initial data")
 	}
 
+	trigger := "scheduled"
+	if force {
+		trigger = "manual"
+	} else if isFirstSync {
+		trigger = "initial"
+	}
+
 	w.mu.Lock()
 	w.status = string(model.WorkerSyncing)
 	w.mu.Unlock()
@@ -366,6 +376,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 
 		_ = w.store.RecordSync(ctx, string(model.SyncError), 0, 0, fmt.Sprintf("failed to load customer aliases: %v", err), duration.Milliseconds())
 		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: fmt.Sprintf("failed to load customer aliases: %v", err), DurationMs: duration.Milliseconds()})
+		emitSyncFailure(ctx, "load_customer_aliases", trigger, duration, 0, 0, err)
 		return fmt.Errorf("failed to load customer aliases: %w", err)
 	}
 
@@ -381,6 +392,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 
 		_ = w.store.RecordSync(ctx, string(model.SyncError), 0, 0, fmt.Sprintf("failed to load workday policies: %v", err), duration.Milliseconds())
 		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: fmt.Sprintf("failed to load workday policies: %v", err), DurationMs: duration.Milliseconds()})
+		emitSyncFailure(ctx, "load_workday_policies", trigger, duration, 0, 0, err)
 		return fmt.Errorf("failed to load workday policies: %w", err)
 	}
 
@@ -396,6 +408,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 
 		_ = w.store.RecordSync(ctx, string(model.SyncError), 0, 0, err.Error(), duration.Milliseconds())
 		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: err.Error(), DurationMs: duration.Milliseconds()})
+		emitSyncFailure(ctx, "fetch_source", trigger, duration, 0, 0, err)
 		return fmt.Errorf("fetch failed: %w", err)
 	}
 
@@ -433,8 +446,30 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 			}
 			if poItems, poErr := poFetcher.FetchPurchaseOrders(ctx, poAliases); poErr != nil {
 				log.Printf("warning: failed to fetch purchase orders: %v", poErr)
+				telemetry.Emit(ctx, telemetry.Event{
+					Name:     "worker.purchase_orders.failed",
+					Severity: otellog.SeverityWarn,
+					Body:     fmt.Sprintf("Failed to fetch purchase orders: %v", poErr),
+					Err:      poErr,
+					Attributes: []attribute.KeyValue{
+						attribute.String("sync.stage", "fetch_purchase_orders"),
+						attribute.String("sync.trigger", trigger),
+						attribute.String("error.message", poErr.Error()),
+					},
+				})
 			} else if syncErr := w.store.SyncPurchaseOrders(ctx, poItems); syncErr != nil {
 				log.Printf("warning: failed to sync purchase orders: %v", syncErr)
+				telemetry.Emit(ctx, telemetry.Event{
+					Name:     "worker.purchase_orders.failed",
+					Severity: otellog.SeverityWarn,
+					Body:     fmt.Sprintf("Failed to sync purchase orders: %v", syncErr),
+					Err:      syncErr,
+					Attributes: []attribute.KeyValue{
+						attribute.String("sync.stage", "sync_purchase_orders"),
+						attribute.String("sync.trigger", trigger),
+						attribute.String("error.message", syncErr.Error()),
+					},
+				})
 			}
 		}
 	}
@@ -450,6 +485,7 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 
 		_ = w.store.RecordSync(ctx, string(model.SyncError), len(items), len(orders), err.Error(), duration.Milliseconds())
 		w.broadcast(SyncEvent{Status: string(model.SyncError), Error: err.Error(), DurationMs: duration.Milliseconds()})
+		emitSyncFailure(ctx, "sync_mirror", trigger, duration, len(items), len(orders), err)
 		return fmt.Errorf("sync mirror failed: %w", err)
 	}
 
@@ -462,8 +498,36 @@ func (w *Worker) RunOnce(ctx context.Context, force bool) error {
 	rec, _ := w.store.GetLastSync(ctx)
 	w.broadcast(SyncEvent{Status: string(model.SyncSuccess), Record: rec, DurationMs: duration.Milliseconds()})
 	log.Printf("Sync completed successfully (%d items, %d orders in %s)", len(items), len(orders), duration.Round(time.Millisecond))
+	telemetry.Emit(ctx, telemetry.Event{
+		Name:     "worker.sync.completed",
+		Severity: otellog.SeverityInfo,
+		Body:     fmt.Sprintf("Sync completed (%d items, %d orders in %dms)", len(items), len(orders), duration.Milliseconds()),
+		Attributes: []attribute.KeyValue{
+			attribute.String("sync.trigger", trigger),
+			attribute.Int64("duration_ms", duration.Milliseconds()),
+			attribute.Int("items_count", len(items)),
+			attribute.Int("orders_count", len(orders)),
+		},
+	})
 
 	return nil
+}
+
+func emitSyncFailure(ctx context.Context, stage, trigger string, duration time.Duration, itemsCount, ordersCount int, err error) {
+	telemetry.Emit(ctx, telemetry.Event{
+		Name:     "worker.sync.failed",
+		Severity: otellog.SeverityError,
+		Body:     fmt.Sprintf("Warehouse sync failed at %s: %v", stage, err),
+		Err:      err,
+		Attributes: []attribute.KeyValue{
+			attribute.String("sync.stage", stage),
+			attribute.String("sync.trigger", trigger),
+			attribute.Int64("duration_ms", duration.Milliseconds()),
+			attribute.Int("items_count", itemsCount),
+			attribute.Int("orders_count", ordersCount),
+			attribute.String("error.message", err.Error()),
+		},
+	})
 }
 
 // Start runs the worker sync loop with a ticker at cfg.Interval until ctx is cancelled.

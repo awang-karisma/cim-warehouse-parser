@@ -16,6 +16,9 @@ func TestDefaultConfig(t *testing.T) {
 		"SPREADSHEET_ID", "SHEET_NAME", "GOOGLE_APPLICATION_CREDENTIALS",
 		"GOOGLE_API_KEY", "CSV_FALLBACK_PATH", "SYNC_BYPASS_WORK_HOURS_ON_FIRST_SYNC",
 		"GOOGLE_CLIENT_ID", "JWT_SECRET", "SUPERADMIN_EMAILS",
+		"POSTHOG_API_KEY", "VITE_POSTHOG_KEY", "POSTHOG_HOST", "VITE_POSTHOG_HOST",
+		"POSTHOG_SERVICE_NAME", "OTEL_SERVICE_NAME", "POSTHOG_ENVIRONMENT", "APP_ENV",
+		"POSTHOG_LOG_LEVEL",
 	}
 	for _, k := range envKeys {
 		oldVal, exists := os.LookupEnv(k)
@@ -78,6 +81,21 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.IsSuperadmin("admin@example.com") {
 		t.Errorf("expected IsSuperadmin to be false by default")
+	}
+	if cfg.PostHogAPIKey != "" {
+		t.Errorf("expected PostHogAPIKey default to be empty, got %q", cfg.PostHogAPIKey)
+	}
+	if cfg.PostHogHost != "https://us.i.posthog.com" {
+		t.Errorf("expected PostHogHost default, got %q", cfg.PostHogHost)
+	}
+	if cfg.PostHogServiceName != "warehouse-parser-api" {
+		t.Errorf("expected PostHogServiceName default, got %q", cfg.PostHogServiceName)
+	}
+	if cfg.PostHogEnvironment != "production" {
+		t.Errorf("expected PostHogEnvironment default, got %q", cfg.PostHogEnvironment)
+	}
+	if cfg.PostHogLogLevel != "info" {
+		t.Errorf("expected PostHogLogLevel default, got %q", cfg.PostHogLogLevel)
 	}
 }
 
@@ -286,6 +304,58 @@ func TestAccurateConfigValidation(t *testing.T) {
 		}
 		if cfg.AccurateProvider != "official" || cfg.AccurateAPIToken != "aat.tok123" || cfg.AccurateAPISignatureSecret != "sigsecret456" {
 			t.Errorf("unexpected official provider config: %+v", cfg)
+		}
+	})
+}
+
+func TestPostHogConfig(t *testing.T) {
+	t.Run("VITE_POSTHOG fallback bindings", func(t *testing.T) {
+		t.Setenv("POSTHOG_API_KEY", "")
+		t.Setenv("POSTHOG_HOST", "")
+		t.Setenv("VITE_POSTHOG_KEY", "phc_vite_fallback")
+		t.Setenv("VITE_POSTHOG_HOST", "https://eu.i.posthog.com")
+		t.Setenv("OTEL_SERVICE_NAME", "custom-warehouse-api")
+		t.Setenv("APP_ENV", "staging")
+		t.Setenv("POSTHOG_LOG_LEVEL", "WARNING")
+
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("unexpected error loading VITE_POSTHOG fallback config: %v", err)
+		}
+		if cfg.PostHogAPIKey != "phc_vite_fallback" {
+			t.Errorf("expected PostHogAPIKey=phc_vite_fallback, got %q", cfg.PostHogAPIKey)
+		}
+		if cfg.PostHogHost != "https://eu.i.posthog.com" {
+			t.Errorf("expected PostHogHost=https://eu.i.posthog.com, got %q", cfg.PostHogHost)
+		}
+		if cfg.PostHogServiceName != "custom-warehouse-api" {
+			t.Errorf("expected PostHogServiceName=custom-warehouse-api, got %q", cfg.PostHogServiceName)
+		}
+		if cfg.PostHogEnvironment != "staging" {
+			t.Errorf("expected PostHogEnvironment=staging, got %q", cfg.PostHogEnvironment)
+		}
+		if cfg.PostHogLogLevel != "warn" {
+			t.Errorf("expected normalized PostHogLogLevel=warn, got %q", cfg.PostHogLogLevel)
+		}
+
+		tCfg := cfg.TelemetryConfig()
+		if tCfg.APIKey != "phc_vite_fallback" || tCfg.Host != "https://eu.i.posthog.com" || tCfg.ServiceName != "custom-warehouse-api" || tCfg.Environment != "staging" || tCfg.LogLevel != "warn" {
+			t.Errorf("unexpected TelemetryConfig: %+v", tCfg)
+		}
+	})
+
+	t.Run("invalid POSTHOG_LOG_LEVEL", func(t *testing.T) {
+		t.Setenv("POSTHOG_LOG_LEVEL", "verbose")
+		if _, err := config.Load(); err == nil {
+			t.Errorf("expected error for invalid POSTHOG_LOG_LEVEL")
+		}
+	})
+
+	t.Run("invalid POSTHOG_HOST when API key set", func(t *testing.T) {
+		t.Setenv("POSTHOG_API_KEY", "phc_valid_key")
+		t.Setenv("POSTHOG_HOST", "ftp://bad-host")
+		if _, err := config.Load(); err == nil {
+			t.Errorf("expected error for invalid POSTHOG_HOST when API key is set")
 		}
 	})
 }
