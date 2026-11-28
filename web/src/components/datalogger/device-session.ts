@@ -1,3 +1,4 @@
+import { captureException } from '~/posthog';
 import { type Accessor, createSignal, onCleanup } from 'solid-js';
 import type { DataloggerConfiguration } from '~/types';
 import { ElitechHID } from './elitech-hid';
@@ -176,6 +177,7 @@ export function createDataloggerDeviceSession(
       try {
         info = await readDeviceInfo(hid);
       } catch (readErr) {
+        captureException(readErr, { source: 'webhid_read_info' });
         await hid.disconnect();
         if (!disposed && generation === opGen) {
           setConnected(false);
@@ -209,6 +211,7 @@ export function createDataloggerDeviceSession(
         try {
           await runVerificationAgainstCurrentHandle(pending, opGen, dev);
         } catch (verifyErr) {
+          captureException(verifyErr, { source: 'webhid_reconnect_verify', operation: pending.operation });
           if (!disposed && generation === opGen && hid.device === dev) {
             const msg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
             setPendingVerification({
@@ -222,6 +225,7 @@ export function createDataloggerDeviceSession(
 
       return deviceInfo();
     } catch (err) {
+      captureException(err, { source: 'webhid_connect' });
       await hid.disconnect();
       if (!disposed && generation === opGen) {
         setConnected(false);
@@ -310,6 +314,7 @@ export function createDataloggerDeviceSession(
       setSnapshot(nextSnapshot);
       return nextSnapshot;
     } catch (err) {
+      captureException(err, { source: 'webhid_fetch_records' });
       if (!disposed && generation === opGen && hid.device === opDevice) {
         setDeviceError(err instanceof Error ? err.message : String(err));
       }
@@ -425,6 +430,7 @@ export function createDataloggerDeviceSession(
         await quickResetDevice(hid, onFormatAttempt, clock);
       }
     } catch (writeErr) {
+      captureException(writeErr, { source: 'webhid_write_config', operation, after_format_receipt: Boolean(capturedReceipt) });
       if (!capturedReceipt) {
         inPostFormatWait = false;
         if (!disposed && generation === opGen && hid.device === opDevice) {
@@ -471,6 +477,7 @@ export function createDataloggerDeviceSession(
           return true;
         } catch (verifyErr) {
           if (isDefinitiveVerificationMismatch(verifyErr)) {
+            captureException(verifyErr, { source: 'webhid_post_format_mismatch', operation });
             lastMismatchError =
               verifyErr instanceof Error ? verifyErr : new Error(String(verifyErr));
             break;

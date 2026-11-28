@@ -2,9 +2,10 @@ import { ROUTES, WORKSPACE_DESTINATIONS, canAccessRoute, type WorkspaceRoute } f
 
 import { ColorModeProvider, ColorModeScript, createLocalStorageManager } from '@kobalte/core';
 import { Navigate, Route, Router } from '@solidjs/router';
-import { Show, lazy, type Component } from 'solid-js';
+import { ErrorBoundary, Show, lazy, type Component } from 'solid-js';
 import { render } from 'solid-js/web';
 import './app.css';
+import { captureException } from './posthog';
 
 import { App } from './App';
 import { AuthProvider, useAuth, type AuthContextValue } from './auth';
@@ -62,7 +63,40 @@ const root = document.getElementById('root');
 if (root) {
   render(
     () => (
-      <>
+      <ErrorBoundary
+        fallback={(err, reset) => {
+          captureException(err, {
+            boundary: 'root',
+            route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+          });
+          return (
+            <div class="min-h-screen w-full flex items-center justify-center bg-background p-6">
+              <div class="max-w-md w-full rounded-lg border bg-card p-6 text-card-foreground shadow-sm space-y-4">
+                <h1 class="text-lg font-semibold">Something went wrong</h1>
+                <p class="text-sm text-muted-foreground break-words">
+                  {err instanceof Error ? err.message : 'An unexpected error occurred.'}
+                </p>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    onClick={() => reset()}
+                  >
+                    Try again
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
+                    onClick={() => window.location.reload()}
+                  >
+                    Reload page
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }}
+      >
         <ColorModeScript storageType={storageManager.type} storageKey="warehouse-ui-theme" />
         <ColorModeProvider storageManager={storageManager}>
           <AuthProvider>
@@ -95,7 +129,7 @@ if (root) {
             </I18nProvider>
           </AuthProvider>
         </ColorModeProvider>
-      </>
+      </ErrorBoundary>
     ),
     root
   );

@@ -1,4 +1,5 @@
 import { USER_ROLE } from '~/domain';
+import posthog, { isPosthogConfigured, registerPosthogContext } from '~/posthog';
 
 import { discardApiSession, observeAuthorizationFailures } from '~/api';
 import type { Permission } from '~/permissions.generated';
@@ -77,9 +78,41 @@ export const AuthProvider: ParentComponent = (props) => {
   let inflight: Promise<void> | undefined;
   let refreshAgain = false;
   let logoutPending = false;
+  let identifiedEmail: string | undefined;
+
+  const syncPosthogIdentity = (next: AuthUser | null | undefined, cfg: AuthConfig | undefined) => {
+    if (!isPosthogConfigured || cfg?.auth_enabled !== true) return;
+
+    if (next === null) {
+      if (identifiedEmail) {
+        posthog.reset();
+        identifiedEmail = undefined;
+      }
+      registerPosthogContext({ user_role: null });
+      return;
+    }
+
+    if (!next?.email) return;
+
+    registerPosthogContext({ user_role: next.role });
+
+    if (next.email === identifiedEmail) return;
+
+    if (identifiedEmail) posthog.reset();
+    // The serialized auth session exposes no user primary key, so email is the only
+    // stable identifier available to this client. Use it only until the API exposes an id.
+    posthog.identify(next.email, {
+      email: next.email,
+      name: next.name,
+      role: next.role,
+      locale: next.locale,
+    });
+    identifiedEmail = next.email;
+  };
 
   const publish = (next: AuthUser | null | undefined, cfg = authConfig()) => {
     const changed = sessionKey(next, cfg) !== accessKey();
+    syncPosthogIdentity(next, cfg);
     if (changed) discardApiSession();
     batch(() => {
       if (changed) {

@@ -1,3 +1,4 @@
+import { captureEvent } from '~/posthog';
 import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE } from '~/domain';
 
 import { type Component, createEffect, For, onCleanup, Show } from 'solid-js';
@@ -214,7 +215,14 @@ export const PrintPreview: Component = () => {
           </span>
           <Button
             size="sm"
-            onClick={() => auth.can('barcode:print') && window.print()}
+            onClick={() => {
+              if (!auth.can('barcode:print')) return;
+              captureEvent('barcode_printed', {
+                label_count: expandedItems().length,
+                sheet_count: layout().totalSheets,
+              });
+              window.print();
+            }}
             disabled={expandedItems().length === 0}
             class="h-8 shadow-sm"
           >

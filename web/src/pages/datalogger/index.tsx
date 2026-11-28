@@ -9,6 +9,7 @@ import {
   IconSettings,
 } from '@tabler/icons-solidjs';
 import { getDataloggerRecordsBatch, getDataloggerSessions } from '~/api';
+import posthog, { isPosthogConfigured } from '~/posthog';
 import { useAuth } from '~/auth';
 import { createDataloggerDeviceSession, type DataloggerDeviceSession } from '~/components/datalogger/device-session';
 import { PageTransition } from '~/components/PageTransition';
@@ -122,6 +123,7 @@ function DataloggerWorkspace(props: { device: DataloggerDeviceSession }) {
   };
 
   const handleSessionSaved = async (session: DataloggerSession) => {
+    if (isPosthogConfigured) posthog.capture('datalogger_session_saved');
     if (disposed || !canRead()) return;
     await refetch();
     if (disposed || !canRead()) return;

@@ -1,4 +1,5 @@
 import { DELIVERY_RUN_STATUS, ORDER_STATUS, STOCK_STATUS } from '~/domain';
+import { captureEvent, captureException } from '~/posthog';
 
 import { useI18n } from '~/i18n';
 import { useAuth } from '~/auth';
@@ -700,6 +701,13 @@ export const DeliveryFlow: Component = () => {
       };
 
       const res = await createDeliveryRun(payload);
+      captureEvent('delivery_run_created', {
+        item_count: runItems.length,
+        order_count: draftStats().totalOrders,
+        planned_unit_count: draftStats().totalPlannedUnits,
+        area_count: draftStats().areas.length,
+        driver_assigned: Boolean(selectedDriverId()),
+      });
       if (disposed) return;
       const savedRun = res.run;
 
@@ -878,6 +886,7 @@ export const DeliveryFlow: Component = () => {
       }
     } catch (err) {
       console.error('Failed to toggle pick:', err);
+      captureException(err, { source: 'delivery_pick_toggle' });
     }
   };
 
@@ -885,6 +894,9 @@ export const DeliveryFlow: Component = () => {
     if (!auth.can('delivery:update')) return;
     try {
       const res = await updateDeliveryRunStatus(runId, newStatus);
+      captureEvent('delivery_run_status_changed', {
+        status: newStatus,
+      });
       if (disposed) return;
       if (res?.run) {
         mutateRuns((prev) =>
@@ -897,6 +909,7 @@ export const DeliveryFlow: Component = () => {
       }
     } catch (err) {
       console.error('Failed to update status:', err);
+      captureException(err, { source: 'delivery_status_change', target_status: newStatus });
     }
   };
 
@@ -3110,7 +3123,14 @@ export const DeliveryFlow: Component = () => {
                                   class="size-9 lg:size-8"
                                   aria-label={t('common.print')}
                                   title={t('common.print')}
-                                  onClick={() => { if (auth.can('delivery:read')) window.print(); }}
+                                  onClick={() => {
+                                    if (!auth.can('delivery:read')) return;
+                                    captureEvent('delivery_manifest_printed', {
+                                      run_status: run().status || DELIVERY_RUN_STATUS.PLANNED,
+                                      item_count: run().items?.length ?? 0,
+                                    });
+                                    window.print();
+                                  }}
                                 >
                                   <IconPrinter class="size-4" aria-hidden="true" />
                                 </Button>

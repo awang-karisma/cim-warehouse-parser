@@ -1,4 +1,5 @@
 import { DELIVERY_RUN_STATUS, LOCALE, WEEKDAY_NAME } from '~/domain';
+import { captureEvent, captureException } from '~/posthog';
 
 import { type Component, createSignal, createResource, createEffect, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
@@ -107,9 +108,13 @@ export const Settings: Component = () => {
     setPolicySaveSuccess(null);
     try {
       const res = await setWorkdayPolicy(selectedDays());
+      captureEvent('lead_time_policy_saved', {
+        workday_count: selectedDays().length,
+      });
       if (auth.can('workday:read')) await refetchPolicies();
       setPolicySaveSuccess(t('settings.workdaysSavedSuccess', { date: res.policy.effective_from }));
     } catch (err: unknown) {
+      captureException(err, { source: 'lead_time_policy' });
       setPolicySaveError(err instanceof Error ? err.message : t('settings.workdaysSaveError'));
     } finally {
       setIsSavingPolicy(false);

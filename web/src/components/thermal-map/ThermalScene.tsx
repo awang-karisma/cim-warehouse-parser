@@ -1,3 +1,4 @@
+import { captureEvent } from '~/posthog';
 import { createEffect, createSignal, onCleanup, onMount, untrack } from 'solid-js';
 import {
   BoxGeometry, BufferAttribute, BufferGeometry, DataTexture, FloatType, GLSL3, Group, Mesh,
@@ -222,6 +223,7 @@ export function ThermalScene(props: {
     const contextLost = (event: Event) => {
       event.preventDefault();
       lost = true;
+      captureEvent('webgl_context_lost', { surface: 'thermal_map' });
       props.onUnavailable();
     };
     renderer.domElement.addEventListener('webglcontextlost', contextLost);

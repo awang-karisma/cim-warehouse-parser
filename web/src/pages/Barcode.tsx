@@ -1,3 +1,4 @@
+import { captureException } from '~/posthog';
 import { BARCODE_HEIGHT, BARCODE_SYMBOLOGY, FONT_SIZE, QTY_MODE } from '~/domain';
 
 import { useI18n } from '~/i18n';
@@ -234,6 +235,7 @@ export const Barcode: Component = () => {
       const saved = await createPageDesign(fromPresetConfig(cfg, serializeLayout(labelLayout()), captureBarcodePresetSettings()));
       await refreshAfterPresetSave(saved.id, t('barcode.presetSaved', { name }));
     } catch (err: unknown) {
+      captureException(err, { source: 'barcode_design_create' });
       setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.savePresetFailed') });
     } finally {
       setIsSaving(false);
@@ -257,6 +259,7 @@ export const Barcode: Component = () => {
       await updatePageDesign(id, fromPresetConfig(cfg, serializeLayout(labelLayout()), captureBarcodePresetSettings()));
       await refreshAfterPresetSave(id, t('barcode.changesSaved'));
     } catch (err: unknown) {
+      captureException(err, { source: 'barcode_design_update' });
       setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.updatePresetFailed') });
     } finally {
       setIsSaving(false);
@@ -275,6 +278,7 @@ export const Barcode: Component = () => {
       const saved = await createPageDesign(fromPresetConfig(copyCfg, serializeLayout(labelLayout()), captureBarcodePresetSettings()));
       await refreshAfterPresetSave(saved.id, t('barcode.copyCreated', { name }));
     } catch (err: unknown) {
+      captureException(err, { source: 'barcode_design_copy' });
       setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : t('barcode.createCopyFailed') });
     } finally {
       setIsSaving(false);
@@ -309,6 +313,7 @@ export const Barcode: Component = () => {
       setDesignToDelete(null);
       setStatusMessage({ type: 'success', text: `Deleted "${target.name}"` });
     } catch (err: unknown) {
+      captureException(err, { source: 'barcode_design_delete' });
       setStatusMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to delete' });
     } finally {
       setIsDeletingDesign(false);

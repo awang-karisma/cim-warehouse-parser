@@ -18,6 +18,10 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
 # Copy source code and build frontend production bundle
+ARG VITE_POSTHOG_KEY=""
+ARG VITE_POSTHOG_HOST=""
+ENV VITE_POSTHOG_KEY=${VITE_POSTHOG_KEY} \
+    VITE_POSTHOG_HOST=${VITE_POSTHOG_HOST}
 COPY web/ ./
 RUN pnpm run build
 

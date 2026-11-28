@@ -1,3 +1,4 @@
+import { captureException } from '~/posthog';
 import { canAccessRoute, ROUTES } from '~/routes';
 
 import { type Component, createSignal, createResource, createMemo, Show, For } from 'solid-js';
@@ -342,6 +343,7 @@ export const CustomerAliases: Component = () => {
       setPendingFile(null);
       refetchAliases();
     } catch (err: unknown) {
+      captureException(err, { source: 'alias_import', mode: importMode() });
       setPageError(err instanceof Error ? err.message : t('customerAliases.failedImport'));
       setShowImportModeDialog(false);
       setPendingFile(null);

@@ -13,6 +13,7 @@ import {
 	import { dict as id_dict } from "./id";
 	import { useAuth, type AuthContextValue } from "~/auth";
   import { updateUserLocale } from '~/api';
+import { registerPosthogContext } from '~/posthog';
 
 	const dicts: Record<Locale, Dictionary> = {
 	[LOCALE.ENGLISH]: i18n.flatten(en_dict),
@@ -50,6 +51,9 @@ export const I18nProvider: ParentComponent = (props) => {
   }
   const email = () => auth?.user()?.email;
   const [locale, setLocaleSignal] = createSignal<Locale>(detectLocale(email()));
+  createEffect(() => {
+    registerPosthogContext({ ui_locale: locale() });
+  });
 
   let lastUserEmail: string | null | undefined = undefined;
 

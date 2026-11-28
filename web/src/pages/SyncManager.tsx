@@ -1,4 +1,5 @@
 import { SYNC_STATUS, WORKER_STATE } from '~/domain';
+import { captureEvent, captureException } from '~/posthog';
 
 import { type Component, createSignal, createResource, onCleanup, Show, For } from 'solid-js';
 import { useI18n } from '~/i18n';
@@ -62,8 +63,14 @@ export const SyncManager: Component = () => {
         });
       }
       const result = await triggerSync();
+      captureEvent('warehouse_sync_completed', {
+        items_count: result.record?.items_count ?? 0,
+        orders_count: result.record?.orders_count ?? 0,
+        duration_ms: result.record?.duration_ms ?? 0,
+      });
       if (mounted) setSyncProgressMsg(t('sync.syncSuccessDetail', { count: result.record?.items_count ?? 0, duration: result.record?.duration_ms ?? 0 }));
     } catch (err: unknown) {
+      captureException(err, { source: 'warehouse_sync' });
       if (mounted) setSyncError(err instanceof Error ? err.message : t('sync.triggerSyncFailed'));
     } finally {
       stream?.close();

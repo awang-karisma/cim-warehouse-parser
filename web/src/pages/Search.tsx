@@ -1,4 +1,5 @@
 import { ROUTES, canAccessRoute, orderDetailPath } from '~/routes';
+import { captureEvent } from '~/posthog';
 
 import { type Component, createResource, Show, For, createMemo } from 'solid-js';
 import { useI18n } from '~/i18n';
@@ -56,7 +57,17 @@ export const Search: Component = () => {
     const q = filters.debouncedValues.q().trim();
     return q ? { q, type: 'all' } : null;
   });
-  const [data] = createResource(activeParams, (params) => search(params));
+  const [data] = createResource(activeParams, async (params) => {
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const res = await search(params);
+    const resultCount = (res.orders?.total || 0) + (res.items?.total || 0) + (res.customers?.total || 0);
+    captureEvent('search_performed', {
+      result_count: resultCount,
+      zero_results: resultCount === 0,
+      duration_ms: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt),
+    });
+    return res;
+  });
 
   const handleSubmit = (e?: Event) => {
     if (e) e.preventDefault();

@@ -48,6 +48,7 @@ import type {
   PurchaseOrderListResponse,
 } from './types';
 import type { Permission } from './permissions.generated';
+import { captureEvent, captureException, normalizeApiPath } from '~/posthog';
 
 export class ApiError extends Error {
   status: number;
@@ -82,11 +83,32 @@ export function discardApiSession() {
   apiSession = new AbortController();
 }
 
+const SLOW_REQUEST_THRESHOLD_MS = 2000;
+
 async function apiResponse(path: string, options?: RequestInit): Promise<Response> {
   const session = apiSession.signal;
   const signal = options?.signal ? AbortSignal.any([session, options.signal]) : session;
-  const res = await fetch(path, { ...options, signal });
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  let res: Response;
+  try {
+    res = await fetch(path, { ...options, signal });
+  } catch (err) {
+    if (!signal.aborted) {
+      const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
+      captureException(err, {
+        source: 'api_network',
+        endpoint: normalizeApiPath(path),
+        method,
+        duration_ms: durationMs,
+        online: typeof navigator !== 'undefined' ? navigator.onLine : undefined,
+      });
+    }
+    throw err;
+  }
   signal.throwIfAborted();
+  const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
+  const endpoint = normalizeApiPath(path);
   if (!res.ok) {
     const errorText = await res.text();
     let message = errorText;
@@ -100,9 +122,33 @@ async function apiResponse(path: string, options?: RequestInit): Promise<Respons
     if (res.status === 401 || res.status === 403) {
       // Accurate can reject its own shared credentials while the warehouse session remains valid.
       const upstreamAuth = res.status === 401 && path.startsWith('/api/v1/accurate/') && message !== 'authentication required';
+      if (res.status === 403) {
+        captureEvent('api_permission_denied', {
+          endpoint,
+          method,
+          route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+        });
+      }
       onAuthorizationFailure?.(upstreamAuth ? 403 : res.status);
     }
-    throw new ApiError(message || `HTTP ${res.status}: ${res.statusText}`, res.status);
+    const apiErr = new ApiError(message || `HTTP ${res.status}: ${res.statusText}`, res.status);
+    if (res.status >= 500) {
+      captureException(apiErr, {
+        source: 'api_server',
+        endpoint,
+        method,
+        status: res.status,
+        duration_ms: durationMs,
+      });
+    }
+    throw apiErr;
+  }
+  if (durationMs > SLOW_REQUEST_THRESHOLD_MS) {
+    captureEvent('api_slow_request', {
+      endpoint,
+      method,
+      duration_ms: durationMs,
+    });
   }
   return res;
 }
@@ -222,12 +268,28 @@ export const getSystemInfo = () => apiFetch<SystemResponse>('/api/v1/system');
 
 export function subscribeSyncEvents(onEvent: (evt: SyncEvent) => void): EventSource {
   const es = new EventSource('/api/v1/sync/events');
+  let consecutiveErrors = 0;
+  es.addEventListener('open', () => {
+    consecutiveErrors = 0;
+  });
+  es.addEventListener('error', () => {
+    consecutiveErrors += 1;
+    if (consecutiveErrors === 3) {
+      captureEvent('sse_sync_disconnected', {
+        ready_state: es.readyState,
+        online: typeof navigator !== 'undefined' ? navigator.onLine : undefined,
+        route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+      });
+    }
+  });
   es.addEventListener('sync', (e) => {
+    consecutiveErrors = 0;
     try {
       const data = JSON.parse(e.data) as SyncEvent;
       onEvent(data);
     } catch (err) {
       console.error('Failed to parse SSE event data', err);
+      captureException(err, { source: 'sse_parse' });
     }
   });
   return es;

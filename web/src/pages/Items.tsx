@@ -1,4 +1,5 @@
 import { ROUTES, canAccessRoute, orderDetailPath } from '~/routes';
+import { captureEvent, captureException } from '~/posthog';
 
 import { ORDER_STATUS, STOCK_STATUS } from '~/domain';
 
@@ -197,7 +198,15 @@ export const Items: Component = () => {
     setExporting(true);
     try {
       await downloadFile(getExportUrl(), 'items.csv');
+      captureEvent('items_exported', {
+        result_count: data()?.total ?? 0,
+        ready_to_dispatch: filters.values.ready_to_dispatch(),
+        has_order_status_filter: Boolean(filters.values.status_order()),
+        has_item_status_filter: Boolean(filters.values.status_barang()),
+        has_date_filter: Boolean(filters.values.tanggal()),
+      });
     } catch (err) {
+      captureException(err, { source: 'items_export' });
       setExportError(err instanceof Error ? err.message : t('items.exportCsv'));
     } finally {
       setExporting(false);
