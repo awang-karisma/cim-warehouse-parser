@@ -208,4 +208,23 @@ func TestTelemetryMiddleware_CorrelationAndErrorLogging(t *testing.T) {
 			t.Errorf("expected 0 log records for 200 /health, got %d", len(records))
 		}
 	})
+
+	t.Run("200 /api/v1/status polling suppresses routine log noise", func(t *testing.T) {
+		proc.reset()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+
+		resp, err := srv.App().Test(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+
+		if records := proc.snapshot(); len(records) != 0 {
+			t.Errorf("expected 0 log records for 200 /api/v1/status, got %d", len(records))
+		}
+	})
 }

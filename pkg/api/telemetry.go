@@ -20,6 +20,9 @@ func shouldLogRequest(path string, status int) bool {
 	if path == "/health" {
 		return status >= fiber.StatusBadRequest
 	}
+	if path == "/api/v1/status" {
+		return status != fiber.StatusOK
+	}
 	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/")
 }
 
